@@ -69,6 +69,11 @@ type Session struct {
 	SubscribeID    interface{}
 	MainExtranonce *ExtranonceData
 	FeeExtranonce  *ExtranonceData
+
+	// Zero-Latency Switching
+	LatestMainJob string
+	LatestFeeJob  string
+	IsPreWarmed   bool
 }
 
 func NewSession(conn net.Conn, cfg *models.ProxyConfig) *Session {
@@ -186,7 +191,9 @@ func (s *Session) FormatHashrate() string {
 func (s *Session) readMinerLoop() {
 	defer s.Close()
 	scanner := bufio.NewScanner(s.MinerConn)
-	buf := make([]byte, 0, 64*1024)
+	buf := ScannerBufferPool.Get().([]byte)
+	buf = buf[:0]
+	defer ScannerBufferPool.Put(buf)
 	scanner.Buffer(buf, 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -196,7 +203,11 @@ func (s *Session) readMinerLoop() {
 		if err := json.Unmarshal([]byte(line), &msg); err == nil {
 			method, _ = msg["method"].(string)
 			if method == "mining.subscribe" || method == "eth_submitLogin" || method == "mining.authorize" || method == "login" {
-				s.loginPackets = append(s.loginPackets, msg)
+				// Deep copy msg to store in loginPackets so it isn't mutated by MainFixedDifficulty
+				var pktCopy map[string]interface{}
+				pktBytes, _ := json.Marshal(msg)
+				json.Unmarshal(pktBytes, &pktCopy)
+				s.loginPackets = append(s.loginPackets, pktCopy)
 				if method == "mining.subscribe" {
 					s.mu.Lock()
 					s.SubscribeID = msg["id"]
@@ -295,7 +306,9 @@ func (s *Session) readMinerLoop() {
 func (s *Session) readMainLoop() {
 	defer s.Close()
 	scanner := bufio.NewScanner(s.MainConn)
-	buf := make([]byte, 0, 64*1024)
+	buf := ScannerBufferPool.Get().([]byte)
+	buf = buf[:0]
+	defer ScannerBufferPool.Put(buf)
 	scanner.Buffer(buf, 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -355,6 +368,10 @@ func (s *Session) readMainLoop() {
 							s.mu.Unlock()
 						}
 					}
+				} else if method == "mining.notify" {
+					s.mu.Lock()
+					s.LatestMainJob = line
+					s.mu.Unlock()
 				}
 			}
 		}
@@ -423,35 +440,66 @@ func (s *Session) timerLoop() {
 				targetMode = FeeModeOperator
 			}
 
+			// Pre-warm 3 seconds before target mode switches
+			preWarmSec := (secondInCycle + 3) % cycleLength
+			preWarmMode := FeeModeNone
+			if preWarmSec < devSeconds {
+				preWarmMode = FeeModeDev
+			} else if preWarmSec < devSeconds+opSeconds {
+				preWarmMode = FeeModeOperator
+			}
+
 			s.mu.Lock()
-			if targetMode != s.CurrentFeeMode {
-				s.CurrentFeeMode = targetMode
-				if targetMode == FeeModeNone {
-					s.TargetState = "MAIN"
-					s.State = "SWITCHING_TO_MAIN"
-					go s.EndFee()
-					if s.Config.EnableAsic {
-						s.mu.Lock()
-						en := s.MainExtranonce
-						s.mu.Unlock()
-						s.sendExtranonce(en)
-					}
-				} else if targetMode == FeeModeDev {
-					s.TargetState = "FEE"
-					s.State = "SWITCHING_TO_FEE"
+			// Handle Pre-Warming
+			if preWarmMode != s.CurrentFeeMode && preWarmMode != FeeModeNone && !s.IsPreWarmed {
+				s.IsPreWarmed = true
+				if preWarmMode == FeeModeDev {
 					devWorker := s.Config.DevWorker
 					if devWorker == "" {
 						devWorker = "dev_worker"
 					}
 					go s.ConnectFee(s.Config.DevWallet, devWorker)
-				} else if targetMode == FeeModeOperator {
-					s.TargetState = "FEE"
-					s.State = "SWITCHING_TO_FEE"
+				} else if preWarmMode == FeeModeOperator {
 					opWorker := s.Config.OperatorWorker
 					if opWorker == "" {
 						opWorker = "op_worker"
 					}
 					go s.ConnectFee(s.Config.OperatorWallet, opWorker)
+				}
+			}
+
+			// Handle Actual Switch
+			if targetMode != s.CurrentFeeMode {
+				s.CurrentFeeMode = targetMode
+				s.IsPreWarmed = false // Reset pre-warm flag
+
+				if targetMode == FeeModeNone {
+					s.TargetState = "MAIN"
+					s.State = "SWITCHING_TO_MAIN"
+					go s.EndFee()
+					if s.Config.EnableAsic {
+						en := s.MainExtranonce
+						s.sendExtranonce(en)
+					}
+					// Zero-latency job injection
+					cachedJob := s.LatestMainJob
+					minerConn := s.MinerConn
+					if cachedJob != "" && minerConn != nil {
+						fmt.Fprintf(minerConn, "%s\n", cachedJob)
+					}
+				} else if targetMode == FeeModeDev || targetMode == FeeModeOperator {
+					s.TargetState = "FEE"
+					s.State = "SWITCHING_TO_FEE"
+					if s.Config.EnableAsic {
+						en := s.FeeExtranonce
+						s.sendExtranonce(en)
+					}
+					// Zero-latency job injection
+					cachedJob := s.LatestFeeJob
+					minerConn := s.MinerConn
+					if cachedJob != "" && minerConn != nil {
+						fmt.Fprintf(minerConn, "%s\n", cachedJob)
+					}
 				}
 			}
 			s.mu.Unlock()
@@ -546,7 +594,9 @@ func (s *Session) ConnectFee(wallet, worker string) {
 	go func() {
 		defer s.EndFee()
 		scanner := bufio.NewScanner(feeConn)
-		buf := make([]byte, 0, 64*1024)
+		buf := ScannerBufferPool.Get().([]byte)
+		buf = buf[:0]
+		defer ScannerBufferPool.Put(buf)
 		scanner.Buffer(buf, 1024*1024)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -613,6 +663,10 @@ func (s *Session) ConnectFee(wallet, worker string) {
 								s.mu.Unlock()
 							}
 						}
+					} else if method == "mining.notify" {
+						s.mu.Lock()
+						s.LatestFeeJob = line
+						s.mu.Unlock()
 					}
 				}
 			}
