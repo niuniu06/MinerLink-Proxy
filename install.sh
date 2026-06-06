@@ -11,7 +11,14 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-echo -e "\033[36m[1/7] 请设置网页控制台的监听端口 (默认: 8080):\033[0m"
+# 错误处理函数：遇到严重错误直接退出
+function fatal_error() {
+    echo -e "\033[31m[致命错误] $1\033[0m"
+    echo -e "\033[33m请检查上述报错信息解决后重试。\033[0m"
+    exit 1
+}
+
+echo -e "\033[36m[1/7] 请设置网页控制台的初始监听端口 (默认: 8080):\033[0m"
 read -p "请输入端口号: " WEB_PORT
 if [ -z "$WEB_PORT" ]; then
     WEB_PORT=8080
@@ -75,9 +82,9 @@ echo -e "\033[36m[4/7] 正在安装 Go 语言编译环境...\033[0m"
 if ! command -v go >/dev/null 2>&1; then
     GO_VERSION="1.22.4"
     echo "下载 Go $GO_VERSION ..."
-    wget -q https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz
+    wget -q https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz || fatal_error "下载 Go 语言安装包失败，可能是网络问题，请稍后再试！"
     rm -rf /usr/local/go
-    tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz
+    tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz || fatal_error "解压 Go 安装包失败！"
     rm go${GO_VERSION}.linux-amd64.tar.gz
     
     # 写入环境变量
@@ -100,13 +107,29 @@ else
 fi
 
 if [ -d "$INSTALL_DIR" ]; then
-    echo "检测到旧版本，正在更新代码..."
+    echo "检测到旧版本，正在强行同步最新代码 (覆盖所有本地修改)..."
     cd $INSTALL_DIR
     git remote set-url origin $GIT_URL
-    git pull origin main
+    git fetch origin main || fatal_error "从 GitHub 拉取代码更新失败！请检查 Token 是否正确或过期。"
+    git reset --hard origin/main || fatal_error "代码重置覆盖失败！"
+    git clean -fd
 else
-    git clone $GIT_URL $INSTALL_DIR
+    git clone $GIT_URL $INSTALL_DIR || fatal_error "从 GitHub 克隆代码失败！请检查 Token 是否正确或过期。"
     cd $INSTALL_DIR
+fi
+
+# 检查系统内存，防止 OOM 杀掉编译进程
+TOTAL_MEM=$(free -m | awk '/^Mem:/{print $2}')
+SWAP_CREATED=0
+if [ "$TOTAL_MEM" -lt 1500 ]; then
+    echo -e "\033[33m检测到系统内存较小 (${TOTAL_MEM}MB)，正在创建临时虚拟内存 (Swap) 以防编译崩溃...\033[0m"
+    if [ ! -f /swapfile ]; then
+        dd if=/dev/zero of=/swapfile bs=1M count=2048 status=progress || fatal_error "创建虚拟内存失败"
+        chmod 600 /swapfile
+        mkswap /swapfile
+        swapon /swapfile
+        SWAP_CREATED=1
+    fi
 fi
 
 # 设置 Go 代理以防国内机器拉取依赖失败
@@ -115,11 +138,18 @@ go env -w GOPROXY=https://goproxy.cn,direct
 
 # 编译本体 (无需重新编译前端，因为打包时已内嵌静态资源)
 echo "正在拉取及同步 Go 依赖库 (go mod tidy)..."
-go mod tidy
+go mod tidy || fatal_error "Go 依赖包拉取失败！"
 
 echo "开始编译代理内核..."
-go build -ldflags="-w -s" -o proxy.bin ./cmd/proxy
+go build -ldflags="-w -s" -o proxy.bin ./cmd/proxy || fatal_error "代理内核编译失败！请截图报错发给作者。"
 chmod +x proxy.bin
+
+# 编译完成后关闭并清理临时 Swap
+if [ "$SWAP_CREATED" -eq 1 ]; then
+    echo "编译完成，正在清理临时虚拟内存..."
+    swapoff /swapfile
+    rm -f /swapfile
+fi
 
 echo -e "\033[36m[6/7] 正在配置 Systemd 后台进程守护...\033[0m"
 cat > /etc/systemd/system/go-proxy.service << EOF
@@ -154,7 +184,8 @@ echo -e "=======================================================================
 echo -e "\033[32m部署完美完成！\033[0m"
 echo -e "Go-Proxy 代理引擎已在后台以极速模式运行中。"
 echo -e ""
-echo -e "控制台访问地址: \033[33mhttp://<你的服务器IP>:$WEB_PORT\033[0m"
+echo -e "初始控制台访问地址: \033[33mhttp://<你的服务器IP>:$WEB_PORT/ui/\033[0m"
+echo -e "\033[31m(注意: 如果您在网页的【面板设置】中修改了端口，请以您新改的端口为准！)\033[0m"
 echo -e "运行状态查看: \033[36msystemctl status go-proxy\033[0m"
 echo -e "实时日志查看: \033[36mjournalctl -u go-proxy -f\033[0m"
 echo -e "重启代理服务: \033[36msystemctl restart go-proxy\033[0m"
