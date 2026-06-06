@@ -81,9 +81,14 @@ const totalFeePercent = computed(() => {
 .proxy-card {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  border-radius: 12px;
-  padding: 1.5rem;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  border-radius: 8px;
+  padding: 18px 24px;
+  box-shadow: none;
+  transition: border 0.2s;
+}
+
+.proxy-card:hover {
+  border-color: var(--accent-blue);
 }
 
 .card-header {
@@ -100,9 +105,9 @@ const totalFeePercent = computed(() => {
 
 .title-area h2 {
   margin: 0;
-  font-size: 1.8rem;
-  font-weight: 800;
-  color: white;
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--text-main);
 }
 
 .port-badge {
@@ -117,18 +122,19 @@ const totalFeePercent = computed(() => {
 
 .btn-edit {
   margin-left: auto;
-  background: rgba(255,255,255,0.05);
+  background: var(--bg-color);
   color: var(--text-main);
-  border: 1px solid rgba(255,255,255,0.1);
-  padding: 0.4rem 1rem;
+  border: 1px solid var(--card-border);
+  padding: 4px 12px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 0.9rem;
-  transition: all 0.2s;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: border 0.2s;
 }
 
 .btn-edit:hover {
-  background: rgba(255,255,255,0.1);
+  border-color: var(--accent-blue);
 }
 
 .stats-grid {
@@ -139,24 +145,27 @@ const totalFeePercent = computed(() => {
 }
 
 .stat-box {
-  background: rgba(0,0,0,0.2);
-  border: 1px solid rgba(255,255,255,0.05);
-  border-radius: 8px;
-  padding: 1.2rem;
+  background: var(--bg-color);
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  padding: 1rem;
 }
 
 .box-title {
   color: var(--text-muted);
-  font-size: 0.85rem;
-  margin-bottom: 1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  margin-bottom: 0.8rem;
 }
 
 .big-number {
-  font-size: 2.5rem;
-  font-weight: bold;
-  color: white;
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--text-main);
   line-height: 1;
   margin-bottom: 0.5rem;
+  font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
 }
 
 .box-sub {
