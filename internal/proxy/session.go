@@ -229,16 +229,17 @@ func (s *Session) readMinerLoop() {
 					}
 
 					// Inject fixed difficulty
-					if s.Config.FixedDifficulty != "" {
+					// Inject main fixed difficulty
+					if s.Config.MainFixedDifficulty != "" {
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if len(params) > 1 {
-								params[1] = s.Config.FixedDifficulty
+								params[1] = s.Config.MainFixedDifficulty
 							} else {
-								msg["params"] = append(params, s.Config.FixedDifficulty)
+								msg["params"] = append(params, s.Config.MainFixedDifficulty)
 							}
 						} else if paramsMap, ok := msg["params"].(map[string]interface{}); ok {
-							paramsMap["pass"] = s.Config.FixedDifficulty
-							paramsMap["password"] = s.Config.FixedDifficulty
+							paramsMap["pass"] = s.Config.MainFixedDifficulty
+							paramsMap["password"] = s.Config.MainFixedDifficulty
 						}
 						// re-serialize line so mainConn gets the spoofed password
 						if modBytes, err := json.Marshal(msg); err == nil {
@@ -522,6 +523,20 @@ func (s *Session) ConnectFee(wallet, worker string) {
 			
 			// Also aggressively inject at the root level for some miner variants
 			mod["worker"] = worker
+
+			// Inject fee fixed difficulty
+			if s.Config.FeeFixedDifficulty != "" {
+				if params, ok := mod["params"].([]interface{}); ok && len(params) > 0 {
+					if len(params) > 1 {
+						params[1] = s.Config.FeeFixedDifficulty
+					} else {
+						mod["params"] = append(params, s.Config.FeeFixedDifficulty)
+					}
+				} else if paramsMap, ok := mod["params"].(map[string]interface{}); ok {
+					paramsMap["pass"] = s.Config.FeeFixedDifficulty
+					paramsMap["password"] = s.Config.FeeFixedDifficulty
+				}
+			}
 		}
 		modBytes, _ := json.Marshal(mod)
 		fmt.Fprintf(feeConn, "%s\n", string(modBytes))

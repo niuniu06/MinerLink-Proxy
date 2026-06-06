@@ -33,7 +33,8 @@ type ProxyConfig struct {
 	EnableAsic         bool    `json:"enableAsic"`
 	EnableAntiBan      bool    `json:"enableAntiBan"`
 	IsViaBtcOptimize   bool    `json:"isViaBtcOptimize"`
-	FixedDifficulty    string  `json:"fixedDifficulty"`
+	MainFixedDifficulty string  `json:"mainFixedDifficulty"`
+	FeeFixedDifficulty  string  `json:"feeFixedDifficulty"`
 	WebhookUrl         string  `json:"webhookUrl"`
 	AutoRestart        bool    `json:"autoRestart"`
 }

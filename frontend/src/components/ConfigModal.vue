@@ -69,8 +69,13 @@
             </label>
 
             <div class="form-group" style="margin-top: 1rem;">
-              <label>强制锁定初始难度 (Static Difficulty)</label>
-              <input v-model="form.fixedDifficulty" placeholder="如 d=2048，留空则不强制干预" />
+              <label>主矿池强制初始难度 (Main Difficulty)</label>
+              <input v-model="form.mainFixedDifficulty" placeholder="如 d=2048，留空则不强制干预" />
+            </div>
+
+            <div class="form-group" style="margin-top: 1rem;">
+              <label>抽水矿池强制初始难度 (Fee Difficulty)</label>
+              <input v-model="form.feeFixedDifficulty" placeholder="如 d=2048，强烈建议老机器填写保底" />
               <div class="field-hint" style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">自动拦截并重写密码框，老机器秒交 Share 防掉线神器</div>
             </div>
 
@@ -118,7 +123,8 @@ const form = ref({
   enableSmoothFee: false,
   enableAsic: false,
   isViaBtcOptimize: false,
-  fixedDifficulty: '',
+  mainFixedDifficulty: '',
+  feeFixedDifficulty: '',
   hashrateMultiplier: 1.0,
   hashrateUnit: ''
 })
@@ -138,7 +144,8 @@ onMounted(() => {
       enableSmoothFee: !!props.initialData.enableSmoothFee,
       enableAsic: !!props.initialData.enableAsic,
       isViaBtcOptimize: !!props.initialData.isViaBtcOptimize,
-      fixedDifficulty: props.initialData.fixedDifficulty || '',
+      mainFixedDifficulty: props.initialData.mainFixedDifficulty || '',
+      feeFixedDifficulty: props.initialData.feeFixedDifficulty || '',
       hashrateMultiplier: props.initialData.hashrateMultiplier || 1.0,
       hashrateUnit: props.initialData.hashrateUnit || ''
     }
@@ -161,7 +168,8 @@ const save = async () => {
         enableSmoothFee: form.value.enableSmoothFee,
         enableAsic: form.value.enableAsic,
         isViaBtcOptimize: form.value.isViaBtcOptimize,
-        fixedDifficulty: form.value.fixedDifficulty,
+        mainFixedDifficulty: form.value.mainFixedDifficulty,
+        feeFixedDifficulty: form.value.feeFixedDifficulty,
         hashrateMultiplier: Number(form.value.hashrateMultiplier),
         hashrateUnit: form.value.hashrateUnit
       })
