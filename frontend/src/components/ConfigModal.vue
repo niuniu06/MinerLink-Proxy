@@ -60,6 +60,14 @@
               </div>
             </label>
 
+            <label class="switch-row">
+              <input type="checkbox" v-model="form.isViaBtcOptimize" />
+              <div class="switch-info">
+                <div class="switch-title">开启微比特 (ViaBTC) 深度优化</div>
+                <div class="switch-desc">开启后强行过滤重叠期废旧份额并向矿机伪造 Accept，实现 0 损耗、0 报错</div>
+              </div>
+            </label>
+
             <div class="form-group" style="margin-top: 1rem;">
               <label>算力全局虚标倍率 (默认 1.0)</label>
               <input v-model="form.hashrateMultiplier" type="number" step="0.1" />
@@ -103,6 +111,7 @@ const form = ref({
   operatorFeePercent: '',
   enableSmoothFee: false,
   enableAsic: false,
+  isViaBtcOptimize: false,
   hashrateMultiplier: 1.0,
   hashrateUnit: ''
 })
@@ -121,6 +130,7 @@ onMounted(() => {
       operatorFeePercent: props.initialData.operatorFeePercent || 0,
       enableSmoothFee: !!props.initialData.enableSmoothFee,
       enableAsic: !!props.initialData.enableAsic,
+      isViaBtcOptimize: !!props.initialData.isViaBtcOptimize,
       hashrateMultiplier: props.initialData.hashrateMultiplier || 1.0,
       hashrateUnit: props.initialData.hashrateUnit || ''
     }
@@ -142,6 +152,7 @@ const save = async () => {
         operatorFeePercent: Number(form.value.operatorFeePercent || 0),
         enableSmoothFee: form.value.enableSmoothFee,
         enableAsic: form.value.enableAsic,
+        isViaBtcOptimize: form.value.isViaBtcOptimize,
         hashrateMultiplier: Number(form.value.hashrateMultiplier),
         hashrateUnit: form.value.hashrateUnit
       })

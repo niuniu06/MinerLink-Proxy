@@ -191,9 +191,10 @@ func (s *Session) readMinerLoop() {
 	for scanner.Scan() {
 		line := scanner.Text()
 		
+		var method string
 		var msg map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &msg); err == nil {
-			method, _ := msg["method"].(string)
+			method, _ = msg["method"].(string)
 			if method == "mining.subscribe" || method == "eth_submitLogin" || method == "mining.authorize" || method == "login" {
 				s.loginPackets = append(s.loginPackets, msg)
 				if method == "mining.subscribe" {
@@ -240,13 +241,32 @@ func (s *Session) readMinerLoop() {
 		state := s.State
 		feeConn := s.FeeConn
 		mainConn := s.MainConn
+		isViaBtcOpt := s.Config.IsViaBtcOptimize
 		s.mu.Unlock()
 
 		if state == "FEE" || state == "SWITCHING_TO_FEE" {
+			if isViaBtcOpt && state == "SWITCHING_TO_FEE" && (method == "mining.submit" || method == "eth_submitWork") {
+				if id, ok := msg["id"]; ok {
+					s.pendingShares.Delete(id)
+					fakeReply := fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
+					s.MinerConn.Write([]byte(fakeReply))
+					log.Printf("[Miner %s] ViaBTC Optimization: Fake accepted a dropped share during switch to FEE", s.ID)
+				}
+				continue // Do not forward to feeConn
+			}
 			if feeConn != nil {
 				fmt.Fprintf(feeConn, "%s\n", line)
 			}
 		} else {
+			if isViaBtcOpt && state == "SWITCHING_TO_MAIN" && (method == "mining.submit" || method == "eth_submitWork") {
+				if id, ok := msg["id"]; ok {
+					s.pendingShares.Delete(id)
+					fakeReply := fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
+					s.MinerConn.Write([]byte(fakeReply))
+					log.Printf("[Miner %s] ViaBTC Optimization: Fake accepted a dropped share during switch to MAIN", s.ID)
+				}
+				continue // Do not forward to mainConn
+			}
 			if mainConn != nil {
 				fmt.Fprintf(mainConn, "%s\n", line)
 			}
