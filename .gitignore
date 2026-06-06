@@ -1,6 +1,6 @@
 # Binaries
-proxy.exe
-proxy
+/proxy.exe
+/proxy
 *.exe
 *.dll
 
@@ -13,3 +13,4 @@ frontend/dist/
 
 # Logs
 *.log
+
