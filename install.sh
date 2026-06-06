@@ -11,7 +11,14 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-echo -e "\033[36m[1/6] 正在初始化环境并安装系统依赖...\033[0m"
+echo -e "\033[36m[1/7] 请设置网页控制台的监听端口 (默认: 8080):\033[0m"
+read -p "请输入端口号: " WEB_PORT
+if [ -z "$WEB_PORT" ]; then
+    WEB_PORT=8080
+fi
+echo -e "网页控制台端口已设置为: \033[32m$WEB_PORT\033[0m"
+
+echo -e "\033[36m[2/7] 正在初始化环境并安装系统依赖...\033[0m"
 if command -v apt-get >/dev/null; then
     apt-get update -y
     apt-get install -y wget curl git build-essential ufw tar
@@ -22,7 +29,7 @@ else
     echo -e "\033[33m警告: 未知包管理器，跳过依赖安装。\033[0m"
 fi
 
-echo -e "\033[36m[2/6] 正在执行 Linux 内核级挖矿网络优化 (TCP/BBR/高并发)...\033[0m"
+echo -e "\033[36m[3/7] 正在执行 Linux 内核级挖矿网络优化 (TCP/BBR/高并发)...\033[0m"
 cat > /etc/sysctl.d/99-goproxy.conf << 'EOF'
 # 提升文件句柄上限 (解决并发连接过多报错)
 fs.file-max = 1000000
@@ -59,7 +66,7 @@ root hard nofile 1000000
 EOF
 ulimit -n 1000000
 
-echo -e "\033[36m[3/6] 正在安装 Go 语言编译环境...\033[0m"
+echo -e "\033[36m[4/7] 正在安装 Go 语言编译环境...\033[0m"
 if ! command -v go >/dev/null 2>&1; then
     GO_VERSION="1.22.4"
     echo "下载 Go $GO_VERSION ..."
@@ -77,7 +84,7 @@ fi
 
 export PATH=$PATH:/usr/local/go/bin
 
-echo -e "\033[36m[4/6] 正在拉取 Go-Proxy 源码并编译...\033[0m"
+echo -e "\033[36m[5/7] 正在拉取 Go-Proxy 源码并编译...\033[0m"
 INSTALL_DIR="/opt/go-proxy"
 if [ -d "$INSTALL_DIR" ]; then
     echo "检测到旧版本，正在更新代码..."
@@ -97,7 +104,7 @@ echo "开始编译代理内核..."
 go build -o proxy.bin .
 chmod +x proxy.bin
 
-echo -e "\033[36m[5/6] 正在配置 Systemd 后台进程守护...\033[0m"
+echo -e "\033[36m[6/7] 正在配置 Systemd 后台进程守护...\033[0m"
 cat > /etc/systemd/system/go-proxy.service << EOF
 [Unit]
 Description=Go Stratum Proxy High-Performance Engine
@@ -107,7 +114,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/proxy.bin
+ExecStart=$INSTALL_DIR/proxy.bin -api-port $WEB_PORT
 Restart=always
 RestartSec=3
 LimitNOFILE=1000000
@@ -120,17 +127,17 @@ systemctl daemon-reload
 systemctl enable go-proxy.service
 systemctl restart go-proxy.service
 
-echo -e "\033[36m[6/6] 正在放行默认控制台网络端口...\033[0m"
+echo -e "\033[36m[7/7] 正在放行控制台网络端口...\033[0m"
 if command -v ufw >/dev/null; then
-    ufw allow 8080/tcp >/dev/null 2>&1
-    echo "已放行防火墙 8080 端口。"
+    ufw allow $WEB_PORT/tcp >/dev/null 2>&1
+    echo "已放行防火墙 $WEB_PORT 端口。"
 fi
 
 echo -e "=============================================================================="
 echo -e "\033[32m部署完美完成！\033[0m"
 echo -e "Go-Proxy 代理引擎已在后台以极速模式运行中。"
 echo -e ""
-echo -e "控制台访问地址: \033[33mhttp://<你的服务器IP>:8080\033[0m"
+echo -e "控制台访问地址: \033[33mhttp://<你的服务器IP>:$WEB_PORT\033[0m"
 echo -e "运行状态查看: \033[36msystemctl status go-proxy\033[0m"
 echo -e "实时日志查看: \033[36mjournalctl -u go-proxy -f\033[0m"
 echo -e "重启代理服务: \033[36msystemctl restart go-proxy\033[0m"
