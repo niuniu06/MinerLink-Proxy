@@ -114,6 +114,9 @@ go env -w GO111MODULE=on
 go env -w GOPROXY=https://goproxy.cn,direct
 
 # 编译本体 (无需重新编译前端，因为打包时已内嵌静态资源)
+echo "正在拉取及同步 Go 依赖库 (go mod tidy)..."
+go mod tidy
+
 echo "开始编译代理内核..."
 go build -ldflags="-w -s" -o proxy.bin ./cmd/proxy
 chmod +x proxy.bin
