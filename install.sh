@@ -17,6 +17,11 @@ if [ -z "$WEB_PORT" ]; then
     WEB_PORT=8080
 fi
 echo -e "网页控制台端口已设置为: \033[32m$WEB_PORT\033[0m"
+echo ""
+
+echo -e "\033[36m[1.5/7] (重要) 因为仓库是私密库，请输入您的 GitHub Personal Access Token (PAT):\033[0m"
+echo -e "如果仓库是公开的，请直接按回车跳过。"
+read -p "请输入 Token (ghp_xxxx...): " GITHUB_TOKEN
 
 echo -e "\033[36m[2/7] 正在初始化环境并安装系统依赖...\033[0m"
 if command -v apt-get >/dev/null; then
@@ -86,12 +91,21 @@ export PATH=$PATH:/usr/local/go/bin
 
 echo -e "\033[36m[5/7] 正在拉取 Go-Proxy 源码并编译...\033[0m"
 INSTALL_DIR="/opt/go-proxy"
+
+# 构造带有 Token 的 Git URL
+if [ -n "$GITHUB_TOKEN" ]; then
+    GIT_URL="https://${GITHUB_TOKEN}@github.com/yao52069/go-proxy.git"
+else
+    GIT_URL="https://github.com/yao52069/go-proxy.git"
+fi
+
 if [ -d "$INSTALL_DIR" ]; then
     echo "检测到旧版本，正在更新代码..."
     cd $INSTALL_DIR
+    git remote set-url origin $GIT_URL
     git pull origin main
 else
-    git clone https://github.com/yao52069/go-proxy.git $INSTALL_DIR
+    git clone $GIT_URL $INSTALL_DIR
     cd $INSTALL_DIR
 fi
 
