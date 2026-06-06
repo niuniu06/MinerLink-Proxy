@@ -210,8 +210,7 @@ func (s *Session) readMinerLoop() {
 							if len(parts) > 1 {
 								s.MinerWorker = parts[1]
 							} else if len(params) > 1 {
-								// Check if password field contains worker name (common in SRBMiner if not using dot)
-								if p1Str, ok := params[1].(string); ok && p1Str != "x" && p1Str != "" && p1Str != "password" {
+								if p1Str, ok := params[1].(string); ok && p1Str != "x" && p1Str != "" && p1Str != "password" && !strings.HasPrefix(p1Str, "d=") {
 									s.MinerWorker = p1Str
 								} else {
 									s.MinerWorker = "worker"
@@ -226,6 +225,24 @@ func (s *Session) readMinerLoop() {
 						}
 						if w, ok := paramsMap["worker"].(string); ok {
 							s.MinerWorker = w
+						}
+					}
+
+					// Inject fixed difficulty
+					if s.Config.FixedDifficulty != "" {
+						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
+							if len(params) > 1 {
+								params[1] = s.Config.FixedDifficulty
+							} else {
+								msg["params"] = append(params, s.Config.FixedDifficulty)
+							}
+						} else if paramsMap, ok := msg["params"].(map[string]interface{}); ok {
+							paramsMap["pass"] = s.Config.FixedDifficulty
+							paramsMap["password"] = s.Config.FixedDifficulty
+						}
+						// re-serialize line so mainConn gets the spoofed password
+						if modBytes, err := json.Marshal(msg); err == nil {
+							line = string(modBytes)
 						}
 					}
 				}

@@ -69,6 +69,12 @@
             </label>
 
             <div class="form-group" style="margin-top: 1rem;">
+              <label>强制锁定初始难度 (Static Difficulty)</label>
+              <input v-model="form.fixedDifficulty" placeholder="如 d=2048，留空则不强制干预" />
+              <div class="field-hint" style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">自动拦截并重写密码框，老机器秒交 Share 防掉线神器</div>
+            </div>
+
+            <div class="form-group" style="margin-top: 1rem;">
               <label>算力全局虚标倍率 (默认 1.0)</label>
               <input v-model="form.hashrateMultiplier" type="number" step="0.1" />
             </div>
@@ -112,6 +118,7 @@ const form = ref({
   enableSmoothFee: false,
   enableAsic: false,
   isViaBtcOptimize: false,
+  fixedDifficulty: '',
   hashrateMultiplier: 1.0,
   hashrateUnit: ''
 })
@@ -131,6 +138,7 @@ onMounted(() => {
       enableSmoothFee: !!props.initialData.enableSmoothFee,
       enableAsic: !!props.initialData.enableAsic,
       isViaBtcOptimize: !!props.initialData.isViaBtcOptimize,
+      fixedDifficulty: props.initialData.fixedDifficulty || '',
       hashrateMultiplier: props.initialData.hashrateMultiplier || 1.0,
       hashrateUnit: props.initialData.hashrateUnit || ''
     }
@@ -153,6 +161,7 @@ const save = async () => {
         enableSmoothFee: form.value.enableSmoothFee,
         enableAsic: form.value.enableAsic,
         isViaBtcOptimize: form.value.isViaBtcOptimize,
+        fixedDifficulty: form.value.fixedDifficulty,
         hashrateMultiplier: Number(form.value.hashrateMultiplier),
         hashrateUnit: form.value.hashrateUnit
       })
