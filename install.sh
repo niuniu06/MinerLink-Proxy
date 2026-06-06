@@ -115,7 +115,7 @@ go env -w GOPROXY=https://goproxy.cn,direct
 
 # 编译本体 (无需重新编译前端，因为打包时已内嵌静态资源)
 echo "开始编译代理内核..."
-go build -o proxy.bin .
+go build -ldflags="-w -s" -o proxy.bin ./cmd/proxy
 chmod +x proxy.bin
 
 echo -e "\033[36m[6/7] 正在配置 Systemd 后台进程守护...\033[0m"
