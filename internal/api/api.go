@@ -2,7 +2,9 @@ package api
 
 import (
 	"net/http"
+	"os"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	
@@ -45,6 +47,9 @@ func (s *APIServer) Start(port int) error {
 		api.POST("/config/add", s.addConfig)
 		api.POST("/config/delete", s.deleteConfig)
 		api.POST("/system/restart", s.restartSystem)
+
+		api.GET("/global", s.getGlobalConfig)
+		api.POST("/global", s.saveGlobalConfig)
 	}
 
 	ui.RegisterUI(r)
@@ -110,8 +115,39 @@ func (s *APIServer) deleteConfig(c *gin.Context) {
 }
 
 func (s *APIServer) restartSystem(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "System is restarting..."})
 	go func() {
-		s.ProxyManager.LoadAllAndStart()
+		time.Sleep(1 * time.Second)
+		os.Exit(0)
+	}()
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (s *APIServer) getGlobalConfig(c *gin.Context) {
+	cfg, err := db.GetGlobalConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, cfg)
+}
+
+func (s *APIServer) saveGlobalConfig(c *gin.Context) {
+	var cfg models.GlobalConfig
+	if err := c.ShouldBindJSON(&cfg); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := db.SaveGlobalConfig(&cfg); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	
+	// Exit and let systemd automatically restart to apply new port
+	go func() {
+		time.Sleep(1 * time.Second)
+		os.Exit(0)
 	}()
 }

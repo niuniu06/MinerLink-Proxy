@@ -7,6 +7,7 @@
       </div>
       <div class="subtitle-wrap">
         <span>全协议并发支持·无限横向扩展</span>
+        <button class="btn-settings" @click="openGlobalSettings">⚙️ 面板设置</button>
         <button class="btn-restart" @click="globalRestart">🔄 全局热重启</button>
       </div>
     </header>
@@ -21,6 +22,11 @@
       @close="closeModal" 
       @saved="onConfigSaved" 
     />
+
+    <GlobalSettingsModal
+      v-if="showGlobalSettings"
+      @close="closeGlobalSettings"
+    />
   </div>
 </template>
 
@@ -28,9 +34,11 @@
 import { ref } from 'vue'
 import Dashboard from './components/Dashboard.vue'
 import ConfigModal from './components/ConfigModal.vue'
+import GlobalSettingsModal from './components/GlobalSettingsModal.vue'
 
 const dashboardRef = ref(null)
 const showModal = ref(false)
+const showGlobalSettings = ref(false)
 const editingConfig = ref(null)
 
 const openAddModal = () => {
@@ -54,6 +62,14 @@ const onConfigSaved = () => {
   }
 }
 
+const openGlobalSettings = () => {
+  showGlobalSettings.value = true
+}
+
+const closeGlobalSettings = () => {
+  showGlobalSettings.value = false
+}
+
 const globalRestart = async () => {
   if (!confirm('确定要全量热重启引擎吗？矿机不会掉线。')) return
   try {
@@ -66,3 +82,20 @@ const globalRestart = async () => {
   }
 }
 </script>
+
+<style scoped>
+.btn-settings {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--card-border);
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.9rem;
+}
+.btn-settings:hover {
+  background: rgba(255,255,255,0.1);
+  color: var(--text-color);
+}
+</style>

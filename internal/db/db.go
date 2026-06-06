@@ -31,7 +31,7 @@ func InitDB(dbPath string) {
 	}
 
 	// Auto Migrate the schema
-	err = DB.AutoMigrate(&models.ProxyConfig{})
+	err = DB.AutoMigrate(&models.ProxyConfig{}, &models.GlobalConfig{})
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
@@ -62,4 +62,31 @@ func SaveConfig(config *models.ProxyConfig) error {
 // DeleteConfig deletes a proxy configuration by port
 func DeleteConfig(port int) error {
 	return DB.Where("listen_port = ?", port).Delete(&models.ProxyConfig{}).Error
+}
+
+// GetGlobalConfig retrieves the global configuration (creates default if not exists)
+func GetGlobalConfig() (*models.GlobalConfig, error) {
+	var cfg models.GlobalConfig
+	result := DB.First(&cfg)
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
+			// Initialize default
+			cfg = models.GlobalConfig{WebPort: 0}
+			DB.Create(&cfg)
+			return &cfg, nil
+		}
+		return nil, result.Error
+	}
+	return &cfg, nil
+}
+
+// SaveGlobalConfig saves the global configuration
+func SaveGlobalConfig(cfg *models.GlobalConfig) error {
+	var existing models.GlobalConfig
+	result := DB.First(&existing)
+	if result.Error == nil {
+		cfg.ID = existing.ID
+		return DB.Save(cfg).Error
+	}
+	return DB.Create(cfg).Error
 }

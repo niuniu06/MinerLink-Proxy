@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 
 	"proxy-core/internal/api"
@@ -18,7 +17,14 @@ func main() {
 	log.Println("Starting Transparent Proxy Engine (Golang Core) ...")
 
 	// 1. Init Database
-	db.InitDB(./data/proxy.db)
+	db.InitDB("./data/proxy.db")
+
+	// Check global config for web port override
+	globalCfg, err := db.GetGlobalConfig()
+	finalPort := *apiPort
+	if err == nil && globalCfg != nil && globalCfg.WebPort > 0 {
+		finalPort = globalCfg.WebPort
+	}
 
 	// 2. Init Proxy Manager and load existing proxies
 	pm := proxy.NewManager()
@@ -26,8 +32,8 @@ func main() {
 
 	// 3. Start API Server
 	apiServer := api.NewAPIServer(pm)
-	log.Printf("API Server listening on :%d\n", *apiPort)
-	if err := apiServer.Start(*apiPort); err != nil {
+	log.Printf("API Server listening on :%d\n", finalPort)
+	if err := apiServer.Start(finalPort); err != nil {
 		log.Fatalf("Failed to start API server: %v", err)
 	}
 }
