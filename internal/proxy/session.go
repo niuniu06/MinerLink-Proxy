@@ -64,6 +64,7 @@ type Session struct {
 	loginPackets   []map[string]interface{}
 	pendingShares  sync.Map
 	cycleOffset    int
+	JobSourceMap   sync.Map // JobID (string) -> bool (isMain)
 
 	// ASIC Extranonce Support
 	SubscribeID    interface{}
@@ -282,34 +283,59 @@ func (s *Session) readMinerLoop() {
 		state := s.State
 		feeConn := s.FeeConn
 		mainConn := s.MainConn
-		isViaBtcOpt := s.Config.IsViaBtcOptimize
 		s.mu.Unlock()
 
-		if state == "FEE" || state == "SWITCHING_TO_FEE" {
-			if isViaBtcOpt && state == "SWITCHING_TO_FEE" && (method == "mining.submit" || method == "eth_submitWork") {
-				if id, ok := msg["id"]; ok {
-					s.pendingShares.Delete(id)
-					fakeReply := fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
-					s.MinerConn.Write([]byte(fakeReply))
-					log.Printf("[Miner %s] ViaBTC Optimization: Fake accepted a dropped share during switch to FEE", s.ID)
+		if method == "mining.submit" || method == "eth_submitWork" {
+			// Extract Job ID
+			var submitJobID string
+			if method == "mining.submit" {
+				if params, ok := msg["params"].([]interface{}); ok && len(params) > 1 {
+					if jobIDStr, ok := params[1].(string); ok {
+						submitJobID = jobIDStr
+					}
 				}
-				continue // Do not forward to feeConn
+			} else {
+				if params, ok := msg["params"].([]interface{}); ok && len(params) > 1 {
+					if jobIDStr, ok := params[1].(string); ok {
+						submitJobID = jobIDStr
+					}
+				}
 			}
-			if feeConn != nil {
-				fmt.Fprintf(feeConn, "%s\n", line)
+
+			isMainRoute := (state == "MAIN" || state == "SWITCHING_TO_MAIN")
+			if submitJobID != "" {
+				if isMainRaw, ok := s.JobSourceMap.Load(submitJobID); ok {
+					isMainRoute = isMainRaw.(bool)
+				}
+			}
+
+			if isMainRoute {
+				if mainConn != nil {
+					fmt.Fprintf(mainConn, "%s\n", line)
+				}
+			} else {
+				if feeConn != nil {
+					fmt.Fprintf(feeConn, "%s\n", line)
+				} else {
+					// Fee pool disconnected, rescue via fake accept
+					if id, ok := msg["id"]; ok {
+						s.pendingShares.Delete(id)
+						fakeReply := fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
+						s.MinerConn.Write([]byte(fakeReply))
+						log.Printf("[Miner %s] Perfect Routing: Fake accepted late fee share (%s) because fee connection is closed", s.ID, submitJobID)
+					}
+				}
 			}
 		} else {
-			if isViaBtcOpt && state == "SWITCHING_TO_MAIN" && (method == "mining.submit" || method == "eth_submitWork") {
-				if id, ok := msg["id"]; ok {
-					s.pendingShares.Delete(id)
-					fakeReply := fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
-					s.MinerConn.Write([]byte(fakeReply))
-					log.Printf("[Miner %s] ViaBTC Optimization: Fake accepted a dropped share during switch to MAIN", s.ID)
+			// Non-submit packets route by current state
+			if state == "FEE" || state == "SWITCHING_TO_FEE" {
+				if feeConn != nil {
+					fmt.Fprintf(feeConn, "%s\n", line)
 				}
-				continue // Do not forward to mainConn
-			}
-			if mainConn != nil {
-				fmt.Fprintf(mainConn, "%s\n", line)
+			} else {
+				if mainConn != nil {
+					fmt.Fprintf(mainConn, "%s\n", line)
+				}
 			}
 		}
 	}
@@ -384,6 +410,11 @@ func (s *Session) readMainLoop() {
 					s.mu.Lock()
 					s.LatestMainJob = line
 					s.mu.Unlock()
+					if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
+						if jobID, ok := params[0].(string); ok {
+							s.JobSourceMap.Store(jobID, true) // true = Main
+						}
+					}
 				}
 			}
 		}
@@ -691,6 +722,11 @@ func (s *Session) ConnectFee(wallet, worker string) {
 						s.mu.Lock()
 						s.LatestFeeJob = line
 						s.mu.Unlock()
+						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
+							if jobID, ok := params[0].(string); ok {
+								s.JobSourceMap.Store(jobID, false) // false = Fee
+							}
+						}
 					}
 				}
 			}
