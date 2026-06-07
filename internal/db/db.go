@@ -71,7 +71,7 @@ func GetGlobalConfig() (*models.GlobalConfig, error) {
 	if result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
 			// Initialize default
-			cfg = models.GlobalConfig{WebPort: 0}
+			cfg = models.GlobalConfig{WebPort: 0, EnableLogging: true}
 			DB.Create(&cfg)
 			return &cfg, nil
 		}

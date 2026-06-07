@@ -13,6 +13,14 @@
         </small>
       </div>
 
+      <label class="switch-row">
+        <input type="checkbox" v-model="form.enableLogging" />
+        <div class="switch-info">
+          <div class="switch-title">开启底层运行日志记录</div>
+          <div class="switch-desc">关闭后系统日志页面将不再输出新日志，有助于极致压缩硬盘和CPU开销</div>
+        </div>
+      </label>
+
       <div class="modal-actions">
         <button class="btn-cancel" @click="$emit('close')" :disabled="saving">取消</button>
         <button class="btn-save" @click="saveConfig" :disabled="saving">
@@ -29,7 +37,8 @@ import { ref, onMounted } from 'vue'
 const emit = defineEmits(['close', 'saved'])
 
 const form = ref({
-  webPort: 0
+  webPort: 0,
+  enableLogging: true
 })
 
 const saving = ref(false)
@@ -46,6 +55,7 @@ const fetchConfig = async () => {
         const port = parseInt(window.location.port) || 80
         form.value.webPort = port
       }
+      form.value.enableLogging = data.enableLogging !== false // default true
     }
   } catch (e) {
     console.error(e)
@@ -181,5 +191,42 @@ button:disabled {
 }
 .btn-save:hover:not(:disabled) {
   filter: brightness(1.1);
+}
+
+/* Switch Styles borrowed from ConfigModal */
+.switch-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+  padding: 1rem;
+  background: rgba(255,255,255,0.03);
+  border-radius: 8px;
+  border: 1px solid var(--card-border);
+  transition: all 0.2s;
+  margin-bottom: 1rem;
+}
+.switch-row:hover {
+  background: rgba(255,255,255,0.06);
+}
+.switch-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--primary-color);
+  cursor: pointer;
+}
+.switch-info {
+  flex: 1;
+}
+.switch-title {
+  color: var(--text-color);
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.switch-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
 }
 </style>

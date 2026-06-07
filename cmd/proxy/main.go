@@ -15,16 +15,22 @@ func main() {
 	apiPort := flag.Int("api-port", 8080, "Port for the Web UI API")
 	flag.Parse()
 
-	// Init global logger
-	logger.InitLogger()
-
-	log.Println("Starting Transparent Proxy Engine (Golang Core) ...")
-
 	// 1. Init Database
 	db.InitDB("./data/proxy.db")
 
-	// Check global config for web port override
+	// 2. Fetch global config
 	globalCfg, err := db.GetGlobalConfig()
+	enableLogging := true
+	if err == nil && globalCfg != nil {
+		enableLogging = globalCfg.EnableLogging
+	}
+
+	// 3. Init global logger based on DB toggle
+	logger.InitLogger(enableLogging)
+
+	log.Println("Starting Transparent Proxy Engine (Golang Core) ...")
+
+	// Check global config for web port override
 	finalPort := *apiPort
 	if err == nil && globalCfg != nil && globalCfg.WebPort > 0 {
 		finalPort = globalCfg.WebPort
