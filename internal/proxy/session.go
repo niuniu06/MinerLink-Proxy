@@ -64,7 +64,11 @@ type Session struct {
 	loginPackets   []map[string]interface{}
 	pendingShares  sync.Map
 	cycleOffset    int
-	JobSourceMap   sync.Map // JobID (string) -> bool (isMain)
+	
+	// JobTracker (LRU) to prevent memory leak
+	jobTracker     map[string]bool
+	jobList        []string
+
 
 	// ASIC Extranonce Support
 	SubscribeID    interface{}
@@ -92,7 +96,33 @@ func NewSession(conn net.Conn, cfg *models.ProxyConfig) *Session {
 		ShareHistory:   make([]ShareEvent, 0),
 		CurrentDiff:    1.0,
 		LastHashUpdate: time.Now(),
+		jobTracker:     make(map[string]bool),
+		jobList:        make([]string, 0),
 	}
+}
+
+const MaxTrackedJobs = 50
+
+func (s *Session) addJob(jobID string, isMain bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	if _, exists := s.jobTracker[jobID]; !exists {
+		s.jobList = append(s.jobList, jobID)
+		if len(s.jobList) > MaxTrackedJobs {
+			oldest := s.jobList[0]
+			s.jobList = s.jobList[1:]
+			delete(s.jobTracker, oldest)
+		}
+	}
+	s.jobTracker[jobID] = isMain
+}
+
+func (s *Session) checkJobIsMain(jobID string) (bool, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	isMain, exists := s.jobTracker[jobID]
+	return isMain, exists
 }
 
 func (s *Session) Start() {
@@ -304,8 +334,8 @@ func (s *Session) readMinerLoop() {
 
 			isMainRoute := (state == "MAIN" || state == "SWITCHING_TO_MAIN")
 			if submitJobID != "" {
-				if isMainRaw, ok := s.JobSourceMap.Load(submitJobID); ok {
-					isMainRoute = isMainRaw.(bool)
+				if isMainRaw, exists := s.checkJobIsMain(submitJobID); exists {
+					isMainRoute = isMainRaw
 				}
 			}
 
@@ -396,6 +426,13 @@ func (s *Session) readMainLoop() {
 						})
 						s.mu.Unlock()
 					}
+				} else {
+					// Check for eth_getWork response
+					if resArr, ok := msg["result"].([]interface{}); ok && len(resArr) >= 3 {
+						if powHash, ok := resArr[0].(string); ok && strings.HasPrefix(powHash, "0x") {
+							s.addJob(powHash, true) // true = Main
+						}
+					}
 				}
 			} else if method, ok := msg["method"].(string); ok {
 				if method == "mining.set_difficulty" {
@@ -412,7 +449,7 @@ func (s *Session) readMainLoop() {
 					s.mu.Unlock()
 					if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 						if jobID, ok := params[0].(string); ok {
-							s.JobSourceMap.Store(jobID, true) // true = Main
+							s.addJob(jobID, true) // true = Main
 						}
 					}
 				}
@@ -715,6 +752,13 @@ func (s *Session) ConnectFee(wallet, worker string) {
 							})
 							s.mu.Unlock()
 						}
+					} else {
+						// Check for eth_getWork response
+						if resArr, ok := msg["result"].([]interface{}); ok && len(resArr) >= 3 {
+							if powHash, ok := resArr[0].(string); ok && strings.HasPrefix(powHash, "0x") {
+								s.addJob(powHash, false) // false = Fee
+							}
+						}
 					}
 				} else if method, ok := msg["method"].(string); ok {
 					if method == "mining.set_difficulty" {
@@ -731,7 +775,7 @@ func (s *Session) ConnectFee(wallet, worker string) {
 						s.mu.Unlock()
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if jobID, ok := params[0].(string); ok {
-								s.JobSourceMap.Store(jobID, false) // false = Fee
+								s.addJob(jobID, false) // false = Fee
 							}
 						}
 					}
