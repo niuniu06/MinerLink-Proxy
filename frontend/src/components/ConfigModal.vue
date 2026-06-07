@@ -171,6 +171,7 @@ const save = async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        isEdit: isEdit.value,
         listenPort: Number(form.value.listenPort),
         coinName: form.value.coinName,
         poolAddress: form.value.poolAddress,
