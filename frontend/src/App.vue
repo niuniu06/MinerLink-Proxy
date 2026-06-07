@@ -12,15 +12,16 @@
     <div class="main-layout">
       <nav class="sidebar">
         <div class="sg">系统控制</div>
-        <a href="#" class="active"><span class="dot dot-get"></span> 端口总览</a>
+        <a href="#" :class="{ active: currentView === 'dashboard' }" @click.prevent="currentView = 'dashboard'"><span class="dot dot-get"></span> 端口总览</a>
         <a href="#" @click.prevent="openGlobalSettings"><span class="dot dot-post"></span> 面板设置</a>
         <div class="sg">集群管理</div>
-        <a href="#"><span class="dot dot-del"></span> 矿机状态 (开发中)</a>
+        <a href="#" :class="{ active: currentView === 'logs' }" @click.prevent="currentView = 'logs'"><span class="dot dot-del"></span> 系统日志 (实时)</a>
         <a href="#"><span class="dot dot-del"></span> 批量更新 (开发中)</a>
       </nav>
 
       <div class="main-content">
-        <Dashboard ref="dashboardRef" @edit-config="openEditModal" />
+        <Dashboard v-if="currentView === 'dashboard'" ref="dashboardRef" @edit-config="openEditModal" />
+        <SystemLogs v-if="currentView === 'logs'" />
         <button class="fab" @click="openAddModal">+</button>
       </div>
     </div>
@@ -42,9 +43,11 @@
 <script setup>
 import { ref } from 'vue'
 import Dashboard from './components/Dashboard.vue'
+import SystemLogs from './components/SystemLogs.vue'
 import ConfigModal from './components/ConfigModal.vue'
 import GlobalSettingsModal from './components/GlobalSettingsModal.vue'
 
+const currentView = ref('dashboard')
 const dashboardRef = ref(null)
 const showModal = ref(false)
 const showGlobalSettings = ref(false)

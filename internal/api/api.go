@@ -7,11 +7,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	
+
 	"proxy-core/internal/db"
+	"proxy-core/internal/logger"
 	"proxy-core/internal/models"
 	"proxy-core/internal/proxy"
 	"proxy-core/internal/ui"
+	"strings"
 )
 
 type APIServer struct {
@@ -50,6 +52,9 @@ func (s *APIServer) Start(port int) error {
 
 		api.GET("/global", s.getGlobalConfig)
 		api.POST("/global", s.saveGlobalConfig)
+
+		api.GET("/logs/tail", s.tailLogs)
+		api.GET("/logs/download", s.downloadLogs)
 	}
 
 	ui.RegisterUI(r)
@@ -112,6 +117,30 @@ func (s *APIServer) deleteConfig(c *gin.Context) {
 	s.ProxyManager.StopProxy(req.ListenPort)
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (s *APIServer) tailLogs(c *gin.Context) {
+	// Read last 200 lines from proxy.log using os and strings
+	logPath := logger.LogFilePath
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Log file not found or unreadable"})
+		return
+	}
+	lines := strings.Split(string(content), "\n")
+	tailCount := 300
+	if len(lines) < tailCount {
+		tailCount = len(lines)
+	}
+	tailLines := lines[len(lines)-tailCount:]
+	c.String(http.StatusOK, strings.Join(tailLines, "\n"))
+}
+
+func (s *APIServer) downloadLogs(c *gin.Context) {
+	logPath := logger.LogFilePath
+	c.Header("Content-Disposition", "attachment; filename=proxy.log")
+	c.Header("Content-Type", "application/octet-stream")
+	c.File(logPath)
 }
 
 func (s *APIServer) restartSystem(c *gin.Context) {

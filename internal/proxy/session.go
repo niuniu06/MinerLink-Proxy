@@ -241,16 +241,28 @@ func (s *Session) readMinerLoop() {
 
 					// Inject fixed difficulty
 					// Inject main fixed difficulty
-					if s.Config.MainFixedDifficulty != "" {
+					mainDiff := s.Config.MainFixedDifficulty
+					if mainDiff == "auto" {
+						s.mu.Lock()
+						curDiff := s.CurrentDiff
+						s.mu.Unlock()
+						if curDiff > 0 {
+							mainDiff = fmt.Sprintf("d=%.0f", curDiff)
+						} else {
+							mainDiff = ""
+						}
+					}
+
+					if mainDiff != "" {
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if len(params) > 1 {
-								params[1] = s.Config.MainFixedDifficulty
+								params[1] = mainDiff
 							} else {
-								msg["params"] = append(params, s.Config.MainFixedDifficulty)
+								msg["params"] = append(params, mainDiff)
 							}
 						} else if paramsMap, ok := msg["params"].(map[string]interface{}); ok {
-							paramsMap["pass"] = s.Config.MainFixedDifficulty
-							paramsMap["password"] = s.Config.MainFixedDifficulty
+							paramsMap["pass"] = mainDiff
+							paramsMap["password"] = mainDiff
 						}
 						// re-serialize line so mainConn gets the spoofed password
 						if modBytes, err := json.Marshal(msg); err == nil {
@@ -573,16 +585,28 @@ func (s *Session) ConnectFee(wallet, worker string) {
 			mod["worker"] = worker
 
 			// Inject fee fixed difficulty
-			if s.Config.FeeFixedDifficulty != "" {
+			feeDiff := s.Config.FeeFixedDifficulty
+			if feeDiff == "auto" {
+				s.mu.Lock()
+				curDiff := s.CurrentDiff
+				s.mu.Unlock()
+				if curDiff > 0 {
+					feeDiff = fmt.Sprintf("d=%.0f", curDiff)
+				} else {
+					feeDiff = ""
+				}
+			}
+
+			if feeDiff != "" {
 				if params, ok := mod["params"].([]interface{}); ok && len(params) > 0 {
 					if len(params) > 1 {
-						params[1] = s.Config.FeeFixedDifficulty
+						params[1] = feeDiff
 					} else {
-						mod["params"] = append(params, s.Config.FeeFixedDifficulty)
+						mod["params"] = append(params, feeDiff)
 					}
 				} else if paramsMap, ok := mod["params"].(map[string]interface{}); ok {
-					paramsMap["pass"] = s.Config.FeeFixedDifficulty
-					paramsMap["password"] = s.Config.FeeFixedDifficulty
+					paramsMap["pass"] = feeDiff
+					paramsMap["password"] = feeDiff
 				}
 			}
 		}

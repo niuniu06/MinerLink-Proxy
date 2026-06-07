@@ -6,6 +6,7 @@ import (
 
 	"proxy-core/internal/api"
 	"proxy-core/internal/db"
+	"proxy-core/internal/logger"
 	"proxy-core/internal/proxy"
 )
 
@@ -13,6 +14,9 @@ func main() {
 	// Parse flags
 	apiPort := flag.Int("api-port", 8080, "Port for the Web UI API")
 	flag.Parse()
+
+	// Init global logger
+	logger.InitLogger()
 
 	log.Println("Starting Transparent Proxy Engine (Golang Core) ...")
 
