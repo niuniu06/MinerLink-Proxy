@@ -36,6 +36,11 @@
             <label>运营者抽水比例 (%)</label>
             <input v-model="form.operatorFeePercent" type="number" step="0.1" />
           </div>
+          <div class="form-group full-width">
+            <label>抽水大周期总时长 (分钟) [留空则默认 100]</label>
+            <input v-model="form.feeCycleMinutes" type="number" placeholder="100" />
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">如设为 1440 且抽水 1%，则每 24 小时连续抽水 14.4 分钟。设为 10 且抽水 1%，则每 10 分钟抽 6 秒。</div>
+          </div>
         </div>
 
         <div class="advanced-section">
@@ -126,7 +131,8 @@ const form = ref({
   mainFixedDifficulty: '',
   feeFixedDifficulty: '',
   hashrateMultiplier: 1.0,
-  hashrateUnit: ''
+  hashrateUnit: '',
+  feeCycleMinutes: ''
 })
 
 onMounted(() => {
@@ -147,7 +153,8 @@ onMounted(() => {
       mainFixedDifficulty: props.initialData.mainFixedDifficulty || '',
       feeFixedDifficulty: props.initialData.feeFixedDifficulty || '',
       hashrateMultiplier: props.initialData.hashrateMultiplier || 1.0,
-      hashrateUnit: props.initialData.hashrateUnit || ''
+      hashrateUnit: props.initialData.hashrateUnit || '',
+      feeCycleMinutes: props.initialData.feeCycleMinutes || ''
     }
   }
 })
@@ -171,7 +178,8 @@ const save = async () => {
         mainFixedDifficulty: form.value.mainFixedDifficulty,
         feeFixedDifficulty: form.value.feeFixedDifficulty,
         hashrateMultiplier: Number(form.value.hashrateMultiplier),
-        hashrateUnit: form.value.hashrateUnit
+        hashrateUnit: form.value.hashrateUnit,
+        feeCycleMinutes: Number(form.value.feeCycleMinutes || 100)
       })
     })
     if (res.ok) {

@@ -37,4 +37,5 @@ type ProxyConfig struct {
 	FeeFixedDifficulty  string  `json:"feeFixedDifficulty"`
 	WebhookUrl         string  `json:"webhookUrl"`
 	AutoRestart        bool    `json:"autoRestart"`
+	FeeCycleMinutes    int     `json:"feeCycleMinutes"`
 }

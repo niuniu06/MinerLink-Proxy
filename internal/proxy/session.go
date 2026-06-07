@@ -436,8 +436,6 @@ func (s *Session) timerLoop() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	
-	cycleLength := 6000
-	
 	for {
 		select {
 		case <-s.quit:
@@ -446,7 +444,13 @@ func (s *Session) timerLoop() {
 			s.mu.Lock()
 			devPercent := s.Config.DevFeePercent
 			opPercent := s.Config.OperatorFeePercent
+			cycleMins := s.Config.FeeCycleMinutes
 			s.mu.Unlock()
+
+			if cycleMins <= 0 {
+				cycleMins = 100 // Default to 100 minutes if not set or invalid
+			}
+			cycleLength := cycleMins * 60
 
 			feePercent := devPercent + opPercent
 			if feePercent <= 0 {
