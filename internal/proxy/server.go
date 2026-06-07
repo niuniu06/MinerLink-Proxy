@@ -112,6 +112,7 @@ func (s *Server) GetStats() map[string]interface{} {
 			"feeShares":     sess.Stats.FeeShares,
 			"validShares":   sess.Stats.ValidShares,
 			"invalidShares": sess.Stats.InvalidShares,
+			"currentDiff":   sess.CurrentDiff,
 			"hashrate":      sess.FormatHashrate(),
 			"uptime":        uptimeSecs,
 		})

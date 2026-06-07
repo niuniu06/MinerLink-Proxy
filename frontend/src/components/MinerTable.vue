@@ -7,13 +7,14 @@
           <th>算力 (HASHRATE)</th>
           <th>提交 (SUBMITS)</th>
           <th>抽水拦截 (FEE)</th>
+          <th>当前难度 (DIFF)</th>
           <th>在线时间 (UPTIME)</th>
           <th>钱包 (WALLET)</th>
         </tr>
       </thead>
       <tbody>
         <tr v-if="!miners || miners.length === 0">
-          <td colspan="6" class="empty-row">暂无在线矿机</td>
+          <td colspan="7" class="empty-row">暂无在线矿机</td>
         </tr>
         <tr v-for="miner in sortedMiners" :key="miner.id">
           <td class="worker-name">{{ miner.worker || 'worker' }}</td>
@@ -23,6 +24,7 @@
             <span class="invalid">{{ miner.invalidShares }} 无效</span>
           </td>
           <td class="fee">{{ miner.feeShares }}</td>
+          <td class="diff">{{ miner.currentDiff ? miner.currentDiff.toFixed(2) : '...' }}</td>
           <td>{{ formatUptime(miner.uptime) }}</td>
           <td class="wallet">{{ maskWallet(miner.wallet) }}</td>
         </tr>
