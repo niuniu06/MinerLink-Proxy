@@ -754,16 +754,28 @@ func (s *Session) ConnectFee(wallet, worker string) {
 
 func (s *Session) EndFee() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.FeeConn != nil {
-		s.FeeConn.Close()
-		s.FeeConn = nil
-	}
 	
 	if s.State == "FEE" || s.State == "SWITCHING_TO_FEE" {
 		s.State = "SWITCHING_TO_MAIN"
 		s.TargetState = "MAIN"
+	}
+	
+	connToClose := s.FeeConn
+	s.mu.Unlock()
+
+	if connToClose != nil {
+		// Grace period: keep fee connection alive for 10 seconds to catch late shares
+		go func(c net.Conn) {
+			time.Sleep(10 * time.Second)
+			c.Close()
+			
+			s.mu.Lock()
+			// Only nil it if it hasn't been overwritten by a new fee cycle
+			if s.FeeConn == c {
+				s.FeeConn = nil
+			}
+			s.mu.Unlock()
+		}(connToClose)
 	}
 }
 
