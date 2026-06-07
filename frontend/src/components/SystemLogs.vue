@@ -3,6 +3,9 @@
     <div class="logs-header">
       <h2>系统运行日志</h2>
       <div class="logs-actions">
+        <button class="btn-clear" @click="clearLogs" :disabled="loading">
+          🗑️ 清空当前日志
+        </button>
         <button class="btn-refresh" @click="fetchLogs" :disabled="loading">
           {{ loading ? '刷新中...' : '手动刷新' }}
         </button>
@@ -49,6 +52,25 @@ const fetchLogs = async () => {
 
 const downloadLogs = () => {
   window.open('/api/logs/download', '_blank')
+}
+
+const clearLogs = async () => {
+  if (!confirm('确定要清空当前的运行日志吗？(不可恢复)')) return
+  
+  loading.value = true
+  try {
+    const res = await fetch('/api/logs/clear', { method: 'DELETE' })
+    if (res.ok) {
+      logs.value = ''
+      await fetchLogs()
+    } else {
+      alert('清空日志失败')
+    }
+  } catch (err) {
+    console.error("Failed to clear logs:", err)
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(() => {
@@ -106,6 +128,16 @@ button {
 
 .btn-refresh:hover {
   background: #333;
+}
+
+.btn-clear {
+  background: transparent;
+  color: #ff5e5e;
+  border: 1px solid #ff5e5e;
+}
+
+.btn-clear:hover {
+  background: rgba(255, 94, 94, 0.1);
 }
 
 .btn-download {

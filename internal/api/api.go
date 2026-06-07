@@ -55,6 +55,7 @@ func (s *APIServer) Start(port int) error {
 
 		api.GET("/logs/tail", s.tailLogs)
 		api.GET("/logs/download", s.downloadLogs)
+		api.DELETE("/logs/clear", s.clearLogs)
 	}
 
 	ui.RegisterUI(r)
@@ -141,6 +142,16 @@ func (s *APIServer) downloadLogs(c *gin.Context) {
 	c.Header("Content-Disposition", "attachment; filename=proxy.log")
 	c.Header("Content-Type", "application/octet-stream")
 	c.File(logPath)
+}
+
+func (s *APIServer) clearLogs(c *gin.Context) {
+	logPath := logger.LogFilePath
+	err := os.WriteFile(logPath, []byte(""), 0644)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clear log file"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func (s *APIServer) restartSystem(c *gin.Context) {
