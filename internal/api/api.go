@@ -1,6 +1,8 @@
 package api
 
 import (
+	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -86,6 +88,22 @@ func (s *APIServer) addConfig(c *gin.Context) {
 	var cfg models.ProxyConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if this is a NEW config
+	configs, _ := db.GetAllConfigs()
+	isNew := true
+	for _, exist := range configs {
+		if exist.ListenPort == cfg.ListenPort {
+			isNew = false
+			break
+		}
+	}
+
+	// If it is a new config, verify port is not in use
+	if isNew && isPortInUse(cfg.ListenPort) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("端口 %d 已被系统其他程序占用，请更换其他端口！", cfg.ListenPort)})
 		return
 	}
 
@@ -178,6 +196,15 @@ func (s *APIServer) saveGlobalConfig(c *gin.Context) {
 		return
 	}
 
+	// Check if web port is changed and new port is in use
+	currentCfg, err := db.GetGlobalConfig()
+	if err == nil && currentCfg.WebPort != cfg.WebPort && cfg.WebPort > 0 {
+		if isPortInUse(cfg.WebPort) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("网页端口 %d 已被系统其他程序占用，请更换其他端口！", cfg.WebPort)})
+			return
+		}
+	}
+
 	if err := db.SaveGlobalConfig(&cfg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -190,4 +217,15 @@ func (s *APIServer) saveGlobalConfig(c *gin.Context) {
 		time.Sleep(1 * time.Second)
 		os.Exit(0)
 	}()
+}
+
+// isPortInUse checks if a specific port is already bound on the system
+func isPortInUse(port int) bool {
+	addr := fmt.Sprintf(":%d", port)
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return true // Port is in use or inaccessible
+	}
+	l.Close()
+	return false
 }

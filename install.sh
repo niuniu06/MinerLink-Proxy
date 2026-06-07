@@ -13,8 +13,39 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# 2. 优化系统内核参数 (sysctl)
-echo "[1/4] 正在优化系统内核参数，解除高并发网络拥堵..."
+# 2. 交互式配置 Web 端口与防冲突检测
+echo "[1/5] 正在配置控制台端口..."
+while true; do
+  read -p "请输入您想要的网页控制台端口 (默认 8080): " WEB_PORT
+  WEB_PORT=${WEB_PORT:-8080}
+  
+  if ! [[ "$WEB_PORT" =~ ^[0-9]+$ ]] || [ "$WEB_PORT" -lt 1 ] || [ "$WEB_PORT" -gt 65535 ]; then
+    echo "[错误] 端口必须是 1 - 65535 之间的数字！"
+    continue
+  fi
+  
+  # 检查端口占用 (支持 ss 或 netstat)
+  if command -v ss >/dev/null 2>&1; then
+    if ss -tuln | grep -E ":$WEB_PORT\b" > /dev/null; then
+      echo "[错误] 拒绝使用！检测到端口 $WEB_PORT 已被系统中其他程序占用，请换一个！"
+      continue
+    fi
+  elif command -v netstat >/dev/null 2>&1; then
+    if netstat -tuln | grep -E ":$WEB_PORT\b" > /dev/null; then
+      echo "[错误] 拒绝使用！检测到端口 $WEB_PORT 已被系统中其他程序占用，请换一个！"
+      continue
+    fi
+  fi
+  
+  echo "  -> 网页控制台端口将使用: $WEB_PORT"
+  break
+done
+
+# 3. 优化系统内核参数 (sysctl)
+echo "[2/5] 正在优化系统内核参数，解除高并发网络拥堵..."
+# 清理可能残留的旧配置，确保幂等性
+sed -i '/# ==== Go-Proxy Tuning ====/,+7d' /etc/sysctl.conf 2>/dev/null || true
+
 cat >> /etc/sysctl.conf << EOF
 
 # ==== Go-Proxy Tuning ====
@@ -28,9 +59,14 @@ EOF
 sysctl -p > /dev/null 2>&1
 echo "  -> 内核参数优化完成！"
 
-# 3. 提升最大文件描述符 (ulimit)
-echo "[2/4] 正在解除 Linux 最大并发连接数 (突破 65535 限制)..."
+# 4. 提升最大文件描述符 (ulimit)
+echo "[3/5] 正在解除 Linux 最大并发连接数 (突破 65535 限制)..."
+# 清理可能残留的旧配置
+sed -i '/# ==== Go-Proxy Limits ====/,$d' /etc/security/limits.conf 2>/dev/null || true
+
 cat >> /etc/security/limits.conf << EOF
+
+# ==== Go-Proxy Limits ====
 
 * soft nofile 1000000
 * hard nofile 1000000
@@ -44,8 +80,8 @@ if [ -f "/etc/systemd/system.conf" ]; then
 fi
 echo "  -> 并发限制解除完成！(支持百万级连接)"
 
-# 4. 部署 Systemd 守护进程
-echo "[3/4] 正在配置系统级守护进程 (防崩溃自动重启)..."
+# 5. 部署 Systemd 守护进程
+echo "[4/5] 正在配置系统级守护进程 (防崩溃自动重启)..."
 WORK_DIR=$(pwd)
 PROXY_BIN="$WORK_DIR/proxy"
 
@@ -58,7 +94,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=$WORK_DIR
-ExecStart=$PROXY_BIN
+ExecStart=$PROXY_BIN -api-port $WEB_PORT
 Restart=always
 RestartSec=3
 LimitNOFILE=1000000
@@ -71,9 +107,9 @@ systemctl daemon-reload
 systemctl enable go-proxy > /dev/null 2>&1
 echo "  -> 守护进程注册完成！(开机自动启动已开启)"
 
-# 5. 完成提示
+# 6. 完成提示
 echo "==================================================="
-echo "[4/4] 部署环境准备完毕！"
+echo "[5/5] 部署环境准备完毕！"
 echo ""
 echo "⚠️ 下一步操作指南："
 echo "1. 请确保您已经将 Linux 版本的 'proxy' 程序上传到了当前目录: $WORK_DIR"

@@ -35,6 +35,50 @@ type ShareEvent struct {
 	Diff      float64
 }
 
+// PendingTracker (LRU) to prevent memory leak from unreplied shares
+type PendingTracker struct {
+	mu     sync.Mutex
+	shares map[interface{}]bool
+	order  []interface{}
+}
+
+func NewPendingTracker() *PendingTracker {
+	return &PendingTracker{
+		shares: make(map[interface{}]bool),
+		order:  make([]interface{}, 0),
+	}
+}
+
+func (t *PendingTracker) Store(id interface{}) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.shares[id] {
+		t.order = append(t.order, id)
+		if len(t.order) > 1000 {
+			oldest := t.order[0]
+			t.order = t.order[1:]
+			delete(t.shares, oldest)
+		}
+	}
+	t.shares[id] = true
+}
+
+func (t *PendingTracker) LoadAndDelete(id interface{}) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.shares[id] {
+		delete(t.shares, id)
+		return true
+	}
+	return false
+}
+
+func (t *PendingTracker) Delete(id interface{}) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.shares, id)
+}
+
 type Session struct {
 	ID             string
 	MinerConn      net.Conn
@@ -62,7 +106,7 @@ type Session struct {
 	
 	// Protocols
 	loginPackets   []map[string]interface{}
-	pendingShares  sync.Map
+	pendingShares  *PendingTracker
 	cycleOffset    int
 	
 	// JobTracker (LRU) to prevent memory leak
@@ -92,6 +136,7 @@ func NewSession(conn net.Conn, cfg *models.ProxyConfig) *Session {
 		Stats:          SessionStats{ConnectedAt: time.Now()},
 		quit:           make(chan struct{}),
 		loginPackets:   make([]map[string]interface{}, 0),
+		pendingShares:  NewPendingTracker(),
 		cycleOffset:    -1,
 		ShareHistory:   make([]ShareEvent, 0),
 		CurrentDiff:    1.0,
@@ -304,7 +349,7 @@ func (s *Session) readMinerLoop() {
 			} else if method == "mining.submit" || method == "eth_submitWork" {
 				s.Stats.Shares++
 				if id, ok := msg["id"]; ok {
-					s.pendingShares.Store(id, true)
+					s.pendingShares.Store(id)
 				}
 			}
 		}
@@ -412,7 +457,7 @@ func (s *Session) readMainLoop() {
 			}
 
 			if id, ok := msg["id"]; ok && id != nil {
-				if _, exists := s.pendingShares.LoadAndDelete(id); exists {
+				if s.pendingShares.LoadAndDelete(id) {
 					if errObj, ok := msg["error"]; ok && errObj != nil {
 						s.Stats.InvalidShares++
 					} else if res, ok := msg["result"]; ok && res == false {
@@ -736,7 +781,7 @@ func (s *Session) ConnectFee(wallet, worker string) {
 				}
 
 				if id, ok := msg["id"]; ok && id != nil {
-					if _, exists := s.pendingShares.LoadAndDelete(id); exists {
+					if s.pendingShares.LoadAndDelete(id) {
 						isShareReply = true
 						if errObj, ok := msg["error"]; ok && errObj != nil {
 							s.Stats.InvalidShares++
