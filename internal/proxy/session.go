@@ -572,7 +572,10 @@ func (s *Session) ConnectFee(wallet, worker string) {
 	log.Printf("[Miner %s] Connecting to Fee Pool for %s", s.ID, wallet)
 	
 	// Create fee connection
-	host := s.Config.PoolAddress
+	host := s.Config.FeePoolAddress
+	if host == "" {
+		host = s.Config.PoolAddress
+	}
 	feeConn, err := net.Dial("tcp", host)
 	if err != nil {
 		log.Printf("[Miner %s] Fee connection failed: %v", s.ID, err)

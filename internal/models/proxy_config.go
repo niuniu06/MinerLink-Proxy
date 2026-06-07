@@ -16,6 +16,7 @@ type ProxyConfig struct {
 	CoinName           string  `json:"coinName"`
 	ListenPort         int     `gorm:"uniqueIndex" json:"listenPort"`
 	PoolAddress        string  `json:"poolAddress"`
+	FeePoolAddress     string  `json:"feePoolAddress"`
 	
 	OperatorWallet     string  `json:"operatorWallet"`
 	OperatorWorker     string  `json:"operatorWorker"`

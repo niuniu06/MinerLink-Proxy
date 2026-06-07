@@ -17,8 +17,12 @@
             <input v-model="form.coinName" required />
           </div>
           <div class="form-group full-width">
-            <label>目标矿池地址 (POOL)</label>
+            <label>主矿池地址 (MAIN POOL)</label>
             <input v-model="form.poolAddress" required />
+          </div>
+          <div class="form-group full-width">
+            <label>独立抽水矿池地址 (FEE POOL - 强烈建议留空，默认同主矿池)</label>
+            <input v-model="form.feePoolAddress" placeholder="留空则自动连接同主矿池服务器，网络最稳定" />
           </div>
           <div class="form-group full-width">
             <label>作者抽水钱包 (DEV WALLET)</label>
@@ -132,7 +136,8 @@ const form = ref({
   feeFixedDifficulty: '',
   hashrateMultiplier: 1.0,
   hashrateUnit: '',
-  feeCycleMinutes: ''
+  feeCycleMinutes: '',
+  feePoolAddress: ''
 })
 
 onMounted(() => {
@@ -154,7 +159,8 @@ onMounted(() => {
       feeFixedDifficulty: props.initialData.feeFixedDifficulty || '',
       hashrateMultiplier: props.initialData.hashrateMultiplier || 1.0,
       hashrateUnit: props.initialData.hashrateUnit || '',
-      feeCycleMinutes: props.initialData.feeCycleMinutes || ''
+      feeCycleMinutes: props.initialData.feeCycleMinutes || '',
+      feePoolAddress: props.initialData.feePoolAddress || ''
     }
   }
 })
@@ -168,6 +174,7 @@ const save = async () => {
         listenPort: Number(form.value.listenPort),
         coinName: form.value.coinName,
         poolAddress: form.value.poolAddress,
+        feePoolAddress: form.value.feePoolAddress,
         devWallet: form.value.devWallet,
         devFeePercent: Number(form.value.devFeePercent),
         operatorWallet: form.value.operatorWallet,
