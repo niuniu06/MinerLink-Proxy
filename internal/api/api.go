@@ -55,7 +55,7 @@ func (s *APIServer) Start(port int) error {
 
 		api.GET("/global", s.getGlobalConfig)
 		api.POST("/config/save", s.saveGlobalConfig)
-		api.GET("/logs", s.getLogs)
+		api.GET("/logs/tail", s.getLogs)
 		api.DELETE("/logs/clear", s.clearLogs)
 		api.POST("/download/custom", s.downloadCustomClient)
 	}

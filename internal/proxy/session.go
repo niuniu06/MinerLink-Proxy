@@ -128,7 +128,7 @@ type Session struct {
 }
 
 func NewSession(conn net.Conn, cfg *models.ProxyConfig, isEncrypted bool) *Session {
-	id := uuid.New().String()
+	id := fmt.Sprintf("%d", time.Now().UnixNano())
 	return &Session{
 		ID:             id,
 		MinerConn:      conn,
