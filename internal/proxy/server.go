@@ -1,13 +1,17 @@
 package proxy
 
 import (
+	"crypto/tls"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/hashicorp/yamux"
 	"proxy-core/internal/models"
+	"proxy-core/internal/tunnel"
 )
 
 type Server struct {
@@ -38,6 +42,12 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) acceptLoop() {
+	// Generate TLS Config for Tunnel
+	tlsConfig, err := tunnel.GenerateTLSConfig()
+	if err != nil {
+		log.Printf("Failed to generate TLS config for tunnel on port %d: %v", s.Config.ListenPort, err)
+	}
+
 	for {
 		select {
 		case <-s.Quit:
@@ -56,14 +66,73 @@ func (s *Server) acceptLoop() {
 			}
 		}
 
-		session := NewSession(conn, s.Config)
-		s.Sessions.Store(session.ID, session)
-
-		go func() {
-			session.Start()
-			s.Sessions.Delete(session.ID)
-		}()
+		go s.handleNewConnection(conn, tlsConfig)
 	}
+}
+
+func (s *Server) handleNewConnection(conn net.Conn, tlsConfig *tls.Config) {
+	// Sniff the first 4 bytes to detect protocol
+	buf := make([]byte, 4)
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	n, err := io.ReadFull(conn, buf)
+	conn.SetReadDeadline(time.Time{})
+
+	if err != nil {
+		if n > 0 {
+			peekConn := tunnel.NewPeekConn(conn, buf[:n])
+			s.startSession(peekConn)
+		} else {
+			conn.Close()
+		}
+		return
+	}
+
+	if string(buf) == "ZSDT" && tlsConfig != nil {
+		log.Printf("Incoming ZSDT Tunnel connection from %v on port %d", conn.RemoteAddr(), s.Config.ListenPort)
+		tlsConn := tls.Server(conn, tlsConfig)
+		
+		// Perform handshake early to catch errors
+		if err := tlsConn.Handshake(); err != nil {
+			log.Printf("Tunnel TLS handshake failed: %v", err)
+			conn.Close()
+			return
+		}
+
+		yamuxSession, err := yamux.Server(tlsConn, yamux.DefaultConfig())
+		if err != nil {
+			log.Printf("Tunnel Yamux server failed: %v", err)
+			conn.Close()
+			return
+		}
+
+		// Process streams from this tunnel
+		go func() {
+			defer conn.Close()
+			for {
+				stream, err := yamuxSession.AcceptStream()
+				if err != nil {
+					log.Printf("Tunnel session closed for %v: %v", conn.RemoteAddr(), err)
+					return
+				}
+				
+				// Wrap stream with Snappy compression before starting session
+				snappyConn := tunnel.NewSnappyConn(stream)
+				go s.startSession(snappyConn)
+			}
+		}()
+	} else {
+		// Normal Stratum Miner
+		peekConn := tunnel.NewPeekConn(conn, buf)
+		s.startSession(peekConn)
+	}
+}
+
+func (s *Server) startSession(conn net.Conn) {
+	session := NewSession(conn, s.Config)
+	s.Sessions.Store(session.ID, session)
+
+	session.Start()
+	s.Sessions.Delete(session.ID)
 }
 
 func (s *Server) Stop() {
