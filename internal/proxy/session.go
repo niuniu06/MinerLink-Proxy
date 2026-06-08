@@ -485,6 +485,7 @@ func (s *Session) readMainLoop() {
 						antiBan := s.Config.EnableAntiBan
 						s.mu.Unlock()
 						if antiBan {
+							log.Printf("[AntiBan-Main] Intercepted pool rejection for Miner %s: %s", s.ID, strings.TrimSpace(line))
 							line = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`, id)
 						}
 					}
@@ -823,6 +824,7 @@ func (s *Session) ConnectFee(wallet, worker string) {
 							antiBan := s.Config.EnableAntiBan
 							s.mu.Unlock()
 							if antiBan {
+								log.Printf("[AntiBan-Fee] Intercepted pool rejection for Miner %s: %s", s.ID, strings.TrimSpace(line))
 								line = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`, id)
 							}
 						}
