@@ -14,6 +14,19 @@ import (
 	"proxy-core/internal/models"
 )
 
+func forceCleanJobs(jobJSON string) string {
+	var msg map[string]interface{}
+	if err := json.Unmarshal([]byte(jobJSON), &msg); err == nil {
+		if params, ok := msg["params"].([]interface{}); ok && len(params) > 8 {
+			params[8] = true
+			if modBytes, err := json.Marshal(msg); err == nil {
+				return string(modBytes)
+			}
+		}
+	}
+	return jobJSON
+}
+
 type FeeMode string
 
 const (
@@ -100,6 +113,7 @@ type Session struct {
 	RemoteDiff     float64
 	LocalDiff      float64
 	LastHashUpdate time.Time
+	LastShareTime  time.Time
 	DisplayHash    float64
 	IsEncrypted    bool
 
@@ -144,6 +158,7 @@ func NewSession(conn net.Conn, cfg *models.ProxyConfig, isEncrypted bool) *Sessi
 		ShareHistory:   make([]ShareEvent, 0),
 		CurrentDiff:    1.0,
 		LastHashUpdate: time.Now(),
+		LastShareTime:  time.Now(),
 		jobTracker:     make(map[string]bool),
 		jobList:        make([]string, 0),
 		IsEncrypted:    isEncrypted,
@@ -192,6 +207,7 @@ func (s *Session) Start() {
 
 	go s.timerLoop()
 	go s.StartVardiffEngine()
+	go s.Watchdog()
 	go s.readMainLoop()
 	s.readMinerLoop()
 }
@@ -294,7 +310,7 @@ func (s *Session) readMinerLoop() {
 		var msg map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &msg); err == nil {
 			method, _ = msg["method"].(string)
-			if method == "mining.subscribe" || method == "eth_submitLogin" || method == "mining.authorize" || method == "login" {
+			if method == "mining.subscribe" || method == "eth_submitLogin" || method == "mining.authorize" || method == "login" || method == "mining.configure" || method == "eth_submitHashrate" {
 				// Deep copy msg to store in loginPackets so it isn't mutated by MainFixedDifficulty
 				var pktCopy map[string]interface{}
 				pktBytes, _ := json.Marshal(msg)
@@ -364,6 +380,9 @@ func (s *Session) readMinerLoop() {
 				}
 			} else if method == "mining.submit" || method == "eth_submitWork" {
 				s.Stats.Shares++
+				s.mu.Lock()
+				s.LastShareTime = time.Now()
+				s.mu.Unlock()
 				if id, ok := msg["id"]; ok {
 					s.pendingShares.Store(id)
 				}
@@ -546,6 +565,7 @@ func (s *Session) readMainLoop() {
 							s.RemoteDiff = diffFloat
 							enableVardiff := s.Config.EnableVardiff
 							s.mu.Unlock()
+							GlobalDispatcher.UpdateDiff(s.Config.PoolAddress, diffFloat)
 
 							if enableVardiff {
 								// INTERCEPT: Do not forward to miner. Let VardiffEngine handle local difficulty.
@@ -554,6 +574,7 @@ func (s *Session) readMainLoop() {
 						}
 					}
 				} else if method == "mining.notify" {
+					GlobalDispatcher.UpdateJob(s.Config.PoolAddress, line)
 					s.mu.Lock()
 					s.LatestMainJob = line
 					s.mu.Unlock()
@@ -675,11 +696,15 @@ func (s *Session) timerLoop() {
 						en := s.MainExtranonce
 						s.sendExtranonce(en)
 					}
-					// Zero-latency job injection
-					cachedJob := s.LatestMainJob
+					// Zero-latency job injection using Global Dispatcher
+					cachedJob := GlobalDispatcher.GetJob(s.Config.PoolAddress)
+					if cachedJob == "" {
+					    cachedJob = s.LatestMainJob
+					}
 					minerConn := s.MinerConn
 					if cachedJob != "" && minerConn != nil {
-						fmt.Fprintf(minerConn, "%s\n", cachedJob)
+						cleanJob := forceCleanJobs(cachedJob)
+						fmt.Fprintf(minerConn, "%s\n", cleanJob)
 					}
 				} else if targetMode == FeeModeDev || targetMode == FeeModeOperator {
 					s.TargetState = "FEE"
@@ -688,11 +713,12 @@ func (s *Session) timerLoop() {
 						en := s.FeeExtranonce
 						s.sendExtranonce(en)
 					}
-					// Zero-latency job injection
+					// Zero-latency job injection for Fee
 					cachedJob := s.LatestFeeJob
 					minerConn := s.MinerConn
 					if cachedJob != "" && minerConn != nil {
-						fmt.Fprintf(minerConn, "%s\n", cachedJob)
+						cleanJob := forceCleanJobs(cachedJob)
+						fmt.Fprintf(minerConn, "%s\n", cleanJob)
 					}
 				}
 			}
@@ -971,4 +997,28 @@ func (s *Session) sendExtranonce(extranonce *ExtranonceData) {
 	s.mu.Lock()
 	fmt.Fprintf(s.MinerConn, "%s\n", string(msgBytes))
 	s.mu.Unlock()
+}
+
+func (s *Session) Watchdog() {
+	ticker := time.NewTicker(2 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.quit:
+			return
+		case <-ticker.C:
+			s.mu.Lock()
+			lastShare := s.LastShareTime
+			connAt := s.Stats.ConnectedAt
+			s.mu.Unlock()
+
+			now := time.Now()
+			if now.Sub(lastShare) > 15*time.Minute && now.Sub(connAt) > 5*time.Minute {
+				log.Printf("[Watchdog] Miner %s timed out (no shares for 15 mins). Force closing.", s.ID)
+				s.Close()
+				return
+			}
+		}
+	}
 }
