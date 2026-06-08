@@ -58,6 +58,7 @@ func (s *APIServer) Start(port int) error {
 		api.GET("/logs/tail", s.getLogs)
 		api.DELETE("/logs/clear", s.clearLogs)
 		api.POST("/download/custom", s.downloadCustomClient)
+		api.GET("/download/custom", s.downloadCustomClient)
 	}
 
 	// Serve static files for downloads (e.g. tunnel clients)
@@ -192,11 +193,11 @@ func (s *APIServer) restartSystem(c *gin.Context) {
 
 func (s *APIServer) downloadCustomClient(c *gin.Context) {
 	var req struct {
-		Remote string `json:"remote"`
-		Local  string `json:"local"`
-		OS     string `json:"os"`
+		Remote string `json:"remote" form:"remote"`
+		Local  string `json:"local" form:"local"`
+		OS     string `json:"os" form:"os"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBind(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

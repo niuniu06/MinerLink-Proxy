@@ -23,6 +23,13 @@
           <span class="hint">该防封软件在矿场电脑上开启的本地端口，矿机填这个端口。</span>
         </div>
 
+        <div class="script-block" v-if="remoteAddr">
+          <label>Linux 矿机一键部署脚本 (自动后台运行)：</label>
+          <div class="code-wrap">
+            <textarea readonly :value="wgetCommand"></textarea>
+            <button class="btn-copy" @click="copyScript">复制</button>
+          </div>
+        </div>
       </div>
 
       <div class="modal-footer">
@@ -35,7 +42,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 
 const emit = defineEmits(['close'])
 
@@ -49,6 +56,23 @@ onMounted(() => {
     remoteAddr.value = `${host}:10130` // Default guessing 10130
   }
 })
+
+const wgetCommand = computed(() => {
+  if (!remoteAddr.value) return '请先输入服务器地址...'
+  const host = window.location.host
+  const proto = window.location.protocol
+  const downloadUrl = `${proto}//${host}/api/download/custom?os=linux&remote=${encodeURIComponent(remoteAddr.value)}&local=${encodeURIComponent(localPort.value)}`
+  return `wget -O local-tunnel "${downloadUrl}" && chmod +x local-tunnel && nohup ./local-tunnel > tunnel.log 2>&1 &`
+})
+
+const copyScript = async () => {
+  try {
+    await navigator.clipboard.writeText(wgetCommand.value)
+    alert('一键部署脚本已复制到剪贴板！去 Linux 矿机上粘贴执行即可！')
+  } catch (err) {
+    alert('复制失败，请手动选中复制')
+  }
+}
 
 const downloadClient = async (os) => {
   if (!remoteAddr.value) {
@@ -172,6 +196,52 @@ const downloadClient = async (os) => {
   font-size: 0.8rem;
   color: var(--text-muted);
   margin-top: 5px;
+}
+
+.script-block {
+  margin-top: 20px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px dashed var(--border-color);
+}
+.script-block label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--accent-green);
+  margin-bottom: 8px;
+  font-weight: bold;
+}
+.code-wrap {
+  position: relative;
+}
+.code-wrap textarea {
+  width: 100%;
+  height: 65px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 10px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  resize: none;
+}
+.btn-copy {
+  position: absolute;
+  right: 8px;
+  bottom: 12px;
+  background: var(--accent-blue);
+  color: #fff;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  opacity: 0.8;
+}
+.btn-copy:hover {
+  opacity: 1;
 }
 
 .modal-footer {
