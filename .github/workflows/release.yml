@@ -1,0 +1,51 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger workflow on tags starting with v (e.g., v1.0.0)
+
+jobs:
+  build:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Need write permission to create release and upload assets
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Frontend Vue UI
+        run: |
+          cd frontend
+          npm install
+          npm run build
+          mkdir -p ../internal/ui/dist
+          cp -r dist/* ../internal/ui/dist/
+
+      - name: Build Linux Binary
+        run: |
+          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o proxy-linux-amd64 ./cmd/proxy
+
+      - name: Build Windows Binary
+        run: |
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o proxy-windows-amd64.exe ./cmd/proxy
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            proxy-linux-amd64
+            proxy-windows-amd64.exe
+          generate_release_notes: true
