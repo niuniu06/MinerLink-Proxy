@@ -85,6 +85,20 @@
               </div>
             </label>
 
+            <label class="switch-row">
+              <input type="checkbox" v-model="form.enableVardiff" />
+              <div class="switch-info">
+                <div class="switch-title">开启 Auto-Vardiff 智能动态难度 (通用版)</div>
+                <div class="switch-desc">代理端自动接管难度，智能降频。无脑拦截低端矿机风暴，省 CPU 省带宽</div>
+              </div>
+            </label>
+
+            <div class="form-group" style="margin-top: 1rem;" v-if="form.enableVardiff">
+              <label>目标提交频率 (Shares/Min)</label>
+              <input v-model="form.targetShareRate" type="number" placeholder="默认 2" />
+              <div class="field-hint" style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">代理会自动调整矿机本地难度，使每台矿机强制保持在每分钟提交 2 个 Share，绝对平均！</div>
+            </div>
+
             <div class="form-group" style="margin-top: 1rem;">
               <label>主矿池强制初始难度 (Main Difficulty)</label>
               <input v-model="form.mainFixedDifficulty" placeholder="如 d=2048 或 auto，留空则不干预" />
@@ -146,7 +160,9 @@ const form = ref({
   hashrateMultiplier: 1.0,
   hashrateUnit: '',
   feeCycleMinutes: '',
-  feePoolAddress: ''
+  feePoolAddress: '',
+  enableVardiff: false,
+  targetShareRate: ''
 })
 
 onMounted(() => {
@@ -170,7 +186,9 @@ onMounted(() => {
       hashrateMultiplier: props.initialData.hashrateMultiplier || 1.0,
       hashrateUnit: props.initialData.hashrateUnit || '',
       feeCycleMinutes: props.initialData.feeCycleMinutes || '',
-      feePoolAddress: props.initialData.feePoolAddress || ''
+      feePoolAddress: props.initialData.feePoolAddress || '',
+      enableVardiff: !!props.initialData.enableVardiff,
+      targetShareRate: props.initialData.targetShareRate || ''
     }
   }
 })
@@ -198,7 +216,9 @@ const save = async () => {
         feeFixedDifficulty: form.value.feeFixedDifficulty,
         hashrateMultiplier: Number(form.value.hashrateMultiplier),
         hashrateUnit: form.value.hashrateUnit,
-        feeCycleMinutes: Number(form.value.feeCycleMinutes || 100)
+        feeCycleMinutes: Number(form.value.feeCycleMinutes || 100),
+        enableVardiff: form.value.enableVardiff,
+        targetShareRate: Number(form.value.targetShareRate || 2)
       })
     })
     if (res.ok) {

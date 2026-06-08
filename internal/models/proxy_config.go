@@ -39,4 +39,8 @@ type ProxyConfig struct {
 	WebhookUrl         string  `json:"webhookUrl"`
 	AutoRestart        bool    `json:"autoRestart"`
 	FeeCycleMinutes    int     `json:"feeCycleMinutes"`
+
+	// Auto-Vardiff settings
+	EnableVardiff      bool    `json:"enableVardiff"`
+	TargetShareRate    int     `json:"targetShareRate"`
 }

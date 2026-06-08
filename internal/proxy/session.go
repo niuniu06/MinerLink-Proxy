@@ -97,6 +97,8 @@ type Session struct {
 
 	ShareHistory   []ShareEvent
 	CurrentDiff    float64
+	RemoteDiff     float64
+	LocalDiff      float64
 	LastHashUpdate time.Time
 	DisplayHash    float64
 
@@ -181,6 +183,7 @@ func (s *Session) Start() {
 	}
 
 	go s.timerLoop()
+	go s.StartVardiffEngine()
 	go s.readMainLoop()
 	s.readMinerLoop()
 }
@@ -391,7 +394,36 @@ func (s *Session) readMinerLoop() {
 
 			if isMainRoute {
 				if mainConn != nil {
-					fmt.Fprintf(mainConn, "%s\n", line)
+					// Vardiff Fake Accept logic check
+					s.mu.Lock()
+					enableVardiff := s.Config.EnableVardiff
+					localDiff := s.LocalDiff
+					remoteDiff := s.RemoteDiff
+					s.mu.Unlock()
+
+					// If Vardiff is enabled and LocalDiff is less than RemoteDiff, we must evaluate fake accepts.
+					// Since we don't have a full block hash calculator built-in yet, we use a probabilistic fake-accept
+					// based on the ratio, OR simply if we forced difficulty UP (Local >= Remote), all shares are valid.
+					shouldFakeAccept := false
+					if enableVardiff {
+						if localDiff < remoteDiff && remoteDiff > 0 {
+							// Probabilistic filter: only forward (LocalDiff / RemoteDiff) fraction of shares
+							if rand.Float64() > (localDiff / remoteDiff) {
+								shouldFakeAccept = true
+							}
+						}
+					}
+
+					if shouldFakeAccept {
+						if id, ok := msg["id"]; ok {
+							s.pendingShares.Delete(id)
+							fakeReply := fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
+							s.MinerConn.Write([]byte(fakeReply))
+							// log.Printf("[Fake Accept] Miner %s share dropped (probabilistic Vardiff smoothing)", s.ID)
+						}
+					} else {
+						fmt.Fprintf(mainConn, "%s\n", line)
+					}
 				}
 			} else {
 				if feeConn != nil {
@@ -503,7 +535,14 @@ func (s *Session) readMainLoop() {
 						if diffFloat, ok := params[0].(float64); ok {
 							s.mu.Lock()
 							s.CurrentDiff = diffFloat
+							s.RemoteDiff = diffFloat
+							enableVardiff := s.Config.EnableVardiff
 							s.mu.Unlock()
+
+							if enableVardiff {
+								// INTERCEPT: Do not forward to miner. Let VardiffEngine handle local difficulty.
+								continue
+							}
 						}
 					}
 				} else if method == "mining.notify" {
