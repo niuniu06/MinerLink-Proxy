@@ -1,6 +1,7 @@
 package api
 
 import (
+	"embed"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -270,7 +271,7 @@ func (s *APIServer) saveGlobalConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	
+
 	// Exit and let systemd automatically restart to apply new port
 	go func() {
 		time.Sleep(1 * time.Second)
