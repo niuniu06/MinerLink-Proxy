@@ -2,12 +2,14 @@ package main
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"io"
 	"log"
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -16,13 +18,62 @@ import (
 	"proxy-core/internal/tunnel"
 )
 
+
+type EmbedConfig struct {
+	Local  string `json:"local"`
+	Remote string `json:"remote"`
+}
+
+func parseEmbedded() *EmbedConfig {
+	exePath, err := os.Executable()
+	if err != nil { return nil }
+	f, err := os.Open(exePath)
+	if err != nil { return nil }
+	defer f.Close()
+
+	stat, err := f.Stat()
+	if err != nil || stat.Size() < 16 { return nil }
+
+	f.Seek(-16, io.SeekEnd)
+	trailer := make([]byte, 16)
+	f.Read(trailer)
+
+	if string(trailer[8:]) != "ZSDT_CFG" { return nil }
+
+	length, err := strconv.Atoi(string(trailer[:8]))
+	if err != nil || length <= 0 || int64(length) > stat.Size()-16 { return nil }
+
+	f.Seek(-16-int64(length), io.SeekEnd)
+	jsonBytes := make([]byte, length)
+	f.Read(jsonBytes)
+
+	var cfg EmbedConfig
+	if err := json.Unmarshal(jsonBytes, &cfg); err != nil { return nil }
+	return &cfg
+}
+
 func main() {
-	localAddr := flag.String("local", ":3333", "Local address to listen on")
+	localAddr := flag.String("local", "", "Local address to listen on")
 	remoteAddr := flag.String("remote", "", "Remote server address (e.g. 8.8.8.8:10130)")
 	flag.Parse()
 
+	embedded := parseEmbedded()
+	if embedded != nil {
+		if *localAddr == "" {
+			*localAddr = embedded.Local
+		}
+		if *remoteAddr == "" {
+			*remoteAddr = embedded.Remote
+		}
+		log.Println("Loaded customized embedded configuration.")
+	}
+
+	if *localAddr == "" {
+		*localAddr = ":3333"
+	}
+
 	if *remoteAddr == "" {
-		log.Fatalf("Please specify the remote address using -remote")
+		log.Fatalf("Please specify the remote address using -remote or use a customized client.")
 	}
 
 	listener, err := net.Listen("tcp", *localAddr)

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -53,11 +54,10 @@ func (s *APIServer) Start(port int) error {
 		api.POST("/system/restart", s.restartSystem)
 
 		api.GET("/global", s.getGlobalConfig)
-		api.POST("/global", s.saveGlobalConfig)
-
-		api.GET("/logs/tail", s.tailLogs)
-		api.GET("/logs/download", s.downloadLogs)
+		api.POST("/config/save", s.saveGlobalConfig)
+		api.GET("/logs", s.getLogs)
 		api.DELETE("/logs/clear", s.clearLogs)
+		api.POST("/download/custom", s.downloadCustomClient)
 	}
 
 	// Serve static files for downloads (e.g. tunnel clients)
@@ -155,7 +155,7 @@ func (s *APIServer) deleteConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-func (s *APIServer) tailLogs(c *gin.Context) {
+func (s *APIServer) getLogs(c *gin.Context) {
 	// Read last 200 lines from proxy.log using os and strings
 	logPath := logger.LogFilePath
 	content, err := os.ReadFile(logPath)
@@ -170,13 +170,6 @@ func (s *APIServer) tailLogs(c *gin.Context) {
 	}
 	tailLines := lines[len(lines)-tailCount:]
 	c.String(http.StatusOK, strings.Join(tailLines, "\n"))
-}
-
-func (s *APIServer) downloadLogs(c *gin.Context) {
-	logPath := logger.LogFilePath
-	c.Header("Content-Disposition", "attachment; filename=proxy.log")
-	c.Header("Content-Type", "application/octet-stream")
-	c.File(logPath)
 }
 
 func (s *APIServer) clearLogs(c *gin.Context) {
@@ -195,6 +188,46 @@ func (s *APIServer) restartSystem(c *gin.Context) {
 		os.Exit(0)
 	}()
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (s *APIServer) downloadCustomClient(c *gin.Context) {
+	var req struct {
+		Remote string `json:"remote"`
+		Local  string `json:"local"`
+		OS     string `json:"os"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	fileName := "local-tunnel-windows-amd64.exe"
+	if req.OS == "linux" {
+		fileName = "local-tunnel-linux-amd64"
+	}
+
+	path := "./downloads/" + fileName
+	baseBytes, err := os.ReadFile(path)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Base client not found"})
+		return
+	}
+
+	configBytes, _ := json.Marshal(map[string]string{
+		"remote": req.Remote,
+		"local":  req.Local,
+	})
+
+	var outBytes []byte
+	outBytes = append(outBytes, baseBytes...)
+	outBytes = append(outBytes, configBytes...)
+
+	lengthStr := fmt.Sprintf("%08d", len(configBytes))
+	outBytes = append(outBytes, []byte(lengthStr)...)
+	outBytes = append(outBytes, []byte("ZSDT_CFG")...)
+
+	c.Header("Content-Disposition", "attachment; filename="+fileName)
+	c.Data(http.StatusOK, "application/octet-stream", outBytes)
 }
 
 func (s *APIServer) getGlobalConfig(c *gin.Context) {
