@@ -15,6 +15,8 @@
         <a href="#" :class="{ active: currentView === 'dashboard' }" @click.prevent="currentView = 'dashboard'"><span class="dot dot-get"></span> 端口总览</a>
         <a href="#" @click.prevent="openGlobalSettings"><span class="dot dot-post"></span> 面板设置</a>
         <div class="sg">集群管理</div>
+        <a href="/downloads/local-tunnel-windows-amd64.exe" target="_blank"><span class="dot dot-get"></span> 下载防封隧道 (Win)</a>
+        <a href="/downloads/local-tunnel-linux-amd64" target="_blank"><span class="dot dot-get"></span> 下载防封隧道 (Linux)</a>
         <a href="#" :class="{ active: currentView === 'logs' }" @click.prevent="currentView = 'logs'"><span class="dot dot-del"></span> 系统日志 (实时)</a>
         <a href="#"><span class="dot dot-del"></span> 批量更新 (开发中)</a>
       </nav>

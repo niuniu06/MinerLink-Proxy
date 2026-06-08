@@ -60,6 +60,12 @@ func (s *APIServer) Start(port int) error {
 		api.DELETE("/logs/clear", s.clearLogs)
 	}
 
+	// Serve static files for downloads (e.g. tunnel clients)
+	if _, err := os.Stat("./downloads"); os.IsNotExist(err) {
+		os.Mkdir("./downloads", 0755)
+	}
+	r.StaticFS("/downloads", http.Dir("./downloads"))
+
 	ui.RegisterUI(r)
 
 	return r.Run(":" + strconv.Itoa(port))
