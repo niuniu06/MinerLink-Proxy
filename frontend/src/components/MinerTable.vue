@@ -17,7 +17,10 @@
           <td colspan="7" class="empty-row">暂无在线矿机</td>
         </tr>
         <tr v-for="miner in sortedMiners" :key="miner.id">
-          <td class="worker-name">{{ miner.worker || 'worker' }}</td>
+          <td class="worker-name">
+            <span v-if="miner.isEncrypted" class="secure-icon" title="隧道加密">🛡️</span>
+            {{ miner.worker || 'worker' }}
+          </td>
           <td class="hashrate">{{ miner.hashrate }}</td>
           <td>
             <span class="valid">{{ miner.validShares }} 有效</span> | 
@@ -91,6 +94,13 @@ const maskWallet = (wallet) => {
 .worker-name {
   color: #f3f4f6;
   font-weight: bold;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.secure-icon {
+  font-size: 1.1rem;
 }
 
 .hashrate {

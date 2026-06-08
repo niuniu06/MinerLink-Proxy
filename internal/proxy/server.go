@@ -80,7 +80,7 @@ func (s *Server) handleNewConnection(conn net.Conn, tlsConfig *tls.Config) {
 	if err != nil {
 		if n > 0 {
 			peekConn := tunnel.NewPeekConn(conn, buf[:n])
-			s.startSession(peekConn)
+			s.startSession(peekConn, false)
 		} else {
 			conn.Close()
 		}
@@ -117,18 +117,18 @@ func (s *Server) handleNewConnection(conn net.Conn, tlsConfig *tls.Config) {
 				
 				// Wrap stream with Snappy compression before starting session
 				snappyConn := tunnel.NewSnappyConn(stream)
-				go s.startSession(snappyConn)
+				go s.startSession(snappyConn, true)
 			}
 		}()
 	} else {
 		// Normal Stratum Miner
 		peekConn := tunnel.NewPeekConn(conn, buf)
-		s.startSession(peekConn)
+		s.startSession(peekConn, false)
 	}
 }
 
-func (s *Server) startSession(conn net.Conn) {
-	session := NewSession(conn, s.Config)
+func (s *Server) startSession(conn net.Conn, isEncrypted bool) {
+	session := NewSession(conn, s.Config, isEncrypted)
 	s.Sessions.Store(session.ID, session)
 
 	session.Start()
@@ -184,6 +184,7 @@ func (s *Server) GetStats() map[string]interface{} {
 			"currentDiff":   sess.CurrentDiff,
 			"hashrate":      sess.FormatHashrate(),
 			"uptime":        uptimeSecs,
+			"isEncrypted":   sess.IsEncrypted,
 		})
 		return true
 	})

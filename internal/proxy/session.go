@@ -101,6 +101,7 @@ type Session struct {
 	LocalDiff      float64
 	LastHashUpdate time.Time
 	DisplayHash    float64
+	IsEncrypted    bool
 
 	// Locks and sync
 	mu   sync.Mutex
@@ -126,9 +127,10 @@ type Session struct {
 	IsPreWarmed   bool
 }
 
-func NewSession(conn net.Conn, cfg *models.ProxyConfig) *Session {
+func NewSession(conn net.Conn, cfg *models.ProxyConfig, isEncrypted bool) *Session {
+	id := uuid.New().String()
 	return &Session{
-		ID:             fmt.Sprintf("%d", time.Now().UnixNano()),
+		ID:             id,
 		MinerConn:      conn,
 		Config:         cfg,
 		State:          "MAIN",
@@ -144,6 +146,7 @@ func NewSession(conn net.Conn, cfg *models.ProxyConfig) *Session {
 		LastHashUpdate: time.Now(),
 		jobTracker:     make(map[string]bool),
 		jobList:        make([]string, 0),
+		IsEncrypted:    isEncrypted,
 	}
 }
 
@@ -172,7 +175,12 @@ func (s *Session) checkJobIsMain(jobID string) (bool, bool) {
 }
 
 func (s *Session) Start() {
-	log.Printf("[Miner %s] Connected", s.ID)
+	encTag := ""
+	if s.IsEncrypted {
+		encTag = "[隧道加密🛡️] "
+	}
+	log.Printf("[Miner %s] %sConnected from %s", s.ID, encTag, s.MinerConn.RemoteAddr().String())
+
 	// Connect to main pool
 	var err error
 	s.MainConn, err = net.Dial("tcp", s.Config.PoolAddress)
