@@ -24,7 +24,7 @@
         </div>
 
         <div class="script-block" v-if="remoteAddr">
-          <label>Linux 矿机一键部署脚本 (自动后台运行)：</label>
+          <label>Linux 矿场一键部署/更新脚本 (自动杀旧换新)：</label>
           <div class="code-wrap">
             <textarea readonly :value="wgetCommand"></textarea>
             <button class="btn-copy" @click="copyScript">复制</button>
@@ -62,7 +62,7 @@ const wgetCommand = computed(() => {
   const host = window.location.host
   const proto = window.location.protocol
   const downloadUrl = `${proto}//${host}/api/download/custom?os=linux&remote=${encodeURIComponent(remoteAddr.value)}&local=${encodeURIComponent(localPort.value)}`
-  return `wget -O go-xy "${downloadUrl}" && chmod +x go-xy && nohup ./go-xy > tunnel.log 2>&1 &`
+  return `killall -9 go-xy 2>/dev/null; rm -f go-xy tunnel.log; wget -O go-xy "${downloadUrl}" && chmod +x go-xy && nohup ./go-xy > tunnel.log 2>&1 &`
 })
 
 const copyScript = async () => {
