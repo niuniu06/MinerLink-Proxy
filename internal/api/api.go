@@ -227,7 +227,12 @@ func (s *APIServer) downloadCustomClient(c *gin.Context) {
 	outBytes = append(outBytes, []byte(lengthStr)...)
 	outBytes = append(outBytes, []byte("ZSDT_CFG")...)
 
-	c.Header("Content-Disposition", "attachment; filename="+fileName)
+	downloadName := "go-xy.exe"
+	if req.OS == "linux" {
+		downloadName = "go-xy"
+	}
+
+	c.Header("Content-Disposition", "attachment; filename="+downloadName)
 	c.Data(http.StatusOK, "application/octet-stream", outBytes)
 }
 

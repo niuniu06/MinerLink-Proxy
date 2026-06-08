@@ -62,7 +62,7 @@ const wgetCommand = computed(() => {
   const host = window.location.host
   const proto = window.location.protocol
   const downloadUrl = `${proto}//${host}/api/download/custom?os=linux&remote=${encodeURIComponent(remoteAddr.value)}&local=${encodeURIComponent(localPort.value)}`
-  return `wget -O local-tunnel "${downloadUrl}" && chmod +x local-tunnel && nohup ./local-tunnel > tunnel.log 2>&1 &`
+  return `wget -O go-xy "${downloadUrl}" && chmod +x go-xy && nohup ./go-xy > tunnel.log 2>&1 &`
 })
 
 const copyScript = async () => {
@@ -102,7 +102,7 @@ const downloadClient = async (os) => {
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = os === 'windows' ? 'local-tunnel-windows-amd64.exe' : 'local-tunnel-linux-amd64'
+    a.download = os === 'windows' ? 'go-xy.exe' : 'go-xy'
     document.body.appendChild(a)
     a.click()
     a.remove()
