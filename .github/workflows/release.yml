@@ -45,6 +45,7 @@ jobs:
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
+          body_path: RELEASE_NOTES.md
           files: |
             proxy-linux-amd64
             proxy-windows-amd64.exe
