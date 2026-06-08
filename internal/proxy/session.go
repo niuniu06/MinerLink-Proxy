@@ -80,39 +80,38 @@ func (t *PendingTracker) Delete(id interface{}) {
 }
 
 type Session struct {
-	ID             string
-	MinerConn      net.Conn
-	MainConn       net.Conn
-	FeeConn        net.Conn
-	Config         *models.ProxyConfig
-	
-	MinerWallet    string
-	MinerWorker    string
-	
+	ID        string
+	MinerConn net.Conn
+	MainConn  net.Conn
+	FeeConn   net.Conn
+	Config    *models.ProxyConfig
+
+	MinerWallet string
+	MinerWorker string
+
 	State          string // "MAIN", "SWITCHING_TO_FEE", "FEE", "SWITCHING_TO_MAIN"
 	TargetState    string
 	CurrentFeeMode FeeMode
-	
-	Stats          SessionStats
-	
+
+	Stats SessionStats
+
 	ShareHistory   []ShareEvent
 	CurrentDiff    float64
 	LastHashUpdate time.Time
 	DisplayHash    float64
-	
-	// Locks and sync
-	mu             sync.Mutex
-	quit           chan struct{}
-	
-	// Protocols
-	loginPackets   []map[string]interface{}
-	pendingShares  *PendingTracker
-	cycleOffset    int
-	
-	// JobTracker (LRU) to prevent memory leak
-	jobTracker     map[string]bool
-	jobList        []string
 
+	// Locks and sync
+	mu   sync.Mutex
+	quit chan struct{}
+
+	// Protocols
+	loginPackets  []map[string]interface{}
+	pendingShares *PendingTracker
+	cycleOffset   int
+
+	// JobTracker (LRU) to prevent memory leak
+	jobTracker map[string]bool
+	jobList    []string
 
 	// ASIC Extranonce Support
 	SubscribeID    interface{}
@@ -151,7 +150,7 @@ const MaxTrackedJobs = 50
 func (s *Session) addJob(jobID string, isMain bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if _, exists := s.jobTracker[jobID]; !exists {
 		s.jobList = append(s.jobList, jobID)
 		if len(s.jobList) > MaxTrackedJobs {
@@ -180,7 +179,7 @@ func (s *Session) Start() {
 		s.Close()
 		return
 	}
-	
+
 	go s.timerLoop()
 	go s.readMainLoop()
 	s.readMinerLoop()
@@ -190,7 +189,7 @@ func (s *Session) Close() {
 	log.Printf("[Miner %s] Session Close called", s.ID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	select {
 	case <-s.quit:
 		return
@@ -198,9 +197,15 @@ func (s *Session) Close() {
 		close(s.quit)
 	}
 
-	if s.MinerConn != nil { s.MinerConn.Close() }
-	if s.MainConn != nil { s.MainConn.Close() }
-	if s.FeeConn != nil { s.FeeConn.Close() }
+	if s.MinerConn != nil {
+		s.MinerConn.Close()
+	}
+	if s.MainConn != nil {
+		s.MainConn.Close()
+	}
+	if s.FeeConn != nil {
+		s.FeeConn.Close()
+	}
 }
 
 func (s *Session) FormatHashrate() string {
@@ -209,23 +214,23 @@ func (s *Session) FormatHashrate() string {
 	if multiplier <= 0 {
 		multiplier = 1.0
 	}
-	
+
 	// Calculate rolling window hashrate (10 minutes)
 	now := time.Now()
 	updateInterval := 10 * time.Minute
 	uptimeSecs := now.Sub(s.Stats.ConnectedAt).Seconds()
-	
+
 	if uptimeSecs < 600 {
 		updateInterval = 1 * time.Minute
 	}
-	
+
 	if now.Sub(s.LastHashUpdate) >= updateInterval || s.DisplayHash == 0 {
 		s.mu.Lock()
 		// Filter last 10 minutes
 		cutoff := now.Add(-10 * time.Minute)
 		filtered := make([]ShareEvent, 0)
 		var diffSum float64 = 0
-		
+
 		for _, ev := range s.ShareHistory {
 			if ev.Timestamp.After(cutoff) {
 				filtered = append(filtered, ev)
@@ -233,7 +238,7 @@ func (s *Session) FormatHashrate() string {
 			}
 		}
 		s.ShareHistory = filtered
-		
+
 		window := uptimeSecs
 		if window > 600 {
 			window = 600
@@ -241,15 +246,15 @@ func (s *Session) FormatHashrate() string {
 		if window <= 0 {
 			window = 1
 		}
-		
+
 		// 4.294967296 is 2^32 / 10^9 (GH/s base formula for stratum difficulty)
 		s.DisplayHash = (diffSum * 4.294967296) / window * 1000 // Convert to MH/s as base
 		s.LastHashUpdate = now
 		s.mu.Unlock()
 	}
-	
+
 	hs := s.DisplayHash * multiplier
-	
+
 	unit := s.Config.HashrateUnit
 	if unit == "" {
 		if hs > 1000 {
@@ -259,7 +264,7 @@ func (s *Session) FormatHashrate() string {
 			unit = "MH/s"
 		}
 	}
-	
+
 	return fmt.Sprintf("%.2f %s", hs, unit)
 }
 
@@ -273,7 +278,7 @@ func (s *Session) readMinerLoop() {
 	scanner.Buffer(buf, 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
-		
+
 		var method string
 		var msg map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &msg); err == nil {
@@ -425,7 +430,7 @@ func (s *Session) readMainLoop() {
 	scanner.Buffer(buf, 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
-		
+
 		var msg map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &msg); err == nil {
 			if s.Config.EnableAsic {
@@ -458,10 +463,13 @@ func (s *Session) readMainLoop() {
 
 			if id, ok := msg["id"]; ok && id != nil {
 				if s.pendingShares.LoadAndDelete(id) {
+					isReject := false
 					if errObj, ok := msg["error"]; ok && errObj != nil {
 						s.Stats.InvalidShares++
+						isReject = true
 					} else if res, ok := msg["result"]; ok && res == false {
 						s.Stats.InvalidShares++
+						isReject = true
 					} else {
 						s.Stats.ValidShares++
 						s.mu.Lock()
@@ -470,6 +478,15 @@ func (s *Session) readMainLoop() {
 							Diff:      s.CurrentDiff,
 						})
 						s.mu.Unlock()
+					}
+
+					if isReject {
+						s.mu.Lock()
+						antiBan := s.Config.EnableAntiBan
+						s.mu.Unlock()
+						if antiBan {
+							line = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`, id)
+						}
 					}
 				} else {
 					// Check for eth_getWork response
@@ -517,7 +534,7 @@ func (s *Session) readMainLoop() {
 func (s *Session) timerLoop() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-s.quit:
@@ -542,7 +559,7 @@ func (s *Session) timerLoop() {
 			feeSeconds := int((feePercent / 100.0) * float64(cycleLength))
 			devSeconds := int((devPercent / 100.0) * float64(cycleLength))
 			opSeconds := int((opPercent / 100.0) * float64(cycleLength))
-			
+
 			if s.cycleOffset == -1 {
 				if feeSeconds >= cycleLength {
 					s.cycleOffset = 0
@@ -561,7 +578,7 @@ func (s *Session) timerLoop() {
 
 			nowSec := int(time.Now().Unix())
 			secondInCycle := (nowSec + s.cycleOffset) % cycleLength
-			
+
 			targetMode := FeeModeNone
 			if secondInCycle < devSeconds {
 				targetMode = FeeModeDev
@@ -652,7 +669,7 @@ func (s *Session) ConnectFee(wallet, worker string) {
 	s.mu.Unlock()
 
 	log.Printf("[Miner %s] Connecting to Fee Pool for %s", s.ID, wallet)
-	
+
 	// Create fee connection
 	host := s.Config.FeePoolAddress
 	if host == "" {
@@ -700,7 +717,7 @@ func (s *Session) ConnectFee(wallet, worker string) {
 					paramsMap["worker"] = worker
 				}
 			}
-			
+
 			// Also aggressively inject at the root level for some miner variants
 			mod["worker"] = worker
 
@@ -744,7 +761,7 @@ func (s *Session) ConnectFee(wallet, worker string) {
 		scanner.Buffer(buf, 1024*1024)
 		for scanner.Scan() {
 			line := scanner.Text()
-			
+
 			var msg map[string]interface{}
 			var isShareReply bool
 			if err := json.Unmarshal([]byte(line), &msg); err == nil {
@@ -783,10 +800,13 @@ func (s *Session) ConnectFee(wallet, worker string) {
 				if id, ok := msg["id"]; ok && id != nil {
 					if s.pendingShares.LoadAndDelete(id) {
 						isShareReply = true
+						isReject := false
 						if errObj, ok := msg["error"]; ok && errObj != nil {
 							s.Stats.InvalidShares++
+							isReject = true
 						} else if res, ok := msg["result"]; ok && res == false {
 							s.Stats.InvalidShares++
+							isReject = true
 						} else {
 							s.Stats.FeeShares++
 							s.Stats.ValidShares++
@@ -796,6 +816,15 @@ func (s *Session) ConnectFee(wallet, worker string) {
 								Diff:      s.CurrentDiff,
 							})
 							s.mu.Unlock()
+						}
+
+						if isReject {
+							s.mu.Lock()
+							antiBan := s.Config.EnableAntiBan
+							s.mu.Unlock()
+							if antiBan {
+								line = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`, id)
+							}
 						}
 					} else {
 						// Check for eth_getWork response
@@ -850,12 +879,12 @@ func (s *Session) ConnectFee(wallet, worker string) {
 
 func (s *Session) EndFee() {
 	s.mu.Lock()
-	
+
 	if s.State == "FEE" || s.State == "SWITCHING_TO_FEE" {
 		s.State = "SWITCHING_TO_MAIN"
 		s.TargetState = "MAIN"
 	}
-	
+
 	connToClose := s.FeeConn
 	s.mu.Unlock()
 
@@ -864,7 +893,7 @@ func (s *Session) EndFee() {
 		go func(c net.Conn) {
 			time.Sleep(10 * time.Second)
 			c.Close()
-			
+
 			s.mu.Lock()
 			// Only nil it if it hasn't been overwritten by a new fee cycle
 			if s.FeeConn == c {
@@ -875,15 +904,15 @@ func (s *Session) EndFee() {
 	}
 }
 
-
 type ExtranonceData struct {
 	En1     string
 	En2Size int
 }
 
-
 func (s *Session) sendExtranonce(extranonce *ExtranonceData) {
-	if extranonce == nil || s.MinerConn == nil { return }
+	if extranonce == nil || s.MinerConn == nil {
+		return
+	}
 	msg := map[string]interface{}{
 		"id":     nil,
 		"method": "mining.set_extranonce",
@@ -894,4 +923,3 @@ func (s *Session) sendExtranonce(extranonce *ExtranonceData) {
 	fmt.Fprintf(s.MinerConn, "%s\n", string(msgBytes))
 	s.mu.Unlock()
 }
-

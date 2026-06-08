@@ -70,6 +70,14 @@
             </label>
 
             <label class="switch-row">
+              <input type="checkbox" v-model="form.enableAntiBan" />
+              <div class="switch-info">
+                <div class="switch-title">开启完美防封禁 (0拒绝率)</div>
+                <div class="switch-desc">强行拦截矿池所有的 Reject 报错，向矿机伪造 Accept 成功响应</div>
+              </div>
+            </label>
+
+            <label class="switch-row">
               <input type="checkbox" v-model="form.isViaBtcOptimize" />
               <div class="switch-info">
                 <div class="switch-title">开启微比特 (ViaBTC) 深度优化</div>
@@ -131,6 +139,7 @@ const form = ref({
   operatorFeePercent: '',
   enableSmoothFee: false,
   enableAsic: false,
+  enableAntiBan: false,
   isViaBtcOptimize: false,
   mainFixedDifficulty: '',
   feeFixedDifficulty: '',
@@ -154,6 +163,7 @@ onMounted(() => {
       operatorFeePercent: props.initialData.operatorFeePercent || 0,
       enableSmoothFee: !!props.initialData.enableSmoothFee,
       enableAsic: !!props.initialData.enableAsic,
+      enableAntiBan: !!props.initialData.enableAntiBan,
       isViaBtcOptimize: !!props.initialData.isViaBtcOptimize,
       mainFixedDifficulty: props.initialData.mainFixedDifficulty || '',
       feeFixedDifficulty: props.initialData.feeFixedDifficulty || '',
@@ -182,6 +192,7 @@ const save = async () => {
         operatorFeePercent: Number(form.value.operatorFeePercent || 0),
         enableSmoothFee: form.value.enableSmoothFee,
         enableAsic: form.value.enableAsic,
+        enableAntiBan: form.value.enableAntiBan,
         isViaBtcOptimize: form.value.isViaBtcOptimize,
         mainFixedDifficulty: form.value.mainFixedDifficulty,
         feeFixedDifficulty: form.value.feeFixedDifficulty,

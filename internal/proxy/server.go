@@ -44,7 +44,7 @@ func (s *Server) acceptLoop() {
 			return
 		default:
 		}
-		
+
 		conn, err := s.Listener.Accept()
 		if err != nil {
 			select {
@@ -92,7 +92,7 @@ func (s *Server) GetStats() map[string]interface{} {
 	s.Sessions.Range(func(key, value interface{}) bool {
 		activeMiners++
 		sess := value.(*Session)
-		
+
 		totalShares += sess.Stats.Shares
 		totalFeeShares += sess.Stats.FeeShares
 
@@ -103,7 +103,7 @@ func (s *Server) GetStats() map[string]interface{} {
 		}
 
 		uptimeSecs := int64(now.Sub(sess.Stats.ConnectedAt).Seconds())
-		
+
 		miners = append(miners, map[string]interface{}{
 			"id":            sess.ID,
 			"wallet":        sess.MinerWallet,
@@ -131,8 +131,8 @@ func (s *Server) GetStats() map[string]interface{} {
 		"activeOpFees":       activeOpFees,
 		"miners":             miners,
 		// Exposed flags for UI:
-		"enableSmoothFee":    s.Config.EnableSmoothFee,
-		"enableAsic":         s.Config.EnableAsic,
-		"enableAntiBan":      s.Config.EnableAntiBan,
+		"enableSmoothFee": s.Config.EnableSmoothFee,
+		"enableAsic":      s.Config.EnableAsic,
+		"enableAntiBan":   s.Config.EnableAntiBan,
 	}
 }
