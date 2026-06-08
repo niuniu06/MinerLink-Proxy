@@ -34,6 +34,12 @@ jobs:
           mkdir -p ../internal/ui/dist
           cp -r dist/* ../internal/ui/dist/
 
+      - name: Build Tunnel Clients
+        run: |
+          mkdir -p internal/api/downloads
+          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o internal/api/downloads/local-tunnel-linux-amd64 ./cmd/local
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o internal/api/downloads/local-tunnel-windows-amd64.exe ./cmd/local
+
       - name: Build Linux Binary
         run: |
           GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o proxy-linux-amd64 ./cmd/proxy

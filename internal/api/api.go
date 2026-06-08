@@ -19,6 +19,9 @@ import (
 	"strings"
 )
 
+//go:embed downloads/*
+var embedDownloadsFS embed.FS
+
 type APIServer struct {
 	ProxyManager *proxy.Manager
 }
@@ -207,8 +210,8 @@ func (s *APIServer) downloadCustomClient(c *gin.Context) {
 		fileName = "local-tunnel-linux-amd64"
 	}
 
-	path := "./downloads/" + fileName
-	baseBytes, err := os.ReadFile(path)
+	path := "downloads/" + fileName
+	baseBytes, err := embedDownloadsFS.ReadFile(path)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Base client not found"})
 		return
