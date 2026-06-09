@@ -18,11 +18,23 @@
           </div>
           <div class="form-group full-width">
             <label>主矿池地址 (MAIN POOL)</label>
-            <input v-model="form.poolAddress" required />
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input v-model="form.poolAddress" required style="flex: 1;" />
+              <button type="button" class="btn-test" @click="testPing('main')">✅ 测试连接</button>
+            </div>
+            <div v-if="pingResult.main" :class="['ping-result', pingResult.main.success ? 'success' : 'error']">
+              {{ pingResult.main.text }}
+            </div>
           </div>
           <div class="form-group full-width">
             <label>独立抽水矿池地址 (FEE POOL - 强烈建议留空，默认同主矿池)</label>
-            <input v-model="form.feePoolAddress" placeholder="留空则自动连接同主矿池服务器，网络最稳定" />
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input v-model="form.feePoolAddress" placeholder="留空则自动连接同主矿池服务器，网络最稳定" style="flex: 1;" />
+              <button type="button" class="btn-test" @click="testPing('fee')" :disabled="!form.feePoolAddress">✅ 测试连接</button>
+            </div>
+            <div v-if="pingResult.fee" :class="['ping-result', pingResult.fee.success ? 'success' : 'error']">
+              {{ pingResult.fee.text }}
+            </div>
           </div>
           <div class="form-group full-width">
             <label>作者抽水钱包 (DEV WALLET)</label>
@@ -139,6 +151,31 @@ const props = defineProps({
   initialData: Object
 })
 const emit = defineEmits(['close', 'saved'])
+
+const pingResult = ref({ main: null, fee: null })
+
+const testPing = async (type) => {
+  const addr = type === 'main' ? form.value.poolAddress : form.value.feePoolAddress;
+  if (!addr) return;
+  
+  pingResult.value[type] = { success: true, text: '测速中...' };
+  
+  try {
+    const res = await fetch('/api/system/ping', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ poolAddress: addr })
+    });
+    const data = await res.json();
+    if (data.success) {
+      pingResult.value[type] = { success: true, text: `✅ 连接成功, ${data.latencyMs.toFixed(1)}ms` };
+    } else {
+      pingResult.value[type] = { success: false, text: `❌ 连接失败 (${data.error})` };
+    }
+  } catch (e) {
+    pingResult.value[type] = { success: false, text: `❌ 测试异常` };
+  }
+}
 
 const isEdit = ref(false)
 const showAdvanced = ref(false)
@@ -377,4 +414,33 @@ button:hover { opacity: 0.8; }
   background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan));
   color: white;
 }
+
+.btn-test {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  color: var(--text-main);
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: bold;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+.btn-test:hover:not(:disabled) {
+  border-color: var(--accent-green);
+  color: var(--accent-green);
+}
+.btn-test:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ping-result {
+  font-size: 12px;
+  margin-top: 6px;
+  font-weight: 600;
+}
+.ping-result.success { color: var(--accent-green); }
+.ping-result.error { color: var(--accent-red); }
 </style>

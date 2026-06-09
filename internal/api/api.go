@@ -56,11 +56,15 @@ func (s *APIServer) Start(port int) error {
 		api.POST("/config/add", s.addConfig)
 		api.POST("/config/delete", s.deleteConfig)
 		api.POST("/system/restart", s.restartSystem)
+		api.POST("/system/ping", s.pingPool)
 
 		api.GET("/global", s.getGlobalConfig)
 		api.POST("/config/save", s.saveGlobalConfig)
 		api.GET("/logs/tail", s.getLogs)
 		api.DELETE("/logs/clear", s.clearLogs)
+		
+		api.GET("/miners", s.getMiners)
+		api.GET("/minerlogs", s.getMinerLogs)
 		api.POST("/download/custom", s.downloadCustomClient)
 		api.GET("/download/custom", s.downloadCustomClient)
 	}
@@ -84,6 +88,56 @@ func (s *APIServer) getStats(c *gin.Context) {
 		return true
 	})
 	c.JSON(http.StatusOK, stats)
+}
+
+func (s *APIServer) getMiners(c *gin.Context) {
+	portStr := c.Query("port")
+	pageStr := c.Query("page")
+	limitStr := c.Query("limit")
+	
+	port, _ := strconv.Atoi(portStr)
+	page, _ := strconv.Atoi(pageStr)
+	limit, _ := strconv.Atoi(limitStr)
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 12
+	}
+	
+	val, ok := s.ProxyManager.Servers.Load(port)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "proxy not found on this port"})
+		return
+	}
+	server := val.(*proxy.Server)
+	
+	total, paginatedMiners := server.GetPaginatedMiners(page, limit)
+	c.JSON(http.StatusOK, gin.H{
+		"total": total,
+		"page": page,
+		"limit": limit,
+		"miners": paginatedMiners,
+	})
+}
+
+func (s *APIServer) getMinerLogs(c *gin.Context) {
+	portStr := c.Query("port")
+	worker := c.Query("worker")
+	
+	port, _ := strconv.Atoi(portStr)
+	val, ok := s.ProxyManager.Servers.Load(port)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "proxy not found on this port"})
+		return
+	}
+	server := val.(*proxy.Server)
+	
+	genLogs, errLogs := server.GetMinerLogs(worker)
+	c.JSON(http.StatusOK, gin.H{
+		"general": genLogs,
+		"error": errLogs,
+	})
 }
 
 func (s *APIServer) getConfig(c *gin.Context) {
@@ -193,6 +247,42 @@ func (s *APIServer) restartSystem(c *gin.Context) {
 		os.Exit(0)
 	}()
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (s *APIServer) pingPool(c *gin.Context) {
+	var req struct {
+		PoolAddress string `json:"poolAddress"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+
+	addr := req.PoolAddress
+	if strings.Contains(addr, "://") {
+		parts := strings.SplitN(addr, "://", 2)
+		addr = parts[1]
+	}
+
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
+	latency := time.Since(start)
+
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success":   false,
+			"latencyMs": 0,
+			"error":     err.Error(),
+		})
+		return
+	}
+	conn.Close()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":   true,
+		"latencyMs": float64(latency.Microseconds()) / 1000.0,
+		"error":     "",
+	})
 }
 
 func (s *APIServer) downloadCustomClient(c *gin.Context) {

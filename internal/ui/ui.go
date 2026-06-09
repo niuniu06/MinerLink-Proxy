@@ -19,6 +19,16 @@ func RegisterUI(r *gin.Engine) {
 		panic(err)
 	}
 
+	// Serve static files but disable caching for index.html
+	r.Use(func(c *gin.Context) {
+		if c.Request.URL.Path == "/ui/" || c.Request.URL.Path == "/ui/index.html" {
+			c.Writer.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			c.Writer.Header().Set("Pragma", "no-cache")
+			c.Writer.Header().Set("Expires", "0")
+		}
+		c.Next()
+	})
+
 	r.StaticFS("/ui", http.FS(subFS))
 	
 	// Redirect root to /ui/

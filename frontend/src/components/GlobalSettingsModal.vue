@@ -13,14 +13,6 @@
         </small>
       </div>
 
-      <label class="switch-row">
-        <input type="checkbox" v-model="form.enableLogging" />
-        <div class="switch-info">
-          <div class="switch-title">开启底层运行日志记录</div>
-          <div class="switch-desc">关闭后系统日志页面将不再输出新日志，有助于极致压缩硬盘和CPU开销</div>
-        </div>
-      </label>
-
       <div class="modal-actions">
         <button class="btn-cancel" @click="$emit('close')" :disabled="saving">取消</button>
         <button class="btn-save" @click="saveConfig" :disabled="saving">

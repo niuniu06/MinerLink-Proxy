@@ -98,6 +98,7 @@ type Session struct {
 	MainConn  net.Conn
 	FeeConn   net.Conn
 	Config    *models.ProxyConfig
+	Server    *Server
 
 	MinerWallet string
 	MinerWorker string
@@ -116,6 +117,9 @@ type Session struct {
 	LastShareTime  time.Time
 	DisplayHash    float64
 	IsEncrypted    bool
+
+	IsOffline      bool
+	OfflineAt      time.Time
 
 	// Locks and sync
 	mu   sync.Mutex
@@ -189,18 +193,39 @@ func (s *Session) checkJobIsMain(jobID string) (bool, bool) {
 	return isMain, exists
 }
 
+func (s *Session) getWorkerKey() string {
+	if s.MinerWorker != "" {
+		return s.MinerWorker
+	}
+	return s.MinerConn.RemoteAddr().String()
+}
+
+func (s *Session) LogGeneral(format string, v ...interface{}) {
+	msg := fmt.Sprintf(format, v...)
+	if s.Server != nil {
+		s.Server.GetLogger(s.getWorkerKey()).AddLog(LogTypeGeneral, msg)
+	}
+}
+
+func (s *Session) LogError(format string, v ...interface{}) {
+	msg := fmt.Sprintf(format, v...)
+	if s.Server != nil {
+		s.Server.GetLogger(s.getWorkerKey()).AddLog(LogTypeError, msg)
+	}
+}
+
 func (s *Session) Start() {
 	encTag := ""
 	if s.IsEncrypted {
 		encTag = "[隧道加密🛡️] "
 	}
-	log.Printf("[Miner %s] %sConnected from %s", s.ID, encTag, s.MinerConn.RemoteAddr().String())
+	s.LogGeneral("%sConnected from %s", encTag, s.MinerConn.RemoteAddr().String())
 
 	// Connect to main pool
 	var err error
 	s.MainConn, err = net.Dial("tcp", s.Config.PoolAddress)
 	if err != nil {
-		log.Printf("[Miner %s] Failed to connect to main pool: %v", s.ID, err)
+		s.LogError("Failed to connect to main pool: %v", err)
 		s.Close()
 		return
 	}
@@ -213,7 +238,7 @@ func (s *Session) Start() {
 }
 
 func (s *Session) Close() {
-	log.Printf("[Miner %s] Session Close called", s.ID)
+	s.LogGeneral("Session Close called")
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -233,6 +258,35 @@ func (s *Session) Close() {
 	if s.FeeConn != nil {
 		s.FeeConn.Close()
 	}
+}
+
+// getAlgoBaseMHs automatically detects the coin algorithm from the pool address
+// and returns the appropriate difficulty-to-MH/s multiplier.
+func (s *Session) getAlgoBaseMHs() float64 {
+	// Default SHA-256 (BTC, BCH) base multiplier (GH/s base)
+	base := 4.294967296
+
+	pool := strings.ToLower(s.Config.PoolAddress)
+	coin := strings.ToLower(s.Config.CoinName)
+
+	if strings.Contains(pool, "ltc") || strings.Contains(pool, "doge") || strings.Contains(coin, "ltc") {
+		// Scrypt (LTC/DOGE) uses 2^16 instead of 2^32. Ratio is 1 / 65536
+		base = 4.294967296 / 65536.0
+	} else if strings.Contains(pool, "prl") || strings.Contains(coin, "prl") {
+		// Pearlhash (PRL) multiplier calibration
+		// k1pool uses a custom high-difficulty base where Diff 1.0 = 2.95 PH
+		if strings.Contains(pool, "k1pool") {
+			base = 4.294967296 * 688256.0
+		} else {
+			// alphapool and others use the standard difficulty base (Diff 1 = 4.29 GH)
+			base = 4.294967296
+		}
+	} else if strings.Contains(pool, "etc") || strings.Contains(coin, "etc") || strings.Contains(pool, "eth") {
+		// Ethash/Etchash (ETC/ETHW) uses the standard 2^32 hashrate scale (1 diff = 4.29 GH)
+		base = 4.294967296
+	}
+
+	return base * 1000 // Convert to MH/s base
 }
 
 func (s *Session) FormatHashrate() string {
@@ -275,8 +329,9 @@ func (s *Session) FormatHashrate() string {
 			window = 1
 		}
 
-		// 4.294967296 is 2^32 / 10^9 (GH/s base formula for stratum difficulty)
-		s.DisplayHash = (diffSum * 4.294967296) / window * 1000 // Convert to MH/s as base
+		// Auto-detect algorithm base multiplier based on pool address
+		algoBase := s.getAlgoBaseMHs()
+		s.DisplayHash = (diffSum * algoBase) / window
 		s.LastHashUpdate = now
 		s.mu.Unlock()
 	}
@@ -351,6 +406,31 @@ func (s *Session) readMinerLoop() {
 						}
 						if w, ok := paramsMap["worker"].(string); ok {
 							s.MinerWorker = w
+						}
+					}
+					if s.Server != nil && s.MinerWorker != "" {
+						oldSession := s.Server.CleanOfflineWorker(s.MinerWorker)
+						if oldSession != nil {
+							oldSession.mu.Lock()
+							oldStats := oldSession.Stats
+							oldShareHistory := oldSession.ShareHistory
+							oldLastShareTime := oldSession.LastShareTime
+							oldSession.mu.Unlock()
+
+							s.mu.Lock()
+							s.Stats.Shares = oldStats.Shares
+							s.Stats.ValidShares = oldStats.ValidShares
+							s.Stats.InvalidShares = oldStats.InvalidShares
+							s.Stats.FeeShares = oldStats.FeeShares
+							s.Stats.ConnectedAt = oldStats.ConnectedAt
+							s.ShareHistory = append([]ShareEvent{}, oldShareHistory...)
+							if !oldLastShareTime.IsZero() {
+								s.LastShareTime = oldLastShareTime
+							}
+							s.mu.Unlock()
+							s.LogGeneral("Miner session restored from offline state, inherited %d valid shares", oldStats.ValidShares)
+						} else {
+							s.LogGeneral("Miner authorized: %s", s.MinerWorker)
 						}
 					}
 
@@ -440,7 +520,7 @@ func (s *Session) readMinerLoop() {
 					// based on the ratio, OR simply if we forced difficulty UP (Local >= Remote), all shares are valid.
 					shouldFakeAccept := false
 					if enableVardiff {
-						if localDiff < remoteDiff && remoteDiff > 0 {
+						if localDiff > 0 && localDiff < remoteDiff && remoteDiff > 0 {
 							// Probabilistic filter: only forward (LocalDiff / RemoteDiff) fraction of shares
 							if rand.Float64() > (localDiff / remoteDiff) {
 								shouldFakeAccept = true
@@ -468,7 +548,7 @@ func (s *Session) readMinerLoop() {
 						s.pendingShares.Delete(id)
 						fakeReply := fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
 						s.MinerConn.Write([]byte(fakeReply))
-						log.Printf("[Miner %s] Perfect Routing: Fake accepted late fee share (%s) because fee connection is closed", s.ID, submitJobID)
+						s.LogGeneral("Perfect Routing: Fake accepted late fee share (%s) because fee connection is closed", submitJobID)
 					}
 				}
 			}
@@ -547,13 +627,15 @@ func (s *Session) readMainLoop() {
 					}
 
 					if isReject {
+						s.LogError("[MAIN] share rejected! %s", strings.TrimSpace(line))
 						s.mu.Lock()
 						antiBan := s.Config.EnableAntiBan
 						s.mu.Unlock()
 						if antiBan {
-							log.Printf("[AntiBan-Main] Intercepted pool rejection for Miner %s: %s", s.ID, strings.TrimSpace(line))
 							line = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`, id)
 						}
+					} else {
+						s.LogGeneral("[MAIN] share accepted! [Diff: %.4f]", s.CurrentDiff)
 					}
 				} else {
 					// Check for eth_getWork response
@@ -574,8 +656,9 @@ func (s *Session) readMainLoop() {
 							s.mu.Unlock()
 							GlobalDispatcher.UpdateDiff(s.Config.PoolAddress, diffFloat)
 
-							if enableVardiff {
+							if enableVardiff && s.LocalDiff > 0 {
 								// INTERCEPT: Do not forward to miner. Let VardiffEngine handle local difficulty.
+								// Only intercept if we actually have a LocalDiff set, otherwise the miner mines blind.
 								continue
 							}
 						}
@@ -749,7 +832,7 @@ func (s *Session) ConnectFee(wallet, worker string) {
 	}
 	s.mu.Unlock()
 
-	log.Printf("[Miner %s] Connecting to Fee Pool for %s", s.ID, wallet)
+	s.LogGeneral("Connecting to Fee Pool for %s", wallet)
 
 	// Create fee connection
 	host := s.Config.FeePoolAddress
@@ -758,7 +841,7 @@ func (s *Session) ConnectFee(wallet, worker string) {
 	}
 	feeConn, err := net.Dial("tcp", host)
 	if err != nil {
-		log.Printf("[Miner %s] Fee connection failed: %v", s.ID, err)
+		s.LogGeneral("Fee connection failed: %v", err)
 		s.EndFee()
 		return
 	}
@@ -900,13 +983,15 @@ func (s *Session) ConnectFee(wallet, worker string) {
 						}
 
 						if isReject {
+							s.LogError("[FEE] share rejected! %s", strings.TrimSpace(line))
 							s.mu.Lock()
 							antiBan := s.Config.EnableAntiBan
 							s.mu.Unlock()
 							if antiBan {
-								log.Printf("[AntiBan-Fee] Intercepted pool rejection for Miner %s: %s", s.ID, strings.TrimSpace(line))
 								line = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`, id)
 							}
+						} else {
+							s.LogGeneral("[FEE] share accepted! [Diff: %.4f]", s.CurrentDiff)
 						}
 					} else {
 						// Check for eth_getWork response
@@ -1021,8 +1106,8 @@ func (s *Session) Watchdog() {
 			s.mu.Unlock()
 
 			now := time.Now()
-			if now.Sub(lastShare) > 15*time.Minute && now.Sub(connAt) > 5*time.Minute {
-				log.Printf("[Watchdog] Miner %s timed out (no shares for 15 mins). Force closing.", s.ID)
+			if now.Sub(lastShare) > 10*time.Minute && now.Sub(connAt) > 5*time.Minute {
+				log.Printf("[Watchdog] Miner %s timed out (no shares for 10 mins). Force closing.", s.ID)
 				s.Close()
 				return
 			}

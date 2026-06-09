@@ -1,5 +1,20 @@
 <template>
   <div class="miner-table-wrap">
+    <div class="table-header">
+      <span class="total-info">共 {{ total }} 台矿机在线</span>
+      <div class="pagination-controls">
+        <select v-model="limit" @change="onLimitChange" class="page-select">
+          <option :value="12">12条/页</option>
+          <option :value="20">20条/页</option>
+          <option :value="50">50条/页</option>
+          <option :value="100">100条/页</option>
+        </select>
+        <button :disabled="page <= 1" @click="page--; fetchMiners()" class="page-btn">上一页</button>
+        <span class="page-info">{{ page }} / {{ totalPages }}</span>
+        <button :disabled="page >= totalPages" @click="page++; fetchMiners()" class="page-btn">下一页</button>
+      </div>
+    </div>
+    
     <table class="miner-table">
       <thead>
         <tr>
@@ -10,16 +25,21 @@
           <th>当前难度 (DIFF)</th>
           <th>在线时间 (UPTIME)</th>
           <th>钱包 (WALLET)</th>
+          <th>操作 (ACTIONS)</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-if="!miners || miners.length === 0">
-          <td colspan="7" class="empty-row">暂无在线矿机</td>
+        <tr v-if="loading && miners.length === 0">
+          <td colspan="8" class="empty-row">加载中...</td>
         </tr>
-        <tr v-for="miner in sortedMiners" :key="miner.id">
+        <tr v-else-if="miners.length === 0">
+          <td colspan="8" class="empty-row">暂无在线矿机</td>
+        </tr>
+        <tr v-for="miner in miners" :key="miner.id" :class="{ 'offline-row': miner.isOffline }">
           <td class="worker-name">
             <span v-if="miner.isEncrypted" class="secure-icon" title="隧道加密">🛡️</span>
             {{ miner.worker || 'worker' }}
+            <span v-if="miner.isOffline" class="offline-badge">离线</span>
           </td>
           <td class="hashrate">{{ miner.hashrate }}</td>
           <td>
@@ -30,22 +50,84 @@
           <td class="diff">{{ miner.currentDiff ? miner.currentDiff.toFixed(2) : '...' }}</td>
           <td>{{ formatUptime(miner.uptime) }}</td>
           <td class="wallet">{{ maskWallet(miner.wallet) }}</td>
+          <td>
+            <button class="log-btn" @click="showLogs(miner.worker)">查看日志</button>
+          </td>
         </tr>
       </tbody>
     </table>
+    
+    <MinerLogModal 
+      v-if="activeLogWorker" 
+      :port="port" 
+      :worker="activeLogWorker" 
+      @close="activeLogWorker = null" 
+    />
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import MinerLogModal from './MinerLogModal.vue'
 
 const props = defineProps({
-  miners: Array
+  port: Number
 })
 
-const sortedMiners = computed(() => {
-  if (!props.miners) return []
-  return [...props.miners].sort((a, b) => b.uptime - a.uptime)
+const miners = ref([])
+const total = ref(0)
+const page = ref(1)
+const limit = ref(12)
+const loading = ref(false)
+const activeLogWorker = ref(null)
+
+let intervalId = null
+
+const totalPages = computed(() => {
+  return Math.max(1, Math.ceil(total.value / limit.value))
+})
+
+const fetchMiners = async () => {
+  try {
+    const res = await fetch(`/api/miners?port=${props.port}&page=${page.value}&limit=${limit.value}`)
+    if (res.ok) {
+      const data = await res.json()
+      miners.value = data.miners || []
+      total.value = data.total || 0
+      
+      // Auto adjust page if out of bounds
+      if (page.value > totalPages.value && totalPages.value > 0) {
+        page.value = totalPages.value
+        await fetchMiners()
+      }
+    }
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+const onLimitChange = () => {
+  page.value = 1
+  fetchMiners()
+}
+
+const showLogs = (worker) => {
+  activeLogWorker.value = worker || 'default'
+}
+
+onMounted(() => {
+  loading.value = true
+  fetchMiners().then(() => loading.value = false)
+  intervalId = setInterval(fetchMiners, 2000)
+})
+
+onUnmounted(() => {
+  clearInterval(intervalId)
+})
+
+watch(() => props.port, () => {
+  page.value = 1
+  fetchMiners()
 })
 
 const formatUptime = (secs) => {
@@ -69,6 +151,60 @@ const maskWallet = (wallet) => {
 <style scoped>
 .miner-table-wrap {
   overflow-x: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.table-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 0.5rem;
+}
+
+.total-info {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.page-select {
+  background: var(--bg-dark);
+  color: #fff;
+  border: 1px solid var(--card-border);
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  outline: none;
+}
+
+.page-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--card-border);
+  color: #fff;
+  padding: 0.3rem 0.8rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.page-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-info {
+  font-size: 0.9rem;
+  color: var(--text-muted);
 }
 
 .miner-table {
@@ -80,13 +216,13 @@ const maskWallet = (wallet) => {
 .miner-table th {
   color: var(--text-muted);
   font-size: 0.8rem;
-  padding: 1rem 0;
+  padding: 1rem 0.5rem;
   border-bottom: 1px solid rgba(255,255,255,0.05);
   font-weight: normal;
 }
 
 .miner-table td {
-  padding: 1rem 0;
+  padding: 1rem 0.5rem;
   border-bottom: 1px solid rgba(255,255,255,0.02);
   font-size: 0.9rem;
 }
@@ -128,9 +264,39 @@ const maskWallet = (wallet) => {
   color: #bbb;
 }
 
+.log-btn {
+  background: var(--accent-blue);
+  color: #fff;
+  border: none;
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: opacity 0.2s;
+}
+
+.log-btn:hover {
+  opacity: 0.8;
+}
+
 .empty-row {
   text-align: center;
   padding: 2rem !important;
   color: var(--text-muted);
+}
+
+.offline-row {
+  opacity: 0.5;
+  filter: grayscale(100%);
+}
+
+.offline-badge {
+  background-color: #ff4d4f;
+  color: white;
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 8px;
+  font-weight: bold;
 }
 </style>

@@ -59,7 +59,7 @@
       </div>
     </div>
 
-    <MinerTable :miners="stats ? stats.miners : []" />
+    <MinerTable :port="config.listenPort" />
   </div>
 </template>
 
