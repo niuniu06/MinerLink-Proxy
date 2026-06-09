@@ -244,12 +244,9 @@ func (s *Session) FormatHashrate() string {
 
 	// Calculate rolling window hashrate (10 minutes)
 	now := time.Now()
-	updateInterval := 10 * time.Minute
+	// Refresh hashrate every 15 seconds to make the UI feel real-time and accurate
+	updateInterval := 15 * time.Second
 	uptimeSecs := now.Sub(s.Stats.ConnectedAt).Seconds()
-
-	if uptimeSecs < 600 {
-		updateInterval = 1 * time.Minute
-	}
 
 	if now.Sub(s.LastHashUpdate) >= updateInterval || s.DisplayHash == 0 {
 		s.mu.Lock()
@@ -284,7 +281,13 @@ func (s *Session) FormatHashrate() string {
 
 	unit := s.Config.HashrateUnit
 	if unit == "" {
-		if hs > 1000 {
+		if hs >= 1000000000 {
+			hs = hs / 1000000000
+			unit = "PH/s"
+		} else if hs >= 1000000 {
+			hs = hs / 1000000
+			unit = "TH/s"
+		} else if hs >= 1000 {
 			hs = hs / 1000
 			unit = "GH/s"
 		} else {
