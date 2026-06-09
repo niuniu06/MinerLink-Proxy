@@ -244,9 +244,13 @@ func (s *Session) FormatHashrate() string {
 
 	// Calculate rolling window hashrate (10 minutes)
 	now := time.Now()
-	// Refresh hashrate every 15 seconds to make the UI feel real-time and accurate
-	updateInterval := 15 * time.Second
+	// Reverted to 10 minutes to save CPU under massive concurrency (10,000+ miners)
+	updateInterval := 10 * time.Minute
 	uptimeSecs := now.Sub(s.Stats.ConnectedAt).Seconds()
+
+	if uptimeSecs < 600 {
+		updateInterval = 1 * time.Minute
+	}
 
 	if now.Sub(s.LastHashUpdate) >= updateInterval || s.DisplayHash == 0 {
 		s.mu.Lock()
