@@ -386,6 +386,11 @@ func (s *Session) readMinerLoop() {
 					if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 						if agent, ok := params[0].(string); ok {
 							s.ClientAgent = agent
+							if s.MinerConn != nil {
+								if tcpAddr, ok := s.MinerConn.RemoteAddr().(*net.TCPAddr); ok {
+									s.Server.ClientAgentCache.Store(tcpAddr.IP.String(), agent)
+								}
+							}
 						}
 					}
 					s.mu.Unlock()
@@ -397,6 +402,13 @@ func (s *Session) readMinerLoop() {
 					}
 					if method == "eth_submitLogin" {
 						s.Protocol = "ETH_PROXY"
+						if s.ClientAgent == "" && s.MinerConn != nil {
+							if tcpAddr, ok := s.MinerConn.RemoteAddr().(*net.TCPAddr); ok {
+								if cachedAgent, exists := s.Server.ClientAgentCache.Load(tcpAddr.IP.String()); exists {
+									s.ClientAgent = cachedAgent.(string)
+								}
+							}
+						}
 					} else {
 						s.Protocol = "STRATUM"
 					}

@@ -19,6 +19,7 @@ type Server struct {
 	Listener                net.Listener
 	Sessions                sync.Map // map[string]*Session
 	MinerLoggers            sync.Map // map[string]*MinerLogger
+	ClientAgentCache        sync.Map // map[string]string (IP -> Agent)
 	Quit                    chan struct{}
 	
 	mu                      sync.Mutex
