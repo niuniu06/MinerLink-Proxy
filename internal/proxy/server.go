@@ -181,6 +181,17 @@ func (s *Server) startSession(conn net.Conn, isEncrypted bool) {
 
 	session.Start()
 	
+	// Check if this was just a probe connection (0 shares)
+	session.mu.Lock()
+	shares := session.Stats.Shares
+	session.mu.Unlock()
+
+	if shares == 0 {
+		s.DeleteSession(session)
+		session.LogError("Miner probe connection dropped with 0 shares, deleted immediately")
+		return
+	}
+
 	// When session ends, do NOT delete immediately. Mark it as offline.
 	session.mu.Lock()
 	session.IsOffline = true
