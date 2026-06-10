@@ -1200,7 +1200,11 @@ type ExtranonceData struct {
 }
 
 func (s *Session) sendExtranonce(extranonce *ExtranonceData) {
-	if extranonce == nil || s.MinerConn == nil {
+	s.mu.Lock()
+	minerConn := s.MinerConn
+	s.mu.Unlock()
+
+	if extranonce == nil || minerConn == nil {
 		return
 	}
 	msg := map[string]interface{}{
@@ -1209,9 +1213,10 @@ func (s *Session) sendExtranonce(extranonce *ExtranonceData) {
 		"params": []interface{}{extranonce.En1, extranonce.En2Size},
 	}
 	msgBytes, _ := json.Marshal(msg)
-	s.mu.Lock()
-	fmt.Fprintf(s.MinerConn, "%s\n", string(msgBytes))
-	s.mu.Unlock()
+	
+	// Write without holding the session mutex to prevent TCP block deadlocks
+	// if the miner silently disconnects and the buffer fills up.
+	fmt.Fprintf(minerConn, "%s\n", string(msgBytes))
 }
 
 func (s *Session) Watchdog() {
