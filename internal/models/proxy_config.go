@@ -41,6 +41,10 @@ type ProxyConfig struct {
 	AutoRestart        bool    `json:"autoRestart"`
 	FeeCycleMinutes    int     `json:"feeCycleMinutes"`
 
+	EnableStaleDrop      bool    `json:"enableStaleDrop"`
+	EnableEthTargetRewrite bool  `json:"enableEthTargetRewrite"`
+	EnableTcpNoDelay     bool    `json:"enableTcpNoDelay"`
+
 	// Auto-Vardiff settings
 	EnableVardiff      bool    `json:"enableVardiff"`
 	TargetShareRate    int     `json:"targetShareRate"`

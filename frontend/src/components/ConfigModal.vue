@@ -66,6 +66,30 @@
           
           <div v-if="showAdvanced" class="advanced-content">
             <label class="switch-row">
+              <input type="checkbox" v-model="form.enableStaleDrop" />
+              <div class="switch-info">
+                <div class="switch-title">🚀 开启过期份额主动拦截 (Stale Share Drop)</div>
+                <div class="switch-desc">本地直接丢弃矿机换块延迟产生的 Stale Share 并伪造 Accept，实现矿池端账面完美 0 拒绝</div>
+              </div>
+            </label>
+
+            <label class="switch-row">
+              <input type="checkbox" v-model="form.enableEthTargetRewrite" />
+              <div class="switch-info">
+                <div class="switch-title">💡 ETH/ETC 跨矿池难度无缝伪造技术</div>
+                <div class="switch-desc">拦截并篡改抽水矿池下发的 Target Hash 使其与主矿池完全一致，彻底消除跨矿池算力断层</div>
+              </div>
+            </label>
+
+            <label class="switch-row">
+              <input type="checkbox" v-model="form.enableTcpNoDelay" />
+              <div class="switch-info">
+                <div class="switch-title">⚡ 强制底层极速网络推送 (TCP NoDelay)</div>
+                <div class="switch-desc">物理级别压榨系统网卡缓存，极速将新区块任务推送至矿机控制板，减少换块延迟</div>
+              </div>
+            </label>
+
+            <label class="switch-row">
               <input type="checkbox" v-model="form.enableSmoothFee" />
               <div class="switch-info">
                 <div class="switch-title">平滑无感抽水引擎</div>
@@ -208,7 +232,10 @@ const form = ref({
   feeCycleMinutes: '',
   feePoolAddress: '',
   enableVardiff: false,
-  targetShareRate: ''
+  targetShareRate: '',
+  enableStaleDrop: false,
+  enableEthTargetRewrite: false,
+  enableTcpNoDelay: false
 })
 
 onMounted(() => {
@@ -235,7 +262,10 @@ onMounted(() => {
       feeCycleMinutes: props.initialData.feeCycleMinutes || '',
       feePoolAddress: props.initialData.feePoolAddress || '',
       enableVardiff: !!props.initialData.enableVardiff,
-      targetShareRate: props.initialData.targetShareRate || ''
+      targetShareRate: props.initialData.targetShareRate || '',
+      enableStaleDrop: !!props.initialData.enableStaleDrop,
+      enableEthTargetRewrite: !!props.initialData.enableEthTargetRewrite,
+      enableTcpNoDelay: !!props.initialData.enableTcpNoDelay
     }
   }
 })
@@ -266,7 +296,10 @@ const save = async () => {
         hashrateUnit: form.value.hashrateUnit,
         feeCycleMinutes: Number(form.value.feeCycleMinutes || 100),
         enableVardiff: form.value.enableVardiff,
-        targetShareRate: Number(form.value.targetShareRate || 2)
+        targetShareRate: Number(form.value.targetShareRate || 2),
+        enableStaleDrop: form.value.enableStaleDrop,
+        enableEthTargetRewrite: form.value.enableEthTargetRewrite,
+        enableTcpNoDelay: form.value.enableTcpNoDelay
       })
     })
     if (res.ok) {

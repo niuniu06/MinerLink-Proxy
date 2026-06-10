@@ -127,8 +127,14 @@ func (s *Server) handleNewConnection(conn net.Conn, tlsConfig *tls.Config) {
 		// If n=0, it means it's a miner waiting for server challenge.
 		if n > 0 {
 			peekConn := tunnel.NewPeekConn(conn, buf[:n])
+			if s.Config.EnableTcpNoDelay {
+				ApplyTcpNoDelay(conn)
+			}
 			s.startSession(peekConn, false)
 		} else {
+			if s.Config.EnableTcpNoDelay {
+				ApplyTcpNoDelay(conn)
+			}
 			s.startSession(conn, false)
 		}
 		return
@@ -144,7 +150,10 @@ func (s *Server) handleNewConnection(conn net.Conn, tlsConfig *tls.Config) {
 			conn.Close()
 			return
 		}
-
+		
+		if s.Config.EnableTcpNoDelay {
+			ApplyTcpNoDelay(conn)
+		}
 		yamuxSession, err := yamux.Server(tlsConn, yamux.DefaultConfig())
 		if err != nil {
 			log.Printf("Tunnel Yamux server failed: %v", err)
@@ -164,11 +173,15 @@ func (s *Server) handleNewConnection(conn net.Conn, tlsConfig *tls.Config) {
 				
 				// Wrap stream with Snappy compression before starting session
 				snappyConn := tunnel.NewSnappyConn(stream)
+				// yamux streams don't support TCP optimizations directly
 				go s.startSession(snappyConn, true)
 			}
 		}()
 	} else {
 		// Normal Stratum Miner
+		if s.Config.EnableTcpNoDelay {
+			ApplyTcpNoDelay(conn)
+		}
 		peekConn := tunnel.NewPeekConn(conn, buf)
 		s.startSession(peekConn, false)
 	}
@@ -393,3 +406,10 @@ func (s *Server) GetMinerLogs(worker string) ([]LogEntry, []LogEntry) {
 	return genLogs, errLogs
 }
 
+func ApplyTcpNoDelay(conn net.Conn) {
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpConn.SetNoDelay(true)
+		tcpConn.SetKeepAlive(true)
+		tcpConn.SetKeepAlivePeriod(3 * time.Minute)
+	}
+}

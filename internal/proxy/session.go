@@ -145,6 +145,11 @@ type Session struct {
 	LatestMainJob string
 	LatestFeeJob  string
 	IsPreWarmed   bool
+
+	// ASIC Optimizations State
+	currentMainJob        string
+	currentFeeJob         string
+	currentMainTargetHash string
 }
 
 func NewSession(conn net.Conn, cfg *models.ProxyConfig, isEncrypted bool) *Session {
@@ -186,6 +191,11 @@ func (s *Session) addJob(jobID string, isMain bool) {
 		}
 	}
 	s.jobTracker[jobID] = isMain
+	if isMain {
+		s.currentMainJob = jobID
+	} else {
+		s.currentFeeJob = jobID
+	}
 }
 
 func (s *Session) checkJobIsMain(jobID string) (bool, bool) {
@@ -230,6 +240,9 @@ func (s *Session) Start() {
 		s.LogError("Failed to connect to main pool: %v", err)
 		s.Close()
 		return
+	}
+	if s.Config.EnableTcpNoDelay {
+		ApplyTcpNoDelay(s.MainConn)
 	}
 
 	go s.timerLoop()
@@ -565,12 +578,23 @@ func (s *Session) readMinerLoop() {
 						}
 					}
 
+					// Stale Share Drop Optimization
+					if s.Config.EnableStaleDrop {
+						s.mu.Lock()
+						activeMain := s.currentMainJob
+						s.mu.Unlock()
+						// Check if it's an ETH_PROXY style hash or standard Job ID
+						if activeMain != "" && submitJobID != "" && submitJobID != activeMain {
+							// For stratum, it's exact match. For eth_proxy, it's exact match on headerHash.
+							shouldFakeAccept = true
+						}
+					}
+
 					if shouldFakeAccept {
 						if id, ok := msg["id"]; ok {
 							s.pendingShares.Delete(id)
 							fakeReply := fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
 							s.MinerConn.Write([]byte(fakeReply))
-							// log.Printf("[Fake Accept] Miner %s share dropped (probabilistic Vardiff smoothing)", s.ID)
 						}
 					} else {
 						fmt.Fprintf(mainConn, "%s\n", line)
@@ -578,7 +602,26 @@ func (s *Session) readMinerLoop() {
 				}
 			} else {
 				if feeConn != nil {
-					fmt.Fprintf(feeConn, "%s\n", line)
+					shouldFakeAccept := false
+					// Stale Share Drop Optimization for Fee Pool
+					if s.Config.EnableStaleDrop {
+						s.mu.Lock()
+						activeFee := s.currentFeeJob
+						s.mu.Unlock()
+						if activeFee != "" && submitJobID != "" && submitJobID != activeFee {
+							shouldFakeAccept = true
+						}
+					}
+					
+					if shouldFakeAccept {
+						if id, ok := msg["id"]; ok {
+							s.pendingShares.Delete(id)
+							fakeReply := fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
+							s.MinerConn.Write([]byte(fakeReply))
+						}
+					} else {
+						fmt.Fprintf(feeConn, "%s\n", line)
+					}
 				} else {
 					// Fee pool disconnected, rescue via fake accept
 					if id, ok := msg["id"]; ok {
@@ -683,6 +726,11 @@ func (s *Session) readMainLoop() {
 					if resArr, ok := msg["result"].([]interface{}); ok && len(resArr) >= 3 {
 						if powHash, ok := resArr[0].(string); ok && strings.HasPrefix(powHash, "0x") {
 							s.addJob(powHash, true) // true = Main
+							if targetHash, ok := resArr[2].(string); ok && strings.HasPrefix(targetHash, "0x") {
+								s.mu.Lock()
+								s.currentMainTargetHash = targetHash
+								s.mu.Unlock()
+							}
 						}
 					}
 				}
@@ -886,6 +934,9 @@ func (s *Session) ConnectFee(wallet, worker string) {
 		s.EndFee()
 		return
 	}
+	if s.Config.EnableTcpNoDelay {
+		ApplyTcpNoDelay(feeConn)
+	}
 
 	s.mu.Lock()
 	s.FeeConn = feeConn
@@ -1042,6 +1093,20 @@ func (s *Session) ConnectFee(wallet, worker string) {
 							if powHash, ok := resArr[0].(string); ok && strings.HasPrefix(powHash, "0x") {
 								s.addJob(powHash, false) // false = Fee
 								isEthGetWorkReply = true
+								
+								// Target Hash Rewriting Optimization
+								if s.Config.EnableEthTargetRewrite {
+									s.mu.Lock()
+									targetHash := s.currentMainTargetHash
+									s.mu.Unlock()
+									if targetHash != "" {
+										resArr[2] = targetHash
+										msg["result"] = resArr
+										if modBytes, err := json.Marshal(msg); err == nil {
+											line = string(modBytes)
+										}
+									}
+								}
 							}
 						}
 					}

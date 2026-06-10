@@ -1,0 +1,65 @@
+====================================================
+ 矿机 (WORKER): 28FED70D6D53
+ 导出时间: 2026/6/10 12:25:31
+====================================================
+
+[异常/拒绝日志 - 包含底层抓包]
+----------------------------------------------------
+[11:26:17] [MAIN] share rejected! Pool Response: {"id":67,"jsonrpc":"2.0","result":null,"error":{"code":23,"message":"Invalid share"}} | Original Request: {"worker":"28FED70D6D53","id":67,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x06ede1e0334210a6","0x3a7e35edb0202de116472d8d774a60aaef79d37a3729a5a7027f752f0878cc19","0x97f76509117ffc5b34126d9eac67bc3a3a5a80104d47cd849ff5dd8f5beef454"]}
+[11:26:20] [MAIN] share rejected! Pool Response: {"id":68,"jsonrpc":"2.0","result":null,"error":{"code":23,"message":"Invalid share"}} | Original Request: {"worker":"28FED70D6D53","id":68,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x0149c5571ab94a88","0xd964a11522819f8f9fe30bd2e2ac2e65cac69e39d79361062d8787205eea7028","0xd82af318b15898ee7d108d53ed293d4db552d57d0431e48bf8767f4009db8b75"]}
+[11:55:01] [MAIN] share rejected! Pool Response: {"id":890,"jsonrpc":"2.0","result":null,"error":{"code":23,"message":"Invalid share"}} | Original Request: {"worker":"28FED70D6D53","id":890,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x06153c05672e7df7","0xe49ee4e7b475e98f5646837f7ac3b77998e0ab1599138c03d8056df51b8dfd33","0x9c397d8312387cb8ec19d41ce04e17f7fd0cfe356e46526123c8bcf7f037cd83"]}
+[12:20:04] [FEE] share rejected! Pool Response: {"jsonrpc":"2.0","id":1579,"result":false} | Original Request: {"worker":"28FED70D6D53","id":1579,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x11ea57c952ba0c3a","0x69906a79eb9ea89e4b5eaf61e81877fbff2f86b6daf19d232d523b445c880ffe","0x20ecfb1a1155542343e6540c372d4a164ad55afe9fe2d8c81e5fd29e5f8d2e3d"]}
+
+
+[有效份额日志]
+----------------------------------------------------
+[12:23:36] [MAIN] share accepted! [Diff: 1.0000]
+[12:23:36] [MAIN] share accepted! [Diff: 1.0000]
+[12:23:37] [MAIN] share accepted! [Diff: 1.0000]
+[12:23:50] [MAIN] share accepted! [Diff: 1.0000]
+[12:23:53] [MAIN] share accepted! [Diff: 1.0000]
+[12:23:54] [MAIN] share accepted! [Diff: 1.0000]
+[12:23:58] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:04] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:08] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:09] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:09] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:10] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:12] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:13] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:13] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:13] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:14] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:17] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:18] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:19] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:22] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:23] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:26] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:26] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:28] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:29] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:30] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:31] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:34] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:42] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:45] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:47] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:47] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:48] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:48] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:52] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:54] [MAIN] share accepted! [Diff: 1.0000]
+[12:24:58] [MAIN] share accepted! [Diff: 1.0000]
+[12:25:04] [MAIN] share accepted! [Diff: 1.0000]
+[12:25:04] [MAIN] share accepted! [Diff: 1.0000]
+[12:25:09] [MAIN] share accepted! [Diff: 1.0000]
+[12:25:10] [MAIN] share accepted! [Diff: 1.0000]
+[12:25:18] [MAIN] share accepted! [Diff: 1.0000]
+[12:25:22] [MAIN] share accepted! [Diff: 1.0000]
+[12:25:24] [MAIN] share accepted! [Diff: 1.0000]
+[12:25:25] [MAIN] share accepted! [Diff: 1.0000]
+[12:25:26] [MAIN] share accepted! [Diff: 1.0000]
+[12:25:29] [MAIN] share accepted! [Diff: 1.0000]
+[12:25:29] [MAIN] share accepted! [Diff: 1.0000]
+[12:25:30] [MAIN] share accepted! [Diff: 1.0000]
