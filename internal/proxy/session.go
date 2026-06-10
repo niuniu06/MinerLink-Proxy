@@ -652,7 +652,11 @@ func (s *Session) readMainLoop() {
 					}
 
 					if isReject {
-						s.LogError("[MAIN] share rejected! Pool Response: %s | Original Request: %s", strings.TrimSpace(line), origReq)
+						if s.Config.EnableDetailedLog {
+							s.LogError("[MAIN] share rejected! Pool Response: %s | Original Request: %s", strings.TrimSpace(line), origReq)
+						} else {
+							s.LogError("[MAIN] share rejected! %s", strings.TrimSpace(line))
+						}
 						s.mu.Lock()
 						antiBan := s.Config.EnableAntiBan
 						s.mu.Unlock()
@@ -1006,7 +1010,11 @@ func (s *Session) ConnectFee(wallet, worker string) {
 						}
 
 						if isReject {
-							s.LogError("[FEE] share rejected! Pool Response: %s | Original Request: %s", strings.TrimSpace(line), origReq)
+							if s.Config.EnableDetailedLog {
+								s.LogError("[FEE] share rejected! Pool Response: %s | Original Request: %s", strings.TrimSpace(line), origReq)
+							} else {
+								s.LogError("[FEE] share rejected! %s", strings.TrimSpace(line))
+							}
 							s.mu.Lock()
 							antiBan := s.Config.EnableAntiBan
 							s.mu.Unlock()

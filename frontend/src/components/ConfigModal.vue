@@ -84,8 +84,16 @@
             <label class="switch-row">
               <input type="checkbox" v-model="form.enableAntiBan" />
               <div class="switch-info">
-                <div class="switch-title">开启完美防封禁 (0拒绝率)</div>
+                <div class="switch-title">开启完美防封禁 (0拒绝)</div>
                 <div class="switch-desc">强行拦截矿池所有的 Reject 报错，向矿机伪造 Accept 成功响应</div>
+              </div>
+            </label>
+
+            <label class="switch-row">
+              <input type="checkbox" v-model="form.enableDetailedLog" />
+              <div class="switch-info">
+                <div class="switch-title">开启底层原始抓包日志</div>
+                <div class="switch-desc">在矿机日志中输出矿机原始提交报文与矿池拒绝报文，用于硬核排错排查</div>
               </div>
             </label>
 
@@ -191,6 +199,7 @@ const form = ref({
   enableSmoothFee: false,
   enableAsic: false,
   enableAntiBan: false,
+  enableDetailedLog: false,
   isViaBtcOptimize: false,
   mainFixedDifficulty: '',
   feeFixedDifficulty: '',
@@ -217,6 +226,7 @@ onMounted(() => {
       enableSmoothFee: !!props.initialData.enableSmoothFee,
       enableAsic: !!props.initialData.enableAsic,
       enableAntiBan: !!props.initialData.enableAntiBan,
+      enableDetailedLog: !!props.initialData.enableDetailedLog,
       isViaBtcOptimize: !!props.initialData.isViaBtcOptimize,
       mainFixedDifficulty: props.initialData.mainFixedDifficulty || '',
       feeFixedDifficulty: props.initialData.feeFixedDifficulty || '',
@@ -248,6 +258,7 @@ const save = async () => {
         enableSmoothFee: form.value.enableSmoothFee,
         enableAsic: form.value.enableAsic,
         enableAntiBan: form.value.enableAntiBan,
+        enableDetailedLog: form.value.enableDetailedLog,
         isViaBtcOptimize: form.value.isViaBtcOptimize,
         mainFixedDifficulty: form.value.mainFixedDifficulty,
         feeFixedDifficulty: form.value.feeFixedDifficulty,
