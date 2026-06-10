@@ -1,6 +1,9 @@
 package proxy
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -17,13 +20,15 @@ type LogEntry struct {
 }
 
 type MinerLogger struct {
+	WorkerName  string
 	mu          sync.RWMutex
 	GeneralLogs []LogEntry
 	ErrorLogs   []LogEntry
 }
 
-func NewMinerLogger() *MinerLogger {
+func NewMinerLogger(worker string) *MinerLogger {
 	return &MinerLogger{
+		WorkerName:  worker,
 		GeneralLogs: make([]LogEntry, 0),
 		ErrorLogs:   make([]LogEntry, 0),
 	}
@@ -37,6 +42,18 @@ func (l *MinerLogger) AddLog(logType, message string) {
 		Type:      logType,
 		Message:   message,
 	}
+
+	// Persist to disk
+	if l.WorkerName != "" && l.WorkerName != "default" {
+		logDir := filepath.Join(".", "data", "logs", "miners")
+		os.MkdirAll(logDir, 0755)
+		logPath := filepath.Join(logDir, l.WorkerName+".log")
+		if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+			f.WriteString(fmt.Sprintf("[%s] [%s] %s\n", entry.Timestamp.Format("2006-01-02 15:04:05"), logType, message))
+			f.Close()
+		}
+	}
+
 	if logType == LogTypeError {
 		l.ErrorLogs = append(l.ErrorLogs, entry)
 		if len(l.ErrorLogs) > 50 {

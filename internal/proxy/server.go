@@ -42,7 +42,7 @@ func (s *Server) GetLogger(worker string) *MinerLogger {
 	if ok {
 		return val.(*MinerLogger)
 	}
-	logger := NewMinerLogger()
+	logger := NewMinerLogger(worker)
 	s.MinerLoggers.Store(worker, logger)
 	return logger
 }

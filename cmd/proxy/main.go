@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 
 	"proxy-core/internal/api"
 	"proxy-core/internal/db"
@@ -11,6 +13,14 @@ import (
 )
 
 func main() {
+	// Start pprof diagnostic server
+	go func() {
+		log.Println("Starting diagnostic pprof server on :6060")
+		if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
+			log.Printf("pprof server error: %v", err)
+		}
+	}()
+
 	// Parse flags
 	apiPort := flag.Int("api-port", 8080, "Port for the Web UI API")
 	flag.Parse()
