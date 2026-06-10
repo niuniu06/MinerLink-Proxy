@@ -5,6 +5,10 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   base: './',
+  build: {
+    outDir: '../internal/ui/dist',
+    emptyOutDir: true
+  },
   server: {
     proxy: {
       '/api': {
