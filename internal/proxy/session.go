@@ -1030,6 +1030,10 @@ func (s *Session) ConnectFee(wallet, worker string) {
 		for scanner.Scan() {
 			line := scanner.Text()
 
+			if s.Config.EnableDetailedLog {
+				s.LogGeneral("[RAW FEE RX] %s", strings.TrimSpace(line))
+			}
+
 			var msg map[string]interface{}
 			var isShareReply bool
 			var isEthGetWorkReply bool
