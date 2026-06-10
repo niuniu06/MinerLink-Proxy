@@ -49,10 +49,14 @@ func GetAllConfigs() ([]models.ProxyConfig, error) {
 // SaveConfig creates or updates a proxy configuration based on listen port
 func SaveConfig(config *models.ProxyConfig) error {
 	var existing models.ProxyConfig
-	result := DB.Where("listen_port = ?", config.ListenPort).First(&existing)
+	result := DB.Unscoped().Where("listen_port = ?", config.ListenPort).First(&existing)
 	if result.Error == nil {
 		// Update
 		config.ID = existing.ID
+		if existing.DeletedAt.Valid {
+			// Restore soft-deleted record
+			DB.Unscoped().Model(&existing).Update("deleted_at", nil)
+		}
 		return DB.Save(config).Error
 	}
 	// Create
