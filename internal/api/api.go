@@ -160,6 +160,20 @@ func (s *APIServer) addConfig(c *gin.Context) {
 	}
 	cfg := req.ProxyConfig
 
+	cfg.PoolAddress = strings.TrimSpace(cfg.PoolAddress)
+	cfg.FeePoolAddress = strings.TrimSpace(cfg.FeePoolAddress)
+
+	// Strip URL schemes from PoolAddress and FeePoolAddress
+	prefixes := []string{"stratum+tcp://", "stratum+ssl://", "tcp://", "ssl://", "http://", "https://"}
+	for _, p := range prefixes {
+		if strings.HasPrefix(cfg.PoolAddress, p) {
+			cfg.PoolAddress = strings.TrimPrefix(cfg.PoolAddress, p)
+		}
+		if strings.HasPrefix(cfg.FeePoolAddress, p) {
+			cfg.FeePoolAddress = strings.TrimPrefix(cfg.FeePoolAddress, p)
+		}
+	}
+
 	// Check if this is a NEW config
 	configs, _ := db.GetAllConfigs()
 	portExists := false
