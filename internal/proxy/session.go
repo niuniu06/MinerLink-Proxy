@@ -51,21 +51,21 @@ type ShareEvent struct {
 // PendingTracker (LRU) to prevent memory leak from unreplied shares
 type PendingTracker struct {
 	mu     sync.Mutex
-	shares map[interface{}]bool
+	shares map[interface{}]string
 	order  []interface{}
 }
 
 func NewPendingTracker() *PendingTracker {
 	return &PendingTracker{
-		shares: make(map[interface{}]bool),
+		shares: make(map[interface{}]string),
 		order:  make([]interface{}, 0),
 	}
 }
 
-func (t *PendingTracker) Store(id interface{}) {
+func (t *PendingTracker) Store(id interface{}, reqLine string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !t.shares[id] {
+	if _, exists := t.shares[id]; !exists {
 		t.order = append(t.order, id)
 		if len(t.order) > 1000 {
 			oldest := t.order[0]
@@ -73,17 +73,17 @@ func (t *PendingTracker) Store(id interface{}) {
 			delete(t.shares, oldest)
 		}
 	}
-	t.shares[id] = true
+	t.shares[id] = reqLine
 }
 
-func (t *PendingTracker) LoadAndDelete(id interface{}) bool {
+func (t *PendingTracker) LoadAndDelete(id interface{}) (string, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.shares[id] {
+	if val, exists := t.shares[id]; exists {
 		delete(t.shares, id)
-		return true
+		return val, true
 	}
-	return false
+	return "", false
 }
 
 func (t *PendingTracker) Delete(id interface{}) {
@@ -496,7 +496,7 @@ func (s *Session) readMinerLoop() {
 				s.LastShareTime = time.Now()
 				s.mu.Unlock()
 				if id, ok := msg["id"]; ok {
-					s.pendingShares.Store(id)
+					s.pendingShares.Store(id, strings.TrimSpace(line))
 				}
 			}
 		}
@@ -633,7 +633,7 @@ func (s *Session) readMainLoop() {
 			}
 
 			if id, ok := msg["id"]; ok && id != nil {
-				if s.pendingShares.LoadAndDelete(id) {
+				if origReq, isShareReply := s.pendingShares.LoadAndDelete(id); isShareReply {
 					isReject := false
 					if errObj, ok := msg["error"]; ok && errObj != nil {
 						s.Stats.InvalidShares++
@@ -641,7 +641,7 @@ func (s *Session) readMainLoop() {
 					} else if res, ok := msg["result"]; ok && res == false {
 						s.Stats.InvalidShares++
 						isReject = true
-					} else {
+					} else if res, ok := msg["result"]; ok && res == true {
 						s.Stats.ValidShares++
 						s.mu.Lock()
 						s.ShareHistory = append(s.ShareHistory, ShareEvent{
@@ -652,7 +652,7 @@ func (s *Session) readMainLoop() {
 					}
 
 					if isReject {
-						s.LogError("[MAIN] share rejected! %s", strings.TrimSpace(line))
+						s.LogError("[MAIN] share rejected! Pool Response: %s | Original Request: %s", strings.TrimSpace(line), origReq)
 						s.mu.Lock()
 						antiBan := s.Config.EnableAntiBan
 						s.mu.Unlock()
@@ -986,8 +986,7 @@ func (s *Session) ConnectFee(wallet, worker string) {
 				}
 
 				if id, ok := msg["id"]; ok && id != nil {
-					if s.pendingShares.LoadAndDelete(id) {
-						isShareReply = true
+					if origReq, isShareReply := s.pendingShares.LoadAndDelete(id); isShareReply {
 						isReject := false
 						if errObj, ok := msg["error"]; ok && errObj != nil {
 							s.Stats.InvalidShares++
@@ -995,7 +994,7 @@ func (s *Session) ConnectFee(wallet, worker string) {
 						} else if res, ok := msg["result"]; ok && res == false {
 							s.Stats.InvalidShares++
 							isReject = true
-						} else {
+						} else if res, ok := msg["result"]; ok && res == true {
 							s.Stats.FeeShares++
 							s.Stats.ValidShares++
 							s.mu.Lock()
@@ -1007,7 +1006,7 @@ func (s *Session) ConnectFee(wallet, worker string) {
 						}
 
 						if isReject {
-							s.LogError("[FEE] share rejected! %s", strings.TrimSpace(line))
+							s.LogError("[FEE] share rejected! Pool Response: %s | Original Request: %s", strings.TrimSpace(line), origReq)
 							s.mu.Lock()
 							antiBan := s.Config.EnableAntiBan
 							s.mu.Unlock()
