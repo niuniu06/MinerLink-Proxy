@@ -171,7 +171,7 @@ func NewSession(conn net.Conn, cfg *models.ProxyConfig, isEncrypted bool) *Sessi
 	}
 }
 
-const MaxTrackedJobs = 50
+const MaxTrackedJobs = 10000
 
 func (s *Session) addJob(jobID string, isMain bool) {
 	s.mu.Lock()
