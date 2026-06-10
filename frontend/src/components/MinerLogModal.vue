@@ -2,8 +2,13 @@
   <div class="modal-backdrop">
     <div class="modal-content log-modal">
       <div class="modal-header">
-        <h2>📊 矿机探针日志：{{ worker }}</h2>
-        <button class="close-btn" @click="$emit('close')">✕</button>
+        <div class="header-left">
+          <h2>📊 矿机探针日志：{{ worker }}</h2>
+        </div>
+        <div class="header-right">
+          <button class="export-btn" @click="exportLogs">⬇ 导出所有日志 (TXT)</button>
+          <button class="close-btn" @click="$emit('close')">✕</button>
+        </div>
       </div>
 
       <div class="log-tabs">
@@ -108,6 +113,43 @@ const formatTime = (ts) => {
   const pad = (n) => n.toString().padStart(2, '0')
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
+
+const exportLogs = () => {
+  let content = `====================================================\n`;
+  content += ` 矿机 (WORKER): ${props.worker}\n`;
+  content += ` 导出时间: ${new Date().toLocaleString()}\n`;
+  content += `====================================================\n\n`;
+
+  content += `[异常/拒绝日志 - 包含底层抓包]\n`;
+  content += `----------------------------------------------------\n`;
+  if (errorLogs.value.length === 0) {
+    content += `暂无异常日志\n`;
+  } else {
+    errorLogs.value.forEach(log => {
+      content += `[${formatTime(log.timestamp)}] ${log.message}\n`;
+    });
+  }
+  
+  content += `\n\n[有效份额日志]\n`;
+  content += `----------------------------------------------------\n`;
+  if (generalLogs.value.length === 0) {
+    content += `暂无有效份额日志\n`;
+  } else {
+    generalLogs.value.forEach(log => {
+      content += `[${formatTime(log.timestamp)}] ${log.message}\n`;
+    });
+  }
+
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `miner_logs_${props.worker}_${new Date().getTime()}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 </script>
 
 <style scoped>
@@ -153,6 +195,32 @@ const formatTime = (ts) => {
   margin: 0;
   font-size: 1.2rem;
   color: #fff;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.export-btn {
+  background: var(--accent-cyan);
+  color: #000;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-weight: bold;
+  cursor: pointer;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.2s;
+}
+
+.export-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,255,255,0.3);
 }
 
 .close-btn {
