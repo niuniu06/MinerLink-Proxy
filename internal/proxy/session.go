@@ -382,6 +382,13 @@ func (s *Session) readMinerLoop() {
 	scanner.Buffer(buf, 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
+		if len(line) == 0 {
+			continue
+		}
+
+		if s.Config.EnableDetailedLog {
+			s.LogGeneral("[RAW MINER RX] %s", strings.TrimSpace(line))
+		}
 
 		var method string
 		var msg map[string]interface{}
@@ -458,28 +465,6 @@ func (s *Session) readMinerLoop() {
 							s.MinerWorker = w
 						}
 					}
-
-					// Sanitize miner worker to avoid upstream rejection
-					if s.MinerWorker == "" || s.MinerWorker == "(null)" || s.MinerWorker == "null" {
-						s.MinerWorker = "default"
-					}
-					s.MinerWorker = strings.ReplaceAll(s.MinerWorker, "(", "")
-					s.MinerWorker = strings.ReplaceAll(s.MinerWorker, ")", "")
-
-					// Rewrite params to ensure the upstream pool receives the sanitized worker name
-					if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
-						if _, ok := params[0].(string); ok {
-							if s.MinerWallet != "" {
-								params[0] = fmt.Sprintf("%s.%s", s.MinerWallet, s.MinerWorker)
-							} else {
-								params[0] = s.MinerWorker
-							}
-							if modBytes, err := json.Marshal(msg); err == nil {
-								line = string(modBytes)
-							}
-						}
-					}
-
 					if s.Server != nil && s.MinerWorker != "" {
 						oldSession := s.Server.CleanOfflineWorker(s.MinerWorker)
 						if oldSession != nil {
@@ -678,6 +663,13 @@ func (s *Session) readMainLoop() {
 	scanner.Buffer(buf, 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
+		if len(line) == 0 {
+			continue
+		}
+
+		if s.Config.EnableDetailedLog {
+			s.LogGeneral("[RAW MAIN RX] %s", strings.TrimSpace(line))
+		}
 
 		var msg map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &msg); err == nil {
