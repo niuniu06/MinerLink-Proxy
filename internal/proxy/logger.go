@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -44,10 +45,16 @@ func (l *MinerLogger) AddLog(logType, message string) {
 	}
 
 	// Persist to disk
-	if l.WorkerName != "" && l.WorkerName != "default" {
+	if l.WorkerName != "" {
 		logDir := filepath.Join(".", "data", "logs", "miners")
 		os.MkdirAll(logDir, 0755)
-		logPath := filepath.Join(logDir, l.WorkerName+".log")
+		
+		// Sanitize worker name for safe file names (replace colons and slashes)
+		safeName := strings.ReplaceAll(l.WorkerName, ":", "_")
+		safeName = strings.ReplaceAll(safeName, "/", "_")
+		safeName = strings.ReplaceAll(safeName, "\\", "_")
+		
+		logPath := filepath.Join(logDir, safeName+".log")
 		if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
 			f.WriteString(fmt.Sprintf("[%s] [%s] %s\n", entry.Timestamp.Format("2006-01-02 15:04:05"), logType, message))
 			f.Close()
