@@ -1,5 +1,5 @@
 <template>
-  <div class="modal-backdrop" @click.self="$emit('close')">
+  <div class="modal-backdrop">
     <div class="modal-content log-modal">
       <div class="modal-header">
         <h2>📊 矿机探针日志：{{ worker }}</h2>

@@ -1,5 +1,5 @@
 <template>
-  <div class="modal-overlay" @click.self="$emit('close')">
+  <div class="modal-overlay">
     <div class="modal-content">
       <div class="modal-header">
         <h2>{{ isEdit ? '⚙ 参数热修改' : '➕ 添加新端口配置' }}</h2>
