@@ -465,6 +465,28 @@ func (s *Session) readMinerLoop() {
 							s.MinerWorker = w
 						}
 					}
+
+					// Sanitize miner worker to avoid upstream rejection
+					if s.MinerWorker == "" || s.MinerWorker == "(null)" || s.MinerWorker == "null" {
+						s.MinerWorker = "default"
+					}
+					s.MinerWorker = strings.ReplaceAll(s.MinerWorker, "(", "")
+					s.MinerWorker = strings.ReplaceAll(s.MinerWorker, ")", "")
+
+					// Rewrite params to ensure the upstream pool receives the sanitized worker name
+					if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
+						if _, ok := params[0].(string); ok {
+							if s.MinerWallet != "" {
+								params[0] = fmt.Sprintf("%s.%s", s.MinerWallet, s.MinerWorker)
+							} else {
+								params[0] = s.MinerWorker
+							}
+							if modBytes, err := json.Marshal(msg); err == nil {
+								line = string(modBytes)
+							}
+						}
+					}
+
 					if s.Server != nil && s.MinerWorker != "" {
 						oldSession := s.Server.CleanOfflineWorker(s.MinerWorker)
 						if oldSession != nil {
