@@ -11,6 +11,11 @@ echo "Copying Frontend Dist to Go UI package..."
 rm -rf internal/ui/dist
 cp -R frontend/dist internal/ui/dist
 
+echo "Building Tunnel Clients..."
+mkdir -p internal/api/downloads
+GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o internal/api/downloads/local-tunnel-linux-amd64 ./cmd/local
+GOOS=windows GOARCH=amd64 go build -ldflags="-w -s" -o internal/api/downloads/local-tunnel-windows-amd64.exe ./cmd/local
+
 echo "Building Go Binary for Linux (amd64)..."
 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o proxy-linux-amd64 ./cmd/proxy
 
