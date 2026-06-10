@@ -39,68 +39,77 @@ func (s *Session) StartVardiffEngine() {
 }
 
 func (s *Session) evaluateVardiff() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	var setDiffPkt string
+	var minerConn net.Conn
 
-	if s.MinerConn == nil || s.State != "MAIN" {
-		return
-	}
+	func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 
-	// Count shares in the last minute
-	now := time.Now()
-	cutoff := now.Add(-1 * time.Minute)
-	sharesLastMinute := 0
-	for _, ev := range s.ShareHistory {
-		if ev.Timestamp.After(cutoff) {
-			sharesLastMinute++
+		if s.MinerConn == nil || s.State != "MAIN" {
+			return
 		}
-	}
 
-	target := s.Config.TargetShareRate
-	if target <= 0 {
-		return
-	}
-
-	// Tolerance range: +/- 30% of target
-	lowerBound := int(float64(target) * 0.7)
-	upperBound := int(float64(target) * 1.3)
-
-	oldDiff := s.LocalDiff
-	var newDiff float64 = oldDiff
-
-	if sharesLastMinute > upperBound {
-		// Too many shares, increase difficulty
-		ratio := float64(sharesLastMinute) / float64(target)
-		// Cap max adjustment to 4x to prevent wild swings
-		if ratio > 4.0 {
-			ratio = 4.0
+		// Count shares in the last minute
+		now := time.Now()
+		cutoff := now.Add(-1 * time.Minute)
+		sharesLastMinute := 0
+		for _, ev := range s.ShareHistory {
+			if ev.Timestamp.After(cutoff) {
+				sharesLastMinute++
+			}
 		}
-		newDiff = oldDiff * ratio
-	} else if sharesLastMinute < lowerBound {
-		// Too few shares, decrease difficulty
-		ratio := float64(sharesLastMinute) / float64(target)
-		// If 0 shares, forcefully cut in half
-		if sharesLastMinute == 0 {
-			newDiff = oldDiff / 2.0
-		} else {
-			if ratio < 0.25 {
-				ratio = 0.25
+
+		target := s.Config.TargetShareRate
+		if target <= 0 {
+			return
+		}
+
+		// Tolerance range: +/- 30% of target
+		lowerBound := int(float64(target) * 0.7)
+		upperBound := int(float64(target) * 1.3)
+
+		oldDiff := s.LocalDiff
+		var newDiff float64 = oldDiff
+
+		if sharesLastMinute > upperBound {
+			// Too many shares, increase difficulty
+			ratio := float64(sharesLastMinute) / float64(target)
+			// Cap max adjustment to 4x to prevent wild swings
+			if ratio > 4.0 {
+				ratio = 4.0
 			}
 			newDiff = oldDiff * ratio
+		} else if sharesLastMinute < lowerBound {
+			// Too few shares, decrease difficulty
+			ratio := float64(sharesLastMinute) / float64(target)
+			// If 0 shares, forcefully cut in half
+			if sharesLastMinute == 0 {
+				newDiff = oldDiff / 2.0
+			} else {
+				if ratio < 0.25 {
+					ratio = 0.25
+				}
+				newDiff = oldDiff * ratio
+			}
 		}
-	}
 
-	if newDiff != oldDiff {
-		// Round to nearest integer for cleanliness (many miners don't like deep decimals)
-		newDiff = math.Round(newDiff)
-		if newDiff <= 0 {
-			newDiff = 1
+		if newDiff != oldDiff {
+			// Round to nearest integer for cleanliness (many miners don't like deep decimals)
+			newDiff = math.Round(newDiff)
+			if newDiff <= 0 {
+				newDiff = 1
+			}
+			s.LocalDiff = newDiff
+			log.Printf("[Vardiff] Miner %s rate=%d/min. Adjusting LocalDiff %.0f -> %.0f", s.ID, sharesLastMinute, oldDiff, newDiff)
+
+			// Send new difficulty to miner
+			setDiffPkt = fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", newDiff)
+			minerConn = s.MinerConn
 		}
-		s.LocalDiff = newDiff
-		log.Printf("[Vardiff] Miner %s rate=%d/min. Adjusting LocalDiff %.0f -> %.0f", s.ID, sharesLastMinute, oldDiff, newDiff)
+	}()
 
-		// Send new difficulty to miner
-		setDiffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", newDiff)
-		fmt.Fprintf(s.MinerConn, "%s", setDiffPkt)
+	if setDiffPkt != "" && minerConn != nil {
+		fmt.Fprintf(minerConn, "%s", setDiffPkt)
 	}
 }
