@@ -10,7 +10,7 @@
         <div class="form-grid">
           <div class="form-group">
             <label>监听端口 (PORT)</label>
-            <input v-model="form.listenPort" type="number" required :disabled="isEdit" />
+            <input v-model="form.listenPort" type="number" required />
           </div>
           <div class="form-group">
             <label>币种名称 (COIN)</label>
@@ -277,6 +277,7 @@ const save = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         isEdit: isEdit.value,
+        oldListenPort: isEdit.value ? props.initialData.listenPort : 0,
         listenPort: Number(form.value.listenPort),
         coinName: form.value.coinName,
         poolAddress: form.value.poolAddress,

@@ -152,7 +152,8 @@ func (s *APIServer) getConfig(c *gin.Context) {
 func (s *APIServer) addConfig(c *gin.Context) {
 	var req struct {
 		models.ProxyConfig
-		IsEdit bool `json:"isEdit"`
+		IsEdit        bool `json:"isEdit"`
+		OldListenPort int  `json:"oldListenPort"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -174,7 +175,7 @@ func (s *APIServer) addConfig(c *gin.Context) {
 		}
 	}
 
-	// Check if this is a NEW config
+	// Check if this is a NEW config or a port modification
 	configs, _ := db.GetAllConfigs()
 	portExists := false
 	for _, exist := range configs {
@@ -184,17 +185,24 @@ func (s *APIServer) addConfig(c *gin.Context) {
 		}
 	}
 
-	if !req.IsEdit {
-		// User is trying to ADD a new port
+	isPortChanged := req.IsEdit && req.OldListenPort > 0 && req.OldListenPort != cfg.ListenPort
+
+	if !req.IsEdit || isPortChanged {
 		if portExists {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("端口 %d 配置已存在！若要修改请点击编辑按钮，若要新增请更换端口。", cfg.ListenPort)})
 			return
 		}
-		// If it is a new config, verify port is not in use by other software
+		// Verify port is not in use by other software
 		if isPortInUse(cfg.ListenPort) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("端口 %d 已被系统其他程序占用，请更换其他端口！", cfg.ListenPort)})
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("端口 %d 已被系统其他程序占用，请更换其他端口。", cfg.ListenPort)})
 			return
 		}
+	}
+
+	if isPortChanged {
+		// Clean up old port
+		db.DeleteConfig(req.OldListenPort)
+		s.ProxyManager.StopProxy(req.OldListenPort)
 	}
 
 	if err := db.SaveConfig(&cfg); err != nil {
