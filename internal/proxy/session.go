@@ -102,6 +102,8 @@ type Session struct {
 
 	MinerWallet string
 	MinerWorker string
+	ClientAgent string // Firmware or Miner Software version
+	Protocol    string // "STRATUM" or "ETH_PROXY"
 
 	State          string // "MAIN", "SWITCHING_TO_FEE", "FEE", "SWITCHING_TO_MAIN"
 	TargetState    string
@@ -381,23 +383,46 @@ func (s *Session) readMinerLoop() {
 				if method == "mining.subscribe" {
 					s.mu.Lock()
 					s.SubscribeID = msg["id"]
+					if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
+						if agent, ok := params[0].(string); ok {
+							s.ClientAgent = agent
+						}
+					}
 					s.mu.Unlock()
 				}
 				if method == "mining.authorize" || method == "eth_submitLogin" || method == "login" {
+					// Check for root-level "client" field
+					if clientStr, ok := msg["client"].(string); ok && clientStr != "" {
+						s.ClientAgent = clientStr
+					}
+					if method == "eth_submitLogin" {
+						s.Protocol = "ETH_PROXY"
+					} else {
+						s.Protocol = "STRATUM"
+					}
 					if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
+						// 1. Check for root-level "worker" field (standard for many ASICs/ETH-Proxy)
+						if workerRoot, hasWorker := msg["worker"].(string); hasWorker && workerRoot != "" {
+							s.MinerWorker = workerRoot
+						}
+
 						if pStr, ok := params[0].(string); ok {
 							parts := strings.Split(pStr, ".")
 							s.MinerWallet = parts[0]
-							if len(parts) > 1 {
-								s.MinerWorker = parts[1]
-							} else if len(params) > 1 {
-								if p1Str, ok := params[1].(string); ok && p1Str != "x" && p1Str != "" && p1Str != "password" && !strings.HasPrefix(p1Str, "d=") {
-									s.MinerWorker = p1Str
+							
+							// 2. If worker wasn't found at the root level, try to extract from params
+							if s.MinerWorker == "" {
+								if len(parts) > 1 {
+									s.MinerWorker = parts[1]
+								} else if len(params) > 1 {
+									if p1Str, ok := params[1].(string); ok && p1Str != "x" && p1Str != "" && p1Str != "password" && !strings.HasPrefix(p1Str, "d=") {
+										s.MinerWorker = p1Str
+									} else {
+										s.MinerWorker = "worker"
+									}
 								} else {
 									s.MinerWorker = "worker"
 								}
-							} else {
-								s.MinerWorker = "worker"
 							}
 						}
 					} else if paramsMap, ok := msg["params"].(map[string]interface{}); ok {
@@ -782,7 +807,7 @@ func (s *Session) timerLoop() {
 					s.TargetState = "MAIN"
 					s.State = "SWITCHING_TO_MAIN"
 					go s.EndFee()
-					if s.Config.EnableAsic {
+					if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
 						en := s.MainExtranonce
 						s.sendExtranonce(en)
 					}
@@ -792,21 +817,21 @@ func (s *Session) timerLoop() {
 					    cachedJob = s.LatestMainJob
 					}
 					minerConn := s.MinerConn
-					if cachedJob != "" && minerConn != nil {
+					if cachedJob != "" && minerConn != nil && s.Protocol != "ETH_PROXY" {
 						cleanJob := forceCleanJobs(cachedJob)
 						fmt.Fprintf(minerConn, "%s\n", cleanJob)
 					}
 				} else if targetMode == FeeModeDev || targetMode == FeeModeOperator {
 					s.TargetState = "FEE"
 					s.State = "SWITCHING_TO_FEE"
-					if s.Config.EnableAsic {
+					if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
 						en := s.FeeExtranonce
 						s.sendExtranonce(en)
 					}
 					// Zero-latency job injection for Fee
 					cachedJob := s.LatestFeeJob
 					minerConn := s.MinerConn
-					if cachedJob != "" && minerConn != nil {
+					if cachedJob != "" && minerConn != nil && s.Protocol != "ETH_PROXY" {
 						cleanJob := forceCleanJobs(cachedJob)
 						fmt.Fprintf(minerConn, "%s\n", cleanJob)
 					}
@@ -860,16 +885,14 @@ func (s *Session) ConnectFee(wallet, worker string) {
 		method, _ := mod["method"].(string)
 		if method == "mining.authorize" || method == "eth_submitLogin" || method == "login" {
 			if params, ok := mod["params"].([]interface{}); ok && len(params) > 0 {
-				if originalUser, ok := params[0].(string); ok {
-					if strings.Contains(originalUser, ".") {
-						mod["params"].([]interface{})[0] = fmt.Sprintf("%s.%s", wallet, worker)
-					} else {
-						mod["params"].([]interface{})[0] = wallet
-						// Forcefully inject worker as the second parameter
-						if len(params) > 1 {
-							mod["params"].([]interface{})[1] = worker
-						} else {
-							mod["params"] = append(mod["params"].([]interface{}), worker)
+				if _, ok := params[0].(string); ok {
+					// Always use wallet.worker format for maximum compatibility with F2Pool/Binance Pool
+					mod["params"].([]interface{})[0] = fmt.Sprintf("%s.%s", wallet, worker)
+					
+					// If the protocol supports password, keep it as 'x' or the original password
+					if len(params) > 1 {
+						if pwd, isStr := params[1].(string); isStr && pwd == "" {
+							mod["params"].([]interface{})[1] = "x"
 						}
 					}
 				}
@@ -928,6 +951,7 @@ func (s *Session) ConnectFee(wallet, worker string) {
 
 			var msg map[string]interface{}
 			var isShareReply bool
+			var isEthGetWorkReply bool
 			if err := json.Unmarshal([]byte(line), &msg); err == nil {
 				if s.Config.EnableAsic {
 					s.mu.Lock()
@@ -998,6 +1022,7 @@ func (s *Session) ConnectFee(wallet, worker string) {
 						if resArr, ok := msg["result"].([]interface{}); ok && len(resArr) >= 3 {
 							if powHash, ok := resArr[0].(string); ok && strings.HasPrefix(powHash, "0x") {
 								s.addJob(powHash, false) // false = Fee
+								isEthGetWorkReply = true
 							}
 						}
 					}
@@ -1030,11 +1055,11 @@ func (s *Session) ConnectFee(wallet, worker string) {
 
 			if state == "FEE" || state == "SWITCHING_TO_FEE" {
 				if minerConn != nil {
-					// Only forward specific methods or share replies, NOT login replies
-					if isShareReply {
+					// Forward specific methods, share replies, and eth_getWork replies
+					if isShareReply || isEthGetWorkReply {
 						fmt.Fprintf(minerConn, "%s\n", line)
 					} else if method, ok := msg["method"].(string); ok {
-						if method == "mining.notify" || method == "mining.set_difficulty" || method == "mining.set_extranonce" || method == "eth_getWork" || method == "eth_getWork" {
+						if method == "mining.notify" || method == "mining.set_difficulty" || method == "mining.set_extranonce" || method == "eth_getWork" {
 							fmt.Fprintf(minerConn, "%s\n", line)
 						}
 					}

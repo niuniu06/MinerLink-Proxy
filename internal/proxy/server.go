@@ -346,6 +346,7 @@ func (s *Server) GetPaginatedMiners(page, limit int) (int, []map[string]interfac
 			"isOffline":     isOffline,
 			"wallet":        wallet,
 			"worker":        worker,
+			"clientAgent":   sess.ClientAgent,
 			"shares":        shares,
 			"feeShares":     feeShares,
 			"validShares":   validShares,

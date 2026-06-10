@@ -36,10 +36,15 @@
           <td colspan="8" class="empty-row">暂无在线矿机</td>
         </tr>
         <tr v-for="miner in miners" :key="miner.id" :class="{ 'offline-row': miner.isOffline }">
-          <td class="worker-name">
-            <span v-if="miner.isEncrypted" class="secure-icon" title="隧道加密">🛡️</span>
-            {{ miner.worker || 'worker' }}
-            <span v-if="miner.isOffline" class="offline-badge">离线</span>
+          <td class="worker-cell">
+            <div class="worker-name-row">
+              <span v-if="miner.isEncrypted" class="secure-icon" title="隧道加密">🛡️</span>
+              <span class="worker-name">{{ miner.worker || 'worker' }}</span>
+              <span v-if="miner.isOffline" class="offline-badge">离线</span>
+            </div>
+            <div v-if="miner.clientAgent" class="client-agent">
+              {{ miner.clientAgent }}
+            </div>
           </td>
           <td class="hashrate">{{ miner.hashrate }}</td>
           <td>
@@ -227,12 +232,28 @@ const maskWallet = (wallet) => {
   font-size: 0.9rem;
 }
 
-.worker-name {
-  color: #f3f4f6;
-  font-weight: bold;
+.worker-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.worker-name-row {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+}
+
+.worker-name {
+  color: #f3f4f6;
+  font-weight: bold;
+}
+
+.client-agent {
+  color: #9ca3af;
+  font-size: 0.75rem;
+  margin-top: 0.2rem;
+  font-family: monospace;
 }
 
 .secure-icon {
