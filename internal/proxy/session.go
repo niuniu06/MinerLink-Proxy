@@ -905,8 +905,8 @@ func (s *Session) ConnectFee(wallet, worker string) {
 				}
 			}
 
-			// Also aggressively inject at the root level for some miner variants
-			mod["worker"] = worker
+			// Strip root-level worker field to prevent F2Pool from misinterpreting it as the account name
+			delete(mod, "worker")
 
 			// Inject fee fixed difficulty
 			feeDiff := s.Config.FeeFixedDifficulty
