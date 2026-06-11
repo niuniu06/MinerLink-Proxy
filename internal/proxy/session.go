@@ -899,45 +899,52 @@ func (s *Session) timerLoop() {
 			}
 
 			// Handle Actual Switch
+			var extranonceToSend *ExtranonceData
+			var jobToSend string
+			var currentMinerConn net.Conn
+
 			if targetMode != s.CurrentFeeMode {
 				s.CurrentFeeMode = targetMode
 				s.IsPreWarmed = false // Reset pre-warm flag
+				currentMinerConn = s.MinerConn
 
 				if targetMode == FeeModeNone {
 					s.TargetState = "MAIN"
 					s.State = "SWITCHING_TO_MAIN"
 					go s.EndFee()
 					if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
-						en := s.MainExtranonce
-						s.sendExtranonce(en)
+						extranonceToSend = s.MainExtranonce
 					}
 					// Zero-latency job injection using Global Dispatcher
 					cachedJob := GlobalDispatcher.GetJob(s.Config.PoolAddress)
 					if cachedJob == "" {
 					    cachedJob = s.LatestMainJob
 					}
-					minerConn := s.MinerConn
-					if cachedJob != "" && minerConn != nil && s.Protocol != "ETH_PROXY" {
-						cleanJob := forceCleanJobs(cachedJob)
-						fmt.Fprintf(minerConn, "%s\n", cleanJob)
+					if cachedJob != "" && currentMinerConn != nil && s.Protocol != "ETH_PROXY" {
+						jobToSend = forceCleanJobs(cachedJob)
 					}
 				} else if targetMode == FeeModeDev || targetMode == FeeModeOperator {
 					s.TargetState = "FEE"
 					s.State = "SWITCHING_TO_FEE"
 					if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
-						en := s.FeeExtranonce
-						s.sendExtranonce(en)
+						extranonceToSend = s.FeeExtranonce
 					}
 					// Zero-latency job injection for Fee
 					cachedJob := s.LatestFeeJob
-					minerConn := s.MinerConn
-					if cachedJob != "" && minerConn != nil && s.Protocol != "ETH_PROXY" {
-						cleanJob := forceCleanJobs(cachedJob)
-						fmt.Fprintf(minerConn, "%s\n", cleanJob)
+					if cachedJob != "" && currentMinerConn != nil && s.Protocol != "ETH_PROXY" {
+						jobToSend = forceCleanJobs(cachedJob)
 					}
 				}
 			}
 			s.mu.Unlock()
+
+			// Perform TCP socket writes outside of the mutex to prevent deadlocks
+			if extranonceToSend != nil {
+				s.sendExtranonce(extranonceToSend)
+			}
+			if jobToSend != "" && currentMinerConn != nil {
+				fmt.Fprintf(currentMinerConn, "%s\n", jobToSend)
+			}
 		}
 	}
 }
