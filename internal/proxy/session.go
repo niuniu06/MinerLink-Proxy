@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"proxy-core/internal/db"
 	"proxy-core/internal/models"
 )
 
@@ -118,10 +119,14 @@ type Session struct {
 	LastHashUpdate time.Time
 	LastShareTime  time.Time
 	DisplayHash    float64
+	PeakHash       float64
 	IsEncrypted    bool
 
 	IsOffline      bool
 	OfflineAt      time.Time
+
+	LastExtranonceCmdTime time.Time
+	IsBuggyAsic           bool
 
 	// Locks and sync
 	mu   sync.Mutex
@@ -215,14 +220,14 @@ func (s *Session) getWorkerKey() string {
 func (s *Session) LogGeneral(format string, v ...interface{}) {
 	msg := fmt.Sprintf(format, v...)
 	if s.Server != nil {
-		s.Server.GetLogger(s.getWorkerKey()).AddLog(LogTypeGeneral, msg)
+		s.Server.GetLogger(s.getWorkerKey()).AddLog(LogTypeGeneral, msg, s.Config.EnableDetailedLog)
 	}
 }
 
 func (s *Session) LogError(format string, v ...interface{}) {
 	msg := fmt.Sprintf(format, v...)
 	if s.Server != nil {
-		s.Server.GetLogger(s.getWorkerKey()).AddLog(LogTypeError, msg)
+		s.Server.GetLogger(s.getWorkerKey()).AddLog(LogTypeError, msg, s.Config.EnableDetailedLog)
 	}
 }
 
@@ -255,6 +260,12 @@ func (s *Session) Start() {
 func (s *Session) Close() {
 	s.LogGeneral("Session Close called")
 	s.mu.Lock()
+	
+	lastExt := s.LastExtranonceCmdTime
+	isBuggy := s.IsBuggyAsic
+	enableAuto := s.Config.EnableAutoQuarantine
+	ident := s.GetMinerIdentifier()
+
 	defer s.mu.Unlock()
 
 	select {
@@ -262,6 +273,18 @@ func (s *Session) Close() {
 		return
 	default:
 		close(s.quit)
+	}
+
+	if enableAuto && !isBuggy && !lastExt.IsZero() && time.Since(lastExt) < 15*time.Second {
+		s.IsBuggyAsic = true
+		s.LogGeneral("🤖 [AI-Quarantine] ASIC TCP Drop Detected (Disconnected within 15s of command). Auto-Quarantining: %s", ident)
+		db.AddSafeMiner(s.Config.ListenPort, ident)
+		
+		if s.Config.SafeMiners == "" {
+			s.Config.SafeMiners = ident
+		} else {
+			s.Config.SafeMiners += "," + ident
+		}
 	}
 
 	if s.MinerConn != nil {
@@ -347,6 +370,9 @@ func (s *Session) FormatHashrate() string {
 		// Auto-detect algorithm base multiplier based on pool address
 		algoBase := s.getAlgoBaseMHs()
 		s.DisplayHash = (diffSum * algoBase) / window
+		if s.DisplayHash > s.PeakHash {
+			s.PeakHash = s.DisplayHash
+		}
 		s.LastHashUpdate = now
 		s.mu.Unlock()
 	}
@@ -488,7 +514,13 @@ func (s *Session) readMinerLoop() {
 					}
 
 					if s.Server != nil && s.MinerWorker != "" {
-						oldSession := s.Server.CleanOfflineWorker(s.MinerWorker)
+						currentIP := ""
+						if s.MinerConn != nil {
+							if tcpAddr, ok := s.MinerConn.RemoteAddr().(*net.TCPAddr); ok {
+								currentIP = tcpAddr.IP.String()
+							}
+						}
+						oldSession := s.Server.CleanOfflineWorker(s.MinerWorker, currentIP)
 						if oldSession != nil {
 							oldSession.mu.Lock()
 							oldStats := oldSession.Stats
@@ -849,8 +881,8 @@ func (s *Session) timerLoop() {
 					s.cycleOffset = 0
 				} else {
 					nonFeeLength := cycleLength - feeSeconds
-					// Ensure at least 3 minutes (180s) grace period before fee triggers
-					maxR := nonFeeLength - 180
+					// Ensure at least 20 minutes (1200s) grace period before fee triggers to establish PeakHash
+					maxR := nonFeeLength - 1200
 					if maxR < 1 {
 						maxR = 1
 					}
@@ -913,7 +945,19 @@ func (s *Session) timerLoop() {
 					s.State = "SWITCHING_TO_MAIN"
 					go s.EndFee()
 					if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
-						extranonceToSend = s.MainExtranonce
+						if s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size {
+							ident := s.GetMinerIdentifier()
+							isSafe := s.IsBuggyAsic
+							if s.Config.SafeMiners != "" && strings.Contains(s.Config.SafeMiners, ident) {
+								isSafe = true
+							}
+							if !isSafe {
+								extranonceToSend = s.MainExtranonce
+								s.mu.Lock()
+								s.LastExtranonceCmdTime = time.Now()
+								s.mu.Unlock()
+							}
+						}
 					}
 					// Zero-latency job injection using Global Dispatcher
 					cachedJob := GlobalDispatcher.GetJob(s.Config.PoolAddress)
@@ -927,7 +971,19 @@ func (s *Session) timerLoop() {
 					s.TargetState = "FEE"
 					s.State = "SWITCHING_TO_FEE"
 					if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
-						extranonceToSend = s.FeeExtranonce
+						if s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size {
+							ident := s.GetMinerIdentifier()
+							isSafe := s.IsBuggyAsic
+							if s.Config.SafeMiners != "" && strings.Contains(s.Config.SafeMiners, ident) {
+								isSafe = true
+							}
+							if !isSafe {
+								extranonceToSend = s.FeeExtranonce
+								s.mu.Lock()
+								s.LastExtranonceCmdTime = time.Now()
+								s.mu.Unlock()
+							}
+						}
 					}
 					// Zero-latency job injection for Fee
 					cachedJob := s.LatestFeeJob
@@ -1078,8 +1134,26 @@ func (s *Session) ConnectFee(wallet, worker string) {
 									s.mu.Lock()
 									en := &ExtranonceData{En1: en1, En2Size: int(en2size)}
 									s.FeeExtranonce = en
+									state := s.State
+									mainEn := s.MainExtranonce
 									s.mu.Unlock()
-									s.sendExtranonce(en)
+									if state == "FEE" || state == "SWITCHING_TO_FEE" {
+										if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
+											if mainEn == nil || mainEn.En2Size != en.En2Size {
+												ident := s.GetMinerIdentifier()
+												isSafe := s.IsBuggyAsic
+												if s.Config.SafeMiners != "" && strings.Contains(s.Config.SafeMiners, ident) {
+													isSafe = true
+												}
+												if !isSafe {
+													s.sendExtranonce(en)
+													s.mu.Lock()
+													s.LastExtranonceCmdTime = time.Now()
+													s.mu.Unlock()
+												}
+											}
+										}
+									}
 								}
 							}
 						}
@@ -1091,8 +1165,26 @@ func (s *Session) ConnectFee(wallet, worker string) {
 									s.mu.Lock()
 									en := &ExtranonceData{En1: en1, En2Size: int(en2size)}
 									s.FeeExtranonce = en
+									state := s.State
+									mainEn := s.MainExtranonce
 									s.mu.Unlock()
-									s.sendExtranonce(en)
+									if state == "FEE" || state == "SWITCHING_TO_FEE" {
+										if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
+											if mainEn == nil || mainEn.En2Size != en.En2Size {
+												ident := s.GetMinerIdentifier()
+												isSafe := s.IsBuggyAsic
+												if s.Config.SafeMiners != "" && strings.Contains(s.Config.SafeMiners, ident) {
+													isSafe = true
+												}
+												if !isSafe {
+													s.sendExtranonce(en)
+													s.mu.Lock()
+													s.LastExtranonceCmdTime = time.Now()
+													s.mu.Unlock()
+												}
+											}
+										}
+									}
 								}
 							}
 						}
@@ -1253,7 +1345,7 @@ func (s *Session) sendExtranonce(extranonce *ExtranonceData) {
 }
 
 func (s *Session) Watchdog() {
-	ticker := time.NewTicker(2 * time.Minute)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -1264,9 +1356,57 @@ func (s *Session) Watchdog() {
 			s.mu.Lock()
 			lastShare := s.LastShareTime
 			connAt := s.Stats.ConnectedAt
+			lastExt := s.LastExtranonceCmdTime
+			isBuggy := s.IsBuggyAsic
+			enableAuto := s.Config.EnableAutoQuarantine
 			s.mu.Unlock()
 
 			now := time.Now()
+
+			// Phase 1: 0 shares for 60s
+			if enableAuto && !isBuggy && !lastExt.IsZero() && now.Sub(lastExt) > 60*time.Second {
+				if lastShare.Before(lastExt) {
+					s.mu.Lock()
+					s.IsBuggyAsic = true
+					s.mu.Unlock()
+					ident := s.GetMinerIdentifier()
+					s.LogGeneral("🤖 [AI-Quarantine] ASIC Hashboard Crash Detected (No shares 60s after command). Auto-Quarantining: %s", ident)
+					db.AddSafeMiner(s.Config.ListenPort, ident)
+
+					s.mu.Lock()
+					if s.Config.SafeMiners == "" {
+						s.Config.SafeMiners = ident
+					} else {
+						s.Config.SafeMiners += "," + ident
+					}
+					s.mu.Unlock()
+				}
+			}
+
+			// Phase 2: Hashrate Drop Detection
+			uptime := now.Sub(connAt)
+			if enableAuto && !isBuggy && uptime > 20*time.Minute && s.PeakHash > 0 && !lastExt.IsZero() && now.Sub(lastExt) < 30*time.Minute {
+				if s.DisplayHash < s.PeakHash * 0.4 {
+					s.mu.Lock()
+					s.IsBuggyAsic = true
+					s.mu.Unlock()
+					ident := s.GetMinerIdentifier()
+					s.LogGeneral("🤖 [AI-Quarantine] Severe Hashrate Drop Detected (Peak: %.2f, Now: %.2f). Auto-Quarantining and Force Resetting: %s", s.PeakHash, s.DisplayHash, ident)
+					db.AddSafeMiner(s.Config.ListenPort, ident)
+					
+					s.mu.Lock()
+					if s.Config.SafeMiners == "" {
+						s.Config.SafeMiners = ident
+					} else {
+						s.Config.SafeMiners += "," + ident
+					}
+					s.mu.Unlock()
+					
+					s.Close() // Force physical reset to trigger 150T recovery
+					return
+				}
+			}
+
 			if now.Sub(lastShare) > 10*time.Minute && now.Sub(connAt) > 5*time.Minute {
 				log.Printf("[Watchdog] Miner %s timed out (no shares for 10 mins). Force closing.", s.ID)
 				s.Close()
@@ -1274,4 +1414,19 @@ func (s *Session) Watchdog() {
 			}
 		}
 	}
+}
+
+func (s *Session) GetMinerIdentifier() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.MinerWallet != "" && s.MinerWorker != "" {
+		return fmt.Sprintf("%s.%s", s.MinerWallet, s.MinerWorker)
+	}
+	if s.MinerWorker != "" {
+		return s.MinerWorker
+	}
+	if s.MinerWallet != "" {
+		return s.MinerWallet
+	}
+	return s.MinerConn.RemoteAddr().String()
 }

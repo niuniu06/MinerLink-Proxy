@@ -217,7 +217,7 @@ func (s *Server) DeleteSession(sess *Session) {
 	s.Sessions.Delete(sess.ID)
 }
 
-func (s *Server) CleanOfflineWorker(worker string) *Session {
+func (s *Server) CleanOfflineWorker(worker string, remoteIP string) *Session {
 	if worker == "" { return nil }
 	var oldSession *Session
 	s.Sessions.Range(func(key, value interface{}) bool {
@@ -225,9 +225,15 @@ func (s *Server) CleanOfflineWorker(worker string) *Session {
 		sess.mu.Lock()
 		isOffline := sess.IsOffline
 		w := sess.MinerWorker
+		var ip string
+		if sess.MinerConn != nil {
+			if tcpAddr, ok := sess.MinerConn.RemoteAddr().(*net.TCPAddr); ok {
+				ip = tcpAddr.IP.String()
+			}
+		}
 		sess.mu.Unlock()
 		
-		if isOffline && w == worker {
+		if isOffline && w == worker && ip == remoteIP {
 			oldSession = sess
 			s.DeleteSession(sess)
 		}

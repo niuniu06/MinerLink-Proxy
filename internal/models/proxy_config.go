@@ -44,6 +44,8 @@ type ProxyConfig struct {
 	EnableStaleDrop      bool    `json:"enableStaleDrop"`
 	EnableEthTargetRewrite bool  `json:"enableEthTargetRewrite"`
 	EnableTcpNoDelay     bool    `json:"enableTcpNoDelay"`
+	EnableAutoQuarantine bool    `json:"enableAutoQuarantine"`
+	SafeMiners           string  `json:"safeMiners"`
 
 	// Auto-Vardiff settings
 	EnableVardiff      bool    `json:"enableVardiff"`

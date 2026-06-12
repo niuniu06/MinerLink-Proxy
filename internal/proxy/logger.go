@@ -35,7 +35,7 @@ func NewMinerLogger(worker string) *MinerLogger {
 	}
 }
 
-func (l *MinerLogger) AddLog(logType, message string) {
+func (l *MinerLogger) AddLog(logType, message string, persistToDisk bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	entry := LogEntry{
@@ -44,8 +44,8 @@ func (l *MinerLogger) AddLog(logType, message string) {
 		Message:   message,
 	}
 
-	// Persist to disk
-	if l.WorkerName != "" {
+	// Persist to disk only if detailed logging is enabled
+	if persistToDisk && l.WorkerName != "" {
 		logDir := filepath.Join(".", "data", "logs", "miners")
 		os.MkdirAll(logDir, 0755)
 		

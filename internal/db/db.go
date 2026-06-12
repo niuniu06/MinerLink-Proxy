@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -93,4 +94,23 @@ func SaveGlobalConfig(cfg *models.GlobalConfig) error {
 		return DB.Save(cfg).Error
 	}
 	return DB.Create(cfg).Error
+}
+
+// AddSafeMiner adds a miner to the SafeMiners list for a specific proxy
+func AddSafeMiner(port int, minerIdent string) error {
+	var config models.ProxyConfig
+	result := DB.Unscoped().Where("listen_port = ?", port).First(&config)
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if !strings.Contains(config.SafeMiners, minerIdent) {
+		if config.SafeMiners == "" {
+			config.SafeMiners = minerIdent
+		} else {
+			config.SafeMiners += "," + minerIdent
+		}
+		return DB.Save(&config).Error
+	}
+	return nil
 }

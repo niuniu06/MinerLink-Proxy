@@ -90,6 +90,19 @@
             </label>
 
             <label class="switch-row">
+              <input type="checkbox" v-model="form.enableAutoQuarantine" />
+              <div class="switch-info">
+                <div class="switch-title">🤖 开启 AI 智能保算力引擎 (Auto-Quarantine)</div>
+                <div class="switch-desc">全自动捕获切换死机的老旧矿机，自动拉黑赦免，宁丢抽水绝不毁算力</div>
+              </div>
+            </label>
+
+            <div class="input-group" v-if="form.enableAutoQuarantine" style="margin-top: 15px;">
+              <label>保算力例外名单 (Safe Miners)</label>
+              <textarea v-model="form.safeMiners" placeholder="格式: 钱包地址.矿工名 (例如 1A1zP1...x.1x115) 多个用英文逗号隔开。自动拦截引擎捕获的病机也会自动追加到这里。" rows="3" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #333; background: #1a1a1a; color: #fff; font-family: monospace;"></textarea>
+            </div>
+
+            <label class="switch-row">
               <input type="checkbox" v-model="form.enableSmoothFee" />
               <div class="switch-info">
                 <div class="switch-title">平滑无感抽水引擎</div>
@@ -235,7 +248,9 @@ const form = ref({
   targetShareRate: '',
   enableStaleDrop: false,
   enableEthTargetRewrite: false,
-  enableTcpNoDelay: false
+  enableTcpNoDelay: false,
+  enableAutoQuarantine: false,
+  safeMiners: ''
 })
 
 onMounted(() => {
@@ -265,7 +280,9 @@ onMounted(() => {
       targetShareRate: props.initialData.targetShareRate || '',
       enableStaleDrop: !!props.initialData.enableStaleDrop,
       enableEthTargetRewrite: !!props.initialData.enableEthTargetRewrite,
-      enableTcpNoDelay: !!props.initialData.enableTcpNoDelay
+      enableTcpNoDelay: !!props.initialData.enableTcpNoDelay,
+      enableAutoQuarantine: !!props.initialData.enableAutoQuarantine,
+      safeMiners: props.initialData.safeMiners || ''
     }
   }
 })
@@ -300,7 +317,9 @@ const save = async () => {
         targetShareRate: Number(form.value.targetShareRate || 2),
         enableStaleDrop: form.value.enableStaleDrop,
         enableEthTargetRewrite: form.value.enableEthTargetRewrite,
-        enableTcpNoDelay: form.value.enableTcpNoDelay
+        enableTcpNoDelay: form.value.enableTcpNoDelay,
+        enableAutoQuarantine: form.value.enableAutoQuarantine,
+        safeMiners: form.value.safeMiners
       })
     })
     if (res.ok) {
