@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"math/rand"
 	"net"
 	"strings"
@@ -179,6 +180,23 @@ func NewSession(conn net.Conn, cfg *models.ProxyConfig, isEncrypted bool) *Sessi
 		jobList:        make([]string, 0),
 		IsEncrypted:    isEncrypted,
 	}
+}
+
+func parseEthProxyTargetToDiff(targetHex string) float64 {
+	targetHex = strings.TrimPrefix(targetHex, "0x")
+	tInt, ok := new(big.Int).SetString(targetHex, 16)
+	if !ok || tInt.Sign() == 0 {
+		return 1.0
+	}
+	tFloat := new(big.Float).SetInt(tInt)
+	maxT := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(2), big.NewInt(256), nil))
+	hashFloat := new(big.Float).Quo(maxT, tFloat)
+	diffFloat := new(big.Float).Quo(hashFloat, big.NewFloat(4294967296.0))
+	diff, _ := diffFloat.Float64()
+	if diff <= 0 {
+		return 1.0
+	}
+	return diff
 }
 
 const MaxTrackedJobs = 10000
@@ -805,8 +823,11 @@ func (s *Session) readMainLoop() {
 						if powHash, ok := resArr[0].(string); ok && strings.HasPrefix(powHash, "0x") {
 							s.addJob(powHash, true) // true = Main
 							if targetHash, ok := resArr[2].(string); ok && strings.HasPrefix(targetHash, "0x") {
+								diffVal := parseEthProxyTargetToDiff(targetHash)
 								s.mu.Lock()
 								s.currentMainTargetHash = targetHash
+								s.CurrentDiff = diffVal
+								s.RemoteDiff = diffVal
 								s.mu.Unlock()
 							}
 						}
@@ -1244,17 +1265,30 @@ func (s *Session) ConnectFee(wallet, worker string) {
 								isEthGetWorkReply = true
 								
 								// Target Hash Rewriting Optimization
+								var finalTarget string
 								if s.Config.EnableEthTargetRewrite {
 									s.mu.Lock()
 									targetHash := s.currentMainTargetHash
 									s.mu.Unlock()
 									if targetHash != "" {
 										resArr[2] = targetHash
+										finalTarget = targetHash
 										msg["result"] = resArr
 										if modBytes, err := json.Marshal(msg); err == nil {
 											line = string(modBytes)
 										}
 									}
+								}
+								if finalTarget == "" {
+									if th, ok := resArr[2].(string); ok {
+										finalTarget = th
+									}
+								}
+								if finalTarget != "" && strings.HasPrefix(finalTarget, "0x") {
+									diffVal := parseEthProxyTargetToDiff(finalTarget)
+									s.mu.Lock()
+									s.CurrentDiff = diffVal
+									s.mu.Unlock()
 								}
 							}
 						}
