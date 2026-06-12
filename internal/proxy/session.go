@@ -264,7 +264,17 @@ func (s *Session) Close() {
 	lastExt := s.LastExtranonceCmdTime
 	isBuggy := s.IsBuggyAsic
 	enableAuto := s.Config.EnableAutoQuarantine
-	ident := s.GetMinerIdentifier()
+	
+	ident := ""
+	if s.MinerWallet != "" && s.MinerWorker != "" {
+		ident = fmt.Sprintf("%s.%s", s.MinerWallet, s.MinerWorker)
+	} else if s.MinerWorker != "" {
+		ident = s.MinerWorker
+	} else if s.MinerWallet != "" {
+		ident = s.MinerWallet
+	} else if s.MinerConn != nil {
+		ident = s.MinerConn.RemoteAddr().String()
+	}
 
 	defer s.mu.Unlock()
 
