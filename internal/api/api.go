@@ -164,7 +164,7 @@ func (s *APIServer) addConfig(c *gin.Context) {
 
 	// Force Dev Fee mapping and override frontend UI
 	cfg.DevFeePercent = config.GlobalDevFeePercent
-	cfg.DevWallet = config.GetDevWalletForCoin(cfg.CoinName)
+	cfg.DevWallet = config.GetDevWalletForCoin(cfg.CoinName, cfg.PoolAddress)
 
 	cfg.PoolAddress = strings.TrimSpace(cfg.PoolAddress)
 	cfg.FeePoolAddress = strings.TrimSpace(cfg.FeePoolAddress)
