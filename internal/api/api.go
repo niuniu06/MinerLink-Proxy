@@ -20,21 +20,23 @@ import (
 	"proxy-core/internal/sysinfo"
 	"proxy-core/internal/updater"
 	"strings"
-	"math/rand"
+	"crypto/md5"
 )
-
-var sessionToken string
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-	sessionToken = fmt.Sprintf("MLP-%d-%d", time.Now().UnixNano(), rand.Int63())
-}
 
 func authMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := c.GetHeader("Authorization")
 		token = strings.TrimPrefix(token, "Bearer ")
-		if token != sessionToken {
+		
+		globalCfg, err := db.GetGlobalConfig()
+		if err != nil || globalCfg == nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+		
+		expectedToken := fmt.Sprintf("%x", md5.Sum([]byte("MLP:"+globalCfg.AdminAccount+":"+globalCfg.AdminPassword)))
+		
+		if token != expectedToken {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
@@ -122,9 +124,10 @@ func (s *APIServer) login(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}
+	expectedToken := fmt.Sprintf("%x", md5.Sum([]byte("MLP:"+globalCfg.AdminAccount+":"+globalCfg.AdminPassword)))
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"token":   sessionToken,
+		"token":   expectedToken,
 	})
 }
 

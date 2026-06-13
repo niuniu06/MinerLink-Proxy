@@ -13,6 +13,19 @@
         </small>
       </div>
 
+      <div class="form-group">
+        <label>管理员账号 (登录面板用)</label>
+        <input type="text" v-model="form.adminAccount" placeholder="默认: admin" />
+      </div>
+      
+      <div class="form-group">
+        <label>管理员密码 (登录面板用)</label>
+        <input type="text" v-model="form.adminPassword" placeholder="默认: admin" />
+        <small class="help-text">
+          修改账号密码后，代理引擎也将重启以应用新密码。
+        </small>
+      </div>
+
       <div class="modal-actions">
         <button class="btn-cancel" @click="$emit('close')" :disabled="saving">取消</button>
         <button class="btn-save" @click="saveConfig" :disabled="saving">
@@ -30,7 +43,9 @@ const emit = defineEmits(['close', 'saved'])
 
 const form = ref({
   webPort: 0,
-  enableLogging: true
+  enableLogging: true,
+  adminAccount: 'admin',
+  adminPassword: 'admin'
 })
 
 const saving = ref(false)
@@ -48,6 +63,8 @@ const fetchConfig = async () => {
         form.value.webPort = port
       }
       form.value.enableLogging = data.enableLogging !== false // default true
+      if (data.adminAccount) form.value.adminAccount = data.adminAccount;
+      if (data.adminPassword) form.value.adminPassword = data.adminPassword;
     }
   } catch (e) {
     console.error(e)
