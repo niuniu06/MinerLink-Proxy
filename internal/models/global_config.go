@@ -7,6 +7,8 @@ import (
 // GlobalConfig represents the system-wide settings
 type GlobalConfig struct {
 	gorm.Model
-	WebPort       int  `json:"webPort"`
-	EnableLogging bool `json:"enableLogging"`
+	WebPort       int    `json:"webPort" gorm:"default:8080"`
+	EnableLogging bool   `json:"enableLogging" gorm:"default:true"`
+	AdminAccount  string `json:"adminAccount" gorm:"default:'admin'"`
+	AdminPassword string `json:"adminPassword" gorm:"default:'admin'"`
 }

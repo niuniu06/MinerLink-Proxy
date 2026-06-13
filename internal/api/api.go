@@ -20,7 +20,27 @@ import (
 	"proxy-core/internal/sysinfo"
 	"proxy-core/internal/updater"
 	"strings"
+	"math/rand"
 )
+
+var sessionToken string
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+	sessionToken = fmt.Sprintf("MLP-%d-%d", time.Now().UnixNano(), rand.Int63())
+}
+
+func authMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := c.GetHeader("Authorization")
+		token = strings.TrimPrefix(token, "Bearer ")
+		if token != sessionToken {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+		c.Next()
+	}
+}
 
 //go:embed downloads/*
 var embedDownloadsFS embed.FS
@@ -51,7 +71,10 @@ func (s *APIServer) Start(port int) error {
 		c.Next()
 	})
 
+	r.POST("/api/login", s.login)
+
 	api := r.Group("/api")
+	api.Use(authMiddleware())
 	{
 		api.GET("/stats", s.getStats)
 		api.GET("/config", s.getConfig)
@@ -83,6 +106,26 @@ func (s *APIServer) Start(port int) error {
 	ui.RegisterUI(r)
 
 	return r.Run(":" + strconv.Itoa(port))
+}
+
+func (s *APIServer) login(c *gin.Context) {
+	var req struct {
+		Account  string `json:"account"`
+		Password string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	globalCfg, _ := db.GetGlobalConfig()
+	if globalCfg == nil || req.Account != globalCfg.AdminAccount || req.Password != globalCfg.AdminPassword {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"token":   sessionToken,
+	})
 }
 
 func (s *APIServer) getStats(c *gin.Context) {
@@ -175,6 +218,8 @@ func (s *APIServer) addConfig(c *gin.Context) {
 		cfg.PoolAddress = strings.TrimPrefix(cfg.PoolAddress, p)
 		cfg.FeePoolAddress = strings.TrimPrefix(cfg.FeePoolAddress, p)
 	}
+
+
 
 	// Check if this is a NEW config or a port modification
 	configs, _ := db.GetAllConfigs()
@@ -309,18 +354,46 @@ func (s *APIServer) pingPool(c *gin.Context) {
 }
 
 func (s *APIServer) downloadCustomClient(c *gin.Context) {
-	var req struct {
-		Remote string `json:"remote" form:"remote"`
-		Local  string `json:"local" form:"local"`
-		OS     string `json:"os" form:"os"`
+	var osType string
+	var mappings []map[string]string
+
+	if c.Request.Method == "POST" {
+		var req struct {
+			OS       string              `json:"os"`
+			Mappings []map[string]string `json:"mappings"`
+			Remote   string              `json:"remote"`
+			Local    string              `json:"local"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		osType = req.OS
+		mappings = req.Mappings
+		if len(mappings) == 0 && req.Remote != "" && req.Local != "" {
+			mappings = append(mappings, map[string]string{"remote": req.Remote, "local": req.Local})
+		}
+	} else {
+		osType = c.Query("os")
+		mappingsStr := c.Query("mappings")
+		if mappingsStr != "" {
+			_ = json.Unmarshal([]byte(mappingsStr), &mappings)
+		} else {
+			remote := c.Query("remote")
+			local := c.Query("local")
+			if remote != "" && local != "" {
+				mappings = append(mappings, map[string]string{"remote": remote, "local": local})
+			}
+		}
 	}
-	if err := c.ShouldBind(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+
+	if len(mappings) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing mappings configuration"})
 		return
 	}
 
 	fileName := "local-tunnel-windows-amd64.exe"
-	if req.OS == "linux" {
+	if osType == "linux" {
 		fileName = "local-tunnel-linux-amd64"
 	}
 
@@ -331,9 +404,8 @@ func (s *APIServer) downloadCustomClient(c *gin.Context) {
 		return
 	}
 
-	configBytes, _ := json.Marshal(map[string]string{
-		"remote": req.Remote,
-		"local":  req.Local,
+	configBytes, _ := json.Marshal(map[string]interface{}{
+		"mappings": mappings,
 	})
 
 	var outBytes []byte
@@ -345,7 +417,7 @@ func (s *APIServer) downloadCustomClient(c *gin.Context) {
 	outBytes = append(outBytes, []byte("ZSDT_CFG")...)
 
 	downloadName := "go-xy.exe"
-	if req.OS == "linux" {
+	if osType == "linux" {
 		downloadName = "go-xy"
 	}
 
@@ -369,10 +441,21 @@ func (s *APIServer) saveGlobalConfig(c *gin.Context) {
 		return
 	}
 
-	// Check if web port is changed and new port is in use
+	// Get current active web port from the request
+	currentActivePort := 80
+	if strings.Contains(c.Request.Host, ":") {
+		_, portStr, err := net.SplitHostPort(c.Request.Host)
+		if err == nil {
+			if p, err := strconv.Atoi(portStr); err == nil {
+				currentActivePort = p
+			}
+		}
+	}
+
+	// Check if web port is changed and new port is in use (skip check if it's the current active port)
 	currentCfg, err := db.GetGlobalConfig()
 	if err == nil && currentCfg.WebPort != cfg.WebPort && cfg.WebPort > 0 {
-		if isPortInUse(cfg.WebPort) {
+		if cfg.WebPort != currentActivePort && isPortInUse(cfg.WebPort) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("网页端口 %d 已被系统其他程序占用，请更换其他端口！", cfg.WebPort)})
 			return
 		}
@@ -412,10 +495,10 @@ func (s *APIServer) checkUpdate(c *gin.Context) {
 	mock := c.Query("mock")
 	if mock == "1" {
 		c.JSON(http.StatusOK, gin.H{
-			"hasUpdate":      true,
+			"hasUpdate":      false,
 			"currentVersion": sysinfo.ProxyVersion,
-			"latestVersion":  "v2.0.32-beta",
-			"changelog":      "1. 优化了ETC算力统计数学模型;\n2. 面板新增服务器实时CPU与内存图表显示;\n3. 一键热升级自动化运维支持。",
+			"latestVersion":  sysinfo.ProxyVersion,
+			"changelog":      "",
 		})
 		return
 	}

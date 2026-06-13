@@ -6,6 +6,8 @@ import (
 	"gorm.io/gorm"
 )
 
+
+
 // ProxyConfig stores the configuration for a single mining proxy cluster (port)
 type ProxyConfig struct {
 	ID                 uint           `gorm:"primarykey" json:"id"`

@@ -8,22 +8,21 @@
 
       <div class="modal-body">
         <p class="desc">
-          我们采用了高级二进制动态注入技术。您只需在下方填写一次矿场对应的服务器 IP 和端口，系统将在一毫秒内为您打包出一个<strong>专属的单文件客户端</strong>。矿场客户下载后直接双击即可使用，真正零配置！
+          我们采用了高级二进制动态注入技术。您只需在下方填写矿场对应的服务器 IP 和各个币种的挖矿端口映射，系统将在一毫秒内为您打包出一个<strong>专属的单文件客户端</strong>。矿场客户下载后直接双击即可使用，真正零配置！
         </p>
         
-        <div class="form-group">
-          <label>云端服务器地址 (IP:Port)</label>
-          <input type="text" v-model="remoteAddr" placeholder="例如: 123.45.67.89:10130" />
-          <span class="hint">矿机要连接的公网代理服务器 IP 和您的挖矿端口。</span>
+        <div class="mappings-container">
+          <label>端口映射配置表</label>
+          <div v-for="(m, idx) in mappings" :key="idx" class="mapping-row">
+            <input type="text" v-model="m.local" placeholder="本地矿机连的端口, 例如 :3333" class="small-input" />
+            <span class="arrow-icon">👉</span>
+            <input type="text" v-model="m.remote" placeholder="云端服务器地址, 例如 18.181.235.155:10101" />
+            <button class="btn-remove" @click="removeMapping(idx)" v-if="mappings.length > 1">×</button>
+          </div>
+          <button class="btn-add" @click="addMapping">+ 添加更多端口映射</button>
         </div>
 
-        <div class="form-group">
-          <label>矿场本地监听端口 (默认: 3333)</label>
-          <input type="text" v-model="localPort" placeholder=":3333" />
-          <span class="hint">该防封软件在矿场电脑上开启的本地端口，矿机填这个端口。</span>
-        </div>
-
-        <div class="script-block" v-if="remoteAddr">
+        <div class="script-block" v-if="mappings.length > 0 && mappings[0].remote">
           <label>Linux 矿场一键部署/更新脚本 (自动杀旧换新)：</label>
           <div class="code-wrap">
             <textarea readonly :value="wgetCommand"></textarea>
@@ -46,22 +45,33 @@ import { ref, computed, onMounted } from 'vue'
 
 const emit = defineEmits(['close'])
 
-const remoteAddr = ref('')
-const localPort = ref(':3333')
+const mappings = ref([
+  { local: ':3333', remote: '' }
+])
 
 onMounted(() => {
-  // Try to auto-guess the IP
   const host = window.location.hostname
   if (host && host !== 'localhost' && host !== '127.0.0.1') {
-    remoteAddr.value = `${host}:10130` // Default guessing 10130
+    mappings.value[0].remote = `${host}:10101`
   }
 })
 
+const addMapping = () => {
+  mappings.value.push({ local: '', remote: '' })
+}
+
+const removeMapping = (idx) => {
+  if (mappings.value.length > 1) {
+    mappings.value.splice(idx, 1)
+  }
+}
+
 const wgetCommand = computed(() => {
-  if (!remoteAddr.value) return '请先输入服务器地址...'
+  if (mappings.value.length === 0 || !mappings.value[0].remote) return '请先输入服务器地址...'
   const host = window.location.host
   const proto = window.location.protocol
-  const downloadUrl = `${proto}//${host}/api/download/custom?os=linux&remote=${encodeURIComponent(remoteAddr.value)}&local=${encodeURIComponent(localPort.value)}`
+  const mappingsJson = encodeURIComponent(JSON.stringify(mappings.value))
+  const downloadUrl = `${proto}//${host}/api/download/custom?os=linux&mappings=${mappingsJson}`
   return `killall -9 go-xy 2>/dev/null; rm -f go-xy tunnel.log; wget -O go-xy "${downloadUrl}" && chmod +x go-xy && nohup ./go-xy > tunnel.log 2>&1 &`
 })
 
@@ -75,8 +85,9 @@ const copyScript = async () => {
 }
 
 const downloadClient = async (os) => {
-  if (!remoteAddr.value) {
-    alert('请填写云端服务器地址！')
+  const validMappings = mappings.value.filter(m => m.remote && m.local)
+  if (validMappings.length === 0) {
+    alert('请至少填写一组完整的端口映射配置！')
     return
   }
 
@@ -85,8 +96,7 @@ const downloadClient = async (os) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        remote: remoteAddr.value,
-        local: localPort.value,
+        mappings: validMappings,
         os: os
       })
     })
@@ -97,7 +107,6 @@ const downloadClient = async (os) => {
       return
     }
 
-    // Trigger file download
     const blob = await res.blob()
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -169,33 +178,75 @@ const downloadClient = async (os) => {
   line-height: 1.4;
 }
 
-.form-group {
+.mappings-container {
   margin-bottom: 15px;
+  background: rgba(0, 0, 0, 0.1);
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
 }
-.form-group label {
+.mappings-container label {
   display: block;
-  margin-bottom: 8px;
-  color: var(--text-muted);
-  font-size: 0.9rem;
+  margin-bottom: 12px;
+  color: var(--text-color);
+  font-weight: 600;
+  font-size: 0.95rem;
 }
-.form-group input {
-  width: 100%;
-  padding: 10px;
+.mapping-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.mapping-row input {
+  flex: 1;
+  padding: 8px 10px;
   background: var(--bg-color);
   border: 1px solid var(--border-color);
   border-radius: 6px;
   color: var(--text-color);
   font-family: monospace;
 }
-.form-group input:focus {
+.mapping-row input.small-input {
+  flex: 0.6;
+}
+.mapping-row input:focus {
   outline: none;
   border-color: var(--primary-color);
 }
-.hint {
-  display: block;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  margin-top: 5px;
+.arrow-icon {
+  font-size: 1rem;
+}
+.btn-remove {
+  background: rgba(255, 60, 60, 0.2);
+  color: #ff4d4d;
+  border: 1px solid rgba(255, 60, 60, 0.3);
+  border-radius: 4px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-remove:hover {
+  background: rgba(255, 60, 60, 0.4);
+}
+.btn-add {
+  margin-top: 10px;
+  width: 100%;
+  padding: 8px;
+  background: transparent;
+  border: 1px dashed var(--primary-color);
+  color: var(--primary-color);
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+.btn-add:hover {
+  background: rgba(30, 200, 160, 0.1);
 }
 
 .script-block {

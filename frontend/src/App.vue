@@ -1,5 +1,8 @@
 <template>
-  <div class="app-layout">
+  <div v-if="!isLoggedIn">
+    <Login @success="onLoginSuccess" />
+  </div>
+  <div class="app-layout" v-else>
     <div class="topbar">
       <h1><em>Go-Proxy</em> 代理引擎后台 <span class="version-label" v-if="sysStatus && sysStatus.version">{{ sysStatus.version }}</span></h1>
       <div class="ctrls">
@@ -19,6 +22,7 @@
         </div>
         <div class="status-badge">运行中</div>
         <button class="btn-settings" @click="openGlobalSettings">⚙️ 参数热修改</button>
+        <button class="btn-restart" @click="globalLogout">🚪 退出登录</button>
         <button class="btn-restart" @click="globalRestart">🔄 全局热重启</button>
       </div>
     </div>
@@ -66,6 +70,24 @@ import Dashboard from './components/Dashboard.vue'
 import SystemLogs from './components/SystemLogs.vue'
 import ConfigModal from './components/ConfigModal.vue'
 import GlobalSettingsModal from './components/GlobalSettingsModal.vue'
+import Login from './components/Login.vue'
+
+const isLoggedIn = ref(false)
+
+const onLoginSuccess = () => {
+  isLoggedIn.value = true
+  fetchSysStatus()
+  checkUpdate()
+  if (sysIntervalId) clearInterval(sysIntervalId)
+  sysIntervalId = setInterval(fetchSysStatus, 2000)
+}
+
+const globalLogout = () => {
+  localStorage.removeItem('mlp_token')
+  sessionStorage.removeItem('mlp_token')
+  isLoggedIn.value = false
+  if (sysIntervalId) clearInterval(sysIntervalId)
+}
 import TunnelDownloadModal from './components/TunnelDownloadModal.vue'
 
 const currentView = ref('dashboard')
@@ -104,9 +126,13 @@ const checkUpdate = async () => {
 }
 
 onMounted(() => {
-  fetchSysStatus()
-  checkUpdate()
-  sysIntervalId = setInterval(fetchSysStatus, 2000)
+  const token = localStorage.getItem('mlp_token') || sessionStorage.getItem('mlp_token')
+  if (token) {
+    isLoggedIn.value = true
+    fetchSysStatus()
+    checkUpdate()
+    sysIntervalId = setInterval(fetchSysStatus, 2000)
+  }
 })
 
 onUnmounted(() => {

@@ -19,9 +19,13 @@ import (
 )
 
 
-type EmbedConfig struct {
+type Mapping struct {
 	Local  string `json:"local"`
 	Remote string `json:"remote"`
+}
+
+type EmbedConfig struct {
+	Mappings []Mapping `json:"mappings"`
 }
 
 func parseEmbedded() *EmbedConfig {
@@ -57,33 +61,45 @@ func main() {
 	remoteAddr := flag.String("remote", "", "Remote server address (e.g. 8.8.8.8:10130)")
 	flag.Parse()
 
+	var mappings []Mapping
+
 	embedded := parseEmbedded()
-	if embedded != nil {
-		if *localAddr == "" {
-			*localAddr = embedded.Local
+	if embedded != nil && len(embedded.Mappings) > 0 {
+		mappings = embedded.Mappings
+		log.Printf("Loaded customized embedded configuration with %d mappings.", len(mappings))
+	} else {
+		// Fallback to command line arguments
+		lAddr := *localAddr
+		rAddr := *remoteAddr
+		if lAddr == "" {
+			lAddr = ":3333"
 		}
-		if *remoteAddr == "" {
-			*remoteAddr = embedded.Remote
+		if rAddr == "" {
+			log.Fatalf("Please specify the remote address using -remote or use a customized client.")
 		}
-		log.Println("Loaded customized embedded configuration.")
+		mappings = append(mappings, Mapping{Local: lAddr, Remote: rAddr})
 	}
 
-	if *localAddr == "" {
-		*localAddr = ":3333"
+	for _, m := range mappings {
+		go startTunnelMapping(m.Local, m.Remote)
 	}
 
-	if *remoteAddr == "" {
-		log.Fatalf("Please specify the remote address using -remote or use a customized client.")
-	}
+	// Wait for exit signal
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+	log.Println("Shutting down...")
+}
 
-	listener, err := net.Listen("tcp", *localAddr)
+func startTunnelMapping(localAddr, remoteAddr string) {
+	listener, err := net.Listen("tcp", localAddr)
 	if err != nil {
-		log.Fatalf("Failed to listen on %s: %v", *localAddr, err)
+		log.Fatalf("Failed to listen on %s: %v", localAddr, err)
 	}
 	defer listener.Close()
 
-	log.Printf("Local Tunnel Client started on %s", *localAddr)
-	log.Printf("Forwarding securely to %s", *remoteAddr)
+	log.Printf("Local Tunnel Client started on %s", localAddr)
+	log.Printf("Forwarding securely to %s", remoteAddr)
 
 	var session *yamux.Session
 	var mu sync.Mutex
@@ -93,10 +109,10 @@ func main() {
 		for {
 			mu.Lock()
 			if session == nil || session.IsClosed() {
-				log.Printf("Connecting to remote tunnel at %s...", *remoteAddr)
-				conn, err := net.DialTimeout("tcp", *remoteAddr, 10*time.Second)
+				log.Printf("[%s] Connecting to remote tunnel at %s...", localAddr, remoteAddr)
+				conn, err := net.DialTimeout("tcp", remoteAddr, 10*time.Second)
 				if err != nil {
-					log.Printf("Dial failed: %v", err)
+					log.Printf("[%s] Dial failed: %v", localAddr, err)
 					mu.Unlock()
 					time.Sleep(3 * time.Second)
 					continue
@@ -115,7 +131,7 @@ func main() {
 					InsecureSkipVerify: true, // We trust our own tunnel server unconditionally
 				})
 				if err := tlsConn.Handshake(); err != nil {
-					log.Printf("TLS handshake failed: %v", err)
+					log.Printf("[%s] TLS handshake failed: %v", localAddr, err)
 					conn.Close()
 					mu.Unlock()
 					time.Sleep(3 * time.Second)
@@ -125,7 +141,7 @@ func main() {
 				// Start Yamux Client
 				ySession, err := yamux.Client(tlsConn, yamux.DefaultConfig())
 				if err != nil {
-					log.Printf("Yamux client setup failed: %v", err)
+					log.Printf("[%s] Yamux client setup failed: %v", localAddr, err)
 					conn.Close()
 					mu.Unlock()
 					time.Sleep(3 * time.Second)
@@ -133,7 +149,7 @@ func main() {
 				}
 
 				session = ySession
-				log.Printf("Tunnel connection established successfully.")
+				log.Printf("[%s] Tunnel connection established successfully.", localAddr)
 			}
 			mu.Unlock()
 			time.Sleep(1 * time.Second)
@@ -141,23 +157,15 @@ func main() {
 	}()
 
 	// Accept local miners
-	go func() {
-		for {
-			localConn, err := listener.Accept()
-			if err != nil {
-				log.Printf("Accept error: %v", err)
-				continue
-			}
-
-			go handleMiner(localConn, &session, &mu)
+	for {
+		localConn, err := listener.Accept()
+		if err != nil {
+			log.Printf("[%s] Accept error: %v", localAddr, err)
+			continue
 		}
-	}()
 
-	// Wait for exit signal
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
-	log.Println("Shutting down...")
+		go handleMiner(localConn, &session, &mu)
+	}
 }
 
 func handleMiner(localConn net.Conn, sessionPtr **yamux.Session, mu *sync.Mutex) {

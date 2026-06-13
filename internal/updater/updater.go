@@ -88,6 +88,33 @@ func normalizeVersion(v string) string {
 	return strings.TrimSpace(v)
 }
 
+// copyFile is a helper to copy a file when os.Rename fails across devices
+func copyFile(src, dst string) error {
+	sourceFileStat, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	if !sourceFileStat.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", src)
+	}
+
+	source, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+
+	destination, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destination.Close()
+
+	_, err = io.Copy(destination, source)
+	return err
+}
+
 // StartUpgrade handles downloading the matched binary and executing hot reload
 func StartUpgrade() error {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", RepoOwner, RepoName)
@@ -198,9 +225,14 @@ func upgradeLinux(newBinaryPath string) error {
 
 	// Rename new binary to target path
 	if err := os.Rename(newBinaryPath, execPath); err != nil {
-		// Restore backup on failure
-		_ = os.Rename(oldPath, execPath)
-		return fmt.Errorf("failed to place new binary: %v", err)
+		// If rename fails (e.g. cross-device link), fallback to copy and delete
+		if copyErr := copyFile(newBinaryPath, execPath); copyErr != nil {
+			// Restore backup on failure
+			_ = os.Rename(oldPath, execPath)
+			return fmt.Errorf("failed to place new binary (rename: %v, copy: %v)", err, copyErr)
+		}
+		// Clean up the temp binary if copy succeeded
+		_ = os.Remove(newBinaryPath)
 	}
 
 	// Set execution permissions
