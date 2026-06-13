@@ -3,6 +3,20 @@
     <div class="topbar">
       <h1><em>Go-Proxy</em> 代理引擎后台</h1>
       <div class="ctrls">
+        <div class="sys-metrics" v-if="sysStatus">
+          <div class="metric-item" :class="{ warning: sysStatus.cpuPercent > 80 }">
+            <span class="m-label">CPU</span>
+            <span class="m-val">{{ sysStatus.cpuPercent }}%</span>
+          </div>
+          <div class="metric-item" :class="{ warning: sysStatus.memoryPercent > 85 }">
+            <span class="m-label">内存</span>
+            <span class="m-val">{{ sysStatus.memoryPercent }}%</span>
+          </div>
+          <div class="metric-item uptime">
+            <span class="m-label">已运行</span>
+            <span class="m-val">{{ formatUptime(sysStatus.uptimeSeconds) }}</span>
+          </div>
+        </div>
         <div class="status-badge">运行中</div>
         <button class="btn-settings" @click="openGlobalSettings">⚙️ 参数热修改</button>
         <button class="btn-restart" @click="globalRestart">🔄 全局热重启</button>
@@ -21,7 +35,7 @@
       </nav>
 
       <div class="main-content">
-        <Dashboard v-if="currentView === 'dashboard'" ref="dashboardRef" @edit-config="openEditModal" />
+        <Dashboard v-if="currentView === 'dashboard'" ref="dashboardRef" :sys-status="sysStatus" @edit-config="openEditModal" />
         <SystemLogs v-if="currentView === 'logs'" />
         <button class="fab" @click="openAddModal">+</button>
       </div>
@@ -47,7 +61,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import Dashboard from './components/Dashboard.vue'
 import SystemLogs from './components/SystemLogs.vue'
 import ConfigModal from './components/ConfigModal.vue'
@@ -60,6 +74,41 @@ const showModal = ref(false)
 const showGlobalSettings = ref(false)
 const showTunnelModal = ref(false)
 const editingConfig = ref(null)
+
+const sysStatus = ref({ cpuPercent: 0.0, memoryPercent: 0.0, uptimeSeconds: 0 })
+let sysIntervalId = null
+
+const fetchSysStatus = async () => {
+  try {
+    const res = await fetch('/api/system/status')
+    if (res.ok) {
+      sysStatus.value = await res.json()
+    }
+  } catch (e) {
+    console.error('Failed to fetch system status:', e)
+  }
+}
+
+onMounted(() => {
+  fetchSysStatus()
+  sysIntervalId = setInterval(fetchSysStatus, 2000)
+})
+
+onUnmounted(() => {
+  if (sysIntervalId) clearInterval(sysIntervalId)
+})
+
+const formatUptime = (secs) => {
+  if (!secs) return '0分'
+  const d = Math.floor(secs / 86400)
+  const h = Math.floor((secs % 86400) / 3600)
+  const m = Math.floor((secs % 3600) / 60)
+  let res = ''
+  if (d > 0) res += `${d}天 `
+  if (h > 0 || d > 0) res += `${h}小时 `
+  res += `${m}分`
+  return res
+}
 
 const openAddModal = () => {
   editingConfig.value = null
@@ -257,5 +306,37 @@ const globalRestart = async () => {
 
 .fab:hover {
   transform: scale(1.1) rotate(90deg);
+}
+
+.sys-metrics {
+  display: flex;
+  gap: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 30px;
+  padding: 4px 16px;
+  margin-right: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.metric-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.metric-item .m-label {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.metric-item .m-val {
+  color: var(--accent-blue);
+  font-family: 'SF Mono', Consolas, monospace;
+  font-weight: 600;
+}
+.metric-item.warning .m-val {
+  color: var(--accent-red);
+}
+.metric-item.uptime .m-val {
+  color: var(--accent-green);
 }
 </style>

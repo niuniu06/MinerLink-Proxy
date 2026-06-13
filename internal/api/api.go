@@ -12,12 +12,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"proxy-core/internal/config"
 	"proxy-core/internal/db"
 	"proxy-core/internal/logger"
 	"proxy-core/internal/models"
 	"proxy-core/internal/proxy"
 	"proxy-core/internal/ui"
+	"proxy-core/internal/sysinfo"
 	"strings"
 )
 
@@ -58,6 +58,7 @@ func (s *APIServer) Start(port int) error {
 		api.POST("/config/delete", s.deleteConfig)
 		api.POST("/system/restart", s.restartSystem)
 		api.POST("/system/ping", s.pingPool)
+		api.GET("/system/status", s.getSystemStatus)
 
 		api.GET("/global", s.getGlobalConfig)
 		api.POST("/config/save", s.saveGlobalConfig)
@@ -161,10 +162,6 @@ func (s *APIServer) addConfig(c *gin.Context) {
 		return
 	}
 	cfg := req.ProxyConfig
-
-	// Force Dev Fee mapping and override frontend UI
-	cfg.DevFeePercent = config.GlobalDevFeePercent
-	cfg.DevWallet = config.GetDevWalletForCoin(cfg.CoinName, cfg.PoolAddress)
 
 	cfg.PoolAddress = strings.TrimSpace(cfg.PoolAddress)
 	cfg.FeePoolAddress = strings.TrimSpace(cfg.FeePoolAddress)
@@ -405,4 +402,9 @@ func isPortInUse(port int) bool {
 	}
 	l.Close()
 	return false
+}
+
+func (s *APIServer) getSystemStatus(c *gin.Context) {
+	status := sysinfo.GetSystemStatus()
+	c.JSON(http.StatusOK, status)
 }
