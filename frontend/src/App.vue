@@ -1,7 +1,7 @@
 <template>
   <div class="app-layout">
     <div class="topbar">
-      <h1><em>Go-Proxy</em> 代理引擎后台</h1>
+      <h1><em>Go-Proxy</em> 代理引擎后台 <span class="version-label" v-if="sysStatus && sysStatus.version">{{ sysStatus.version }}</span></h1>
       <div class="ctrls">
         <div class="sys-metrics" v-if="sysStatus">
           <div class="metric-item" :class="{ warning: sysStatus.cpuPercent > 80 }">
@@ -338,5 +338,17 @@ const globalRestart = async () => {
 }
 .metric-item.uptime .m-val {
   color: var(--accent-green);
+}
+.version-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent-blue);
+  background: rgba(88, 166, 255, 0.1);
+  border: 1px solid rgba(88, 166, 255, 0.2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 8px;
+  vertical-align: middle;
+  font-family: 'SF Mono', Consolas, monospace;
 }
 </style>

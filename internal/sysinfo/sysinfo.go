@@ -4,10 +4,13 @@ import (
 	"time"
 )
 
+const ProxyVersion = "v2.0.30-beta"
+
 type SystemStatus struct {
 	CPUPercent    float64 `json:"cpuPercent"`
 	MemoryPercent float64 `json:"memoryPercent"`
 	UptimeSeconds int64   `json:"uptimeSeconds"`
+	Version       string  `json:"version"`
 }
 
 var startTime = time.Now()
@@ -17,6 +20,7 @@ func GetSystemStatus() SystemStatus {
 	status.UptimeSeconds = int64(time.Since(startTime).Seconds())
 	status.CPUPercent = getSystemCPUPercent()
 	status.MemoryPercent = getSystemMemoryPercent()
+	status.Version = ProxyVersion
 
 	// Format to 1 decimal place
 	if status.CPUPercent < 0 {
