@@ -9,6 +9,7 @@ var ScannerBufferPool = sync.Pool{
 	New: func() interface{} {
 		// bufio.Scanner uses this slice as the initial buffer.
 		// 64KB is generally large enough to hold any single Stratum JSON-RPC line.
-		return make([]byte, 0, 64*1024)
+		b := make([]byte, 0, 64*1024)
+		return &b
 	},
 }

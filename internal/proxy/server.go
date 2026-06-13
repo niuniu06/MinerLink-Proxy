@@ -21,8 +21,6 @@ type Server struct {
 	MinerLoggers            sync.Map // map[string]*MinerLogger
 	ClientAgentCache        sync.Map // map[string]string (IP -> Agent)
 	Quit                    chan struct{}
-	
-	mu                      sync.Mutex
 }
 
 func NewServer(cfg *models.ProxyConfig) *Server {
@@ -118,9 +116,9 @@ func (s *Server) handleNewConnection(conn net.Conn, tlsConfig *tls.Config) {
 	// Sniff the first 4 bytes to detect protocol
 	buf := make([]byte, 4)
 	// Use a very short deadline so we don't delay standard miners that wait for server challenge
-	conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	_ = conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 	n, _ := io.ReadFull(conn, buf)
-	conn.SetReadDeadline(time.Time{})
+	_ = conn.SetReadDeadline(time.Time{})
 
 	if n < 4 {
 		// Not enough bytes for ZSDT, must be a standard connection.
@@ -414,8 +412,8 @@ func (s *Server) GetMinerLogs(worker string) ([]LogEntry, []LogEntry) {
 
 func ApplyTcpNoDelay(conn net.Conn) {
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
-		tcpConn.SetNoDelay(true)
-		tcpConn.SetKeepAlive(true)
-		tcpConn.SetKeepAlivePeriod(3 * time.Minute)
+		_ = tcpConn.SetNoDelay(true)
+		_ = tcpConn.SetKeepAlive(true)
+		_ = tcpConn.SetKeepAlivePeriod(3 * time.Minute)
 	}
 }

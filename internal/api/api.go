@@ -76,7 +76,7 @@ func (s *APIServer) Start(port int) error {
 
 	// Serve static files for downloads (e.g. tunnel clients)
 	if _, err := os.Stat("./downloads"); os.IsNotExist(err) {
-		os.Mkdir("./downloads", 0755)
+		_ = os.Mkdir("./downloads", 0755)
 	}
 	r.StaticFS("/downloads", http.Dir("./downloads"))
 
@@ -172,12 +172,8 @@ func (s *APIServer) addConfig(c *gin.Context) {
 	// Strip URL schemes from PoolAddress and FeePoolAddress
 	prefixes := []string{"stratum+tcp://", "stratum+ssl://", "tcp://", "ssl://", "http://", "https://"}
 	for _, p := range prefixes {
-		if strings.HasPrefix(cfg.PoolAddress, p) {
-			cfg.PoolAddress = strings.TrimPrefix(cfg.PoolAddress, p)
-		}
-		if strings.HasPrefix(cfg.FeePoolAddress, p) {
-			cfg.FeePoolAddress = strings.TrimPrefix(cfg.FeePoolAddress, p)
-		}
+		cfg.PoolAddress = strings.TrimPrefix(cfg.PoolAddress, p)
+		cfg.FeePoolAddress = strings.TrimPrefix(cfg.FeePoolAddress, p)
 	}
 
 	// Check if this is a NEW config or a port modification
@@ -206,7 +202,7 @@ func (s *APIServer) addConfig(c *gin.Context) {
 
 	if isPortChanged {
 		// Clean up old port
-		db.DeleteConfig(req.OldListenPort)
+		_ = db.DeleteConfig(req.OldListenPort)
 		s.ProxyManager.StopProxy(req.OldListenPort)
 	}
 

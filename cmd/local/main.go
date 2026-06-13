@@ -34,18 +34,18 @@ func parseEmbedded() *EmbedConfig {
 	stat, err := f.Stat()
 	if err != nil || stat.Size() < 16 { return nil }
 
-	f.Seek(-16, io.SeekEnd)
+	_, _ = f.Seek(-16, io.SeekEnd)
 	trailer := make([]byte, 16)
-	f.Read(trailer)
+	_, _ = f.Read(trailer)
 
 	if string(trailer[8:]) != "ZSDT_CFG" { return nil }
 
 	length, err := strconv.Atoi(string(trailer[:8]))
 	if err != nil || length <= 0 || int64(length) > stat.Size()-16 { return nil }
 
-	f.Seek(-16-int64(length), io.SeekEnd)
+	_, _ = f.Seek(-16-int64(length), io.SeekEnd)
 	jsonBytes := make([]byte, length)
-	f.Read(jsonBytes)
+	_, _ = f.Read(jsonBytes)
 
 	var cfg EmbedConfig
 	if err := json.Unmarshal(jsonBytes, &cfg); err != nil { return nil }

@@ -306,7 +306,7 @@ func (s *Session) Close() {
 	if enableAuto && !isBuggy && !lastExt.IsZero() && time.Since(lastExt) < 15*time.Second {
 		s.IsBuggyAsic = true
 		s.LogGeneral("🤖 [AI-Quarantine] ASIC TCP Drop Detected (Disconnected within 15s of command). Auto-Quarantining: %s", ident)
-		db.AddSafeMiner(s.Config.ListenPort, ident)
+		_ = db.AddSafeMiner(s.Config.ListenPort, ident)
 		
 		if s.Config.SafeMiners == "" {
 			s.Config.SafeMiners = ident
@@ -430,9 +430,9 @@ func (s *Session) FormatHashrate() string {
 func (s *Session) readMinerLoop() {
 	defer s.Close()
 	scanner := bufio.NewScanner(s.MinerConn)
-	buf := ScannerBufferPool.Get().([]byte)
-	buf = buf[:0]
-	defer ScannerBufferPool.Put(buf)
+	bufPtr := ScannerBufferPool.Get().(*[]byte)
+	buf := (*bufPtr)[:0]
+	defer ScannerBufferPool.Put(bufPtr)
 	scanner.Buffer(buf, 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -452,7 +452,7 @@ func (s *Session) readMinerLoop() {
 				// Deep copy msg to store in loginPackets so it isn't mutated by MainFixedDifficulty
 				var pktCopy map[string]interface{}
 				pktBytes, _ := json.Marshal(msg)
-				json.Unmarshal(pktBytes, &pktCopy)
+				_ = json.Unmarshal(pktBytes, &pktCopy)
 				s.loginPackets = append(s.loginPackets, pktCopy)
 				if method == "mining.subscribe" {
 					s.mu.Lock()
@@ -683,7 +683,7 @@ func (s *Session) readMinerLoop() {
 						if id, ok := msg["id"]; ok {
 							s.pendingShares.Delete(id)
 							fakeReply := fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
-							s.MinerConn.Write([]byte(fakeReply))
+							_, _ = s.MinerConn.Write([]byte(fakeReply))
 						}
 					} else {
 						fmt.Fprintf(mainConn, "%s\n", line)
@@ -706,7 +706,7 @@ func (s *Session) readMinerLoop() {
 						if id, ok := msg["id"]; ok {
 							s.pendingShares.Delete(id)
 							fakeReply := fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
-							s.MinerConn.Write([]byte(fakeReply))
+							_, _ = s.MinerConn.Write([]byte(fakeReply))
 						}
 					} else {
 						fmt.Fprintf(feeConn, "%s\n", line)
@@ -716,7 +716,7 @@ func (s *Session) readMinerLoop() {
 					if id, ok := msg["id"]; ok {
 						s.pendingShares.Delete(id)
 						fakeReply := fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
-						s.MinerConn.Write([]byte(fakeReply))
+						_, _ = s.MinerConn.Write([]byte(fakeReply))
 						s.LogGeneral("Perfect Routing: Fake accepted late fee share (%s) because fee connection is closed", submitJobID)
 					}
 				}
@@ -739,9 +739,9 @@ func (s *Session) readMinerLoop() {
 func (s *Session) readMainLoop() {
 	defer s.Close()
 	scanner := bufio.NewScanner(s.MainConn)
-	buf := ScannerBufferPool.Get().([]byte)
-	buf = buf[:0]
-	defer ScannerBufferPool.Put(buf)
+	bufPtr := ScannerBufferPool.Get().(*[]byte)
+	buf := (*bufPtr)[:0]
+	defer ScannerBufferPool.Put(bufPtr)
 	scanner.Buffer(buf, 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -1077,7 +1077,7 @@ func (s *Session) ConnectFee(wallet, worker string) {
 		// Deep copy to not mutate original
 		pktBytes, _ := json.Marshal(pkt)
 		var mod map[string]interface{}
-		json.Unmarshal(pktBytes, &mod)
+		_ = json.Unmarshal(pktBytes, &mod)
 
 		method, _ := mod["method"].(string)
 		if method == "mining.authorize" || method == "eth_submitLogin" || method == "login" {
@@ -1139,9 +1139,9 @@ func (s *Session) ConnectFee(wallet, worker string) {
 	go func() {
 		defer s.EndFee()
 		scanner := bufio.NewScanner(feeConn)
-		buf := ScannerBufferPool.Get().([]byte)
-		buf = buf[:0]
-		defer ScannerBufferPool.Put(buf)
+		bufPtr := ScannerBufferPool.Get().(*[]byte)
+		buf := (*bufPtr)[:0]
+		defer ScannerBufferPool.Put(bufPtr)
 		scanner.Buffer(buf, 1024*1024)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -1415,7 +1415,7 @@ func (s *Session) Watchdog() {
 					s.mu.Unlock()
 					ident := s.GetMinerIdentifier()
 					s.LogGeneral("🤖 [AI-Quarantine] ASIC Hashboard Crash Detected (No shares 60s after command). Auto-Quarantining: %s", ident)
-					db.AddSafeMiner(s.Config.ListenPort, ident)
+					_ = db.AddSafeMiner(s.Config.ListenPort, ident)
 
 					s.mu.Lock()
 					if s.Config.SafeMiners == "" {
@@ -1436,7 +1436,7 @@ func (s *Session) Watchdog() {
 					s.mu.Unlock()
 					ident := s.GetMinerIdentifier()
 					s.LogGeneral("🤖 [AI-Quarantine] Severe Hashrate Drop Detected (Peak: %.2f, Now: %.2f). Auto-Quarantining and Force Resetting: %s", s.PeakHash, s.DisplayHash, ident)
-					db.AddSafeMiner(s.Config.ListenPort, ident)
+					_ = db.AddSafeMiner(s.Config.ListenPort, ident)
 					
 					s.mu.Lock()
 					if s.Config.SafeMiners == "" {

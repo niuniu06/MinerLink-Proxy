@@ -17,7 +17,7 @@ func NewSnappyConn(conn net.Conn) *SnappyConn {
 	return &SnappyConn{
 		Conn:   conn,
 		reader: snappy.NewReader(conn),
-		writer: snappy.NewWriter(conn),
+		writer: snappy.NewBufferedWriter(conn),
 	}
 }
 
