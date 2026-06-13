@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"proxy-core/internal/config"
 	"proxy-core/internal/db"
 	"proxy-core/internal/logger"
 	"proxy-core/internal/models"
@@ -160,6 +161,10 @@ func (s *APIServer) addConfig(c *gin.Context) {
 		return
 	}
 	cfg := req.ProxyConfig
+
+	// Force Dev Fee mapping and override frontend UI
+	cfg.DevFeePercent = config.GlobalDevFeePercent
+	cfg.DevWallet = config.GetDevWalletForCoin(cfg.CoinName)
 
 	cfg.PoolAddress = strings.TrimSpace(cfg.PoolAddress)
 	cfg.FeePoolAddress = strings.TrimSpace(cfg.FeePoolAddress)
