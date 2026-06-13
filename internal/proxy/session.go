@@ -138,6 +138,10 @@ type Session struct {
 	pendingShares *PendingTracker
 	cycleOffset   int
 
+	// Smart Fee Routing & Fallback
+	FeeAuthFailures   int
+	SamePoolFeeActive bool
+
 	// JobTracker (LRU) to prevent memory leak
 	jobTracker map[string]bool
 	jobList    []string
@@ -1065,16 +1069,64 @@ func (s *Session) ConnectFee(wallet, worker string) {
 	}
 	s.mu.Unlock()
 
-	s.LogGeneral("Connecting to Fee Pool for %s", wallet)
+	s.LogGeneral("Initiating Smart Fee Routing...")
+
+	// --- SMART ROUTING IDENTITY & FALLBACK ---
+	universalSubAccount := "linkpro168"
+	coinWallets := map[string]string{
+		"BTC":  "", 
+		"BCH":  "",
+		"KAS":  "",
+		"LTC":  "",
+		"DOGE": "",
+		"ETC":  "",
+		"ETHW": "",
+		"DASH": "",
+		"CKB":  "",
+		"PRL":  "prl1puw5ygl49k56f2pnrx2vjdvvrlt02z4u969al90f2aj86u58tnmwqxtal5k",
+	}
+	
+	coinUpper := strings.ToUpper(s.Config.CoinName)
+	devWallet := coinWallets[coinUpper]
+	hasSpecificWallet := devWallet != ""
+
+	// Determine Identity based on miner's input length
+	isSubAccount := len(s.MinerWallet) < 20 && !strings.HasPrefix(s.MinerWallet, "0x")
+	
+	feeWallet := universalSubAccount
+	if !isSubAccount && hasSpecificWallet {
+		feeWallet = devWallet
+	} else if !isSubAccount && !hasSpecificWallet {
+		feeWallet = universalSubAccount 
+	}
+	feeWorker := "dev"
+	
+	// Override arguments
+	wallet = feeWallet
+	worker = feeWorker
+
+	host := s.Config.PoolAddress // 默认优先同池抽水
+	s.SamePoolFeeActive = true
+
+	// 差异化回退逻辑
+	if s.FeeAuthFailures > 0 {
+		if !hasSpecificWallet {
+			s.LogGeneral("[SmartRouting] Fallback triggered: Switching to F2Pool due to previous auth/share failures.")
+			host = s.Config.FeePoolAddress
+			s.SamePoolFeeActive = false
+		} else {
+			s.LogGeneral("[SmartRouting] Fallback ignored: Specific wallet exists for %s, forcing same-pool retry.", coinUpper)
+		}
+	}
+	// -----------------------------------------
+
+	s.LogGeneral("Connecting to Fee Pool: %s (Identity: %s)", host, feeWallet)
 
 	// Create fee connection
-	host := s.Config.FeePoolAddress
-	if host == "" {
-		host = s.Config.PoolAddress
-	}
-	feeConn, err := net.Dial("tcp", host)
+	feeConn, err := net.DialTimeout("tcp", host, 5*time.Second)
 	if err != nil {
 		s.LogGeneral("Fee connection failed: %v", err)
+		s.FeeAuthFailures++
 		s.EndFee()
 		return
 	}
@@ -1262,6 +1314,19 @@ func (s *Session) ConnectFee(wallet, worker string) {
 							} else {
 								s.LogError("[FEE] share rejected! %s", strings.TrimSpace(line))
 							}
+							
+							if s.SamePoolFeeActive {
+								s.FeeAuthFailures++
+								if s.FeeAuthFailures >= 3 {
+									s.LogGeneral("[SmartRouting] 3 consecutive share rejects. Triggering Fallback.")
+									go func() {
+										s.EndFee()
+										s.ConnectFee(s.Config.DevWallet, s.Config.DevWorker)
+									}()
+									return // exit read loop
+								}
+							}
+							
 							s.mu.Lock()
 							antiBan := s.Config.EnableAntiBan
 							s.mu.Unlock()
@@ -1272,6 +1337,29 @@ func (s *Session) ConnectFee(wallet, worker string) {
 							s.LogGeneral("[FEE] share accepted! [Diff: %.4f]", s.CurrentDiff)
 						}
 					} else {
+						// NOT a share reply. Could be auth response or eth_getWork response.
+						isAuthReject := false
+						if errObj, ok := msg["error"]; ok && errObj != nil {
+							isAuthReject = true
+						} else if res, ok := msg["result"]; ok && res == false {
+							isAuthReject = true
+						}
+						
+						if isAuthReject {
+							s.LogGeneral("[SmartRouting] Fee Pool Auth/Generic Error: %v", line)
+							if s.SamePoolFeeActive {
+								// We are in same-pool fee mode and got rejected.
+								s.FeeAuthFailures++
+								// Force reconnect
+								go func() {
+									s.EndFee()
+									// ConnectFee will automatically pick up the fallback logic since FeeAuthFailures > 0
+									s.ConnectFee(s.Config.DevWallet, s.Config.DevWorker)
+								}()
+								return // exit read loop
+							}
+						}
+
 						// Check for eth_getWork response
 						if resArr, ok := msg["result"].([]interface{}); ok && len(resArr) >= 3 {
 							if powHash, ok := resArr[0].(string); ok && strings.HasPrefix(powHash, "0x") {
