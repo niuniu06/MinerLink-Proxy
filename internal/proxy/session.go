@@ -486,6 +486,20 @@ func (s *Session) readMinerLoop() {
 					} else {
 						s.Protocol = "STRATUM"
 					}
+
+					// --- SMART DPI COIN VALIDATION ---
+					expectedCoin := strings.ToUpper(s.Config.CoinName)
+					isEthFamily := (expectedCoin == "ETC" || expectedCoin == "ETHW" || expectedCoin == "PRL")
+					if isEthFamily && s.Protocol != "ETH_PROXY" {
+						s.LogGeneral("[Anti-Cheat] Miner sent STRATUM protocol but port configured for %s. Dropping connection.", expectedCoin)
+						s.Close()
+						return
+					} else if !isEthFamily && s.Protocol != "STRATUM" {
+						s.LogGeneral("[Anti-Cheat] Miner sent ETH_PROXY protocol but port configured for %s. Dropping connection.", expectedCoin)
+						s.Close()
+						return
+					}
+					// ---------------------------------
 					if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 						// 1. Check for root-level "worker" field (standard for many ASICs/ETH-Proxy)
 						if workerRoot, hasWorker := msg["worker"].(string); hasWorker && workerRoot != "" {

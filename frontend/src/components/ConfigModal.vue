@@ -14,7 +14,19 @@
           </div>
           <div class="form-group">
             <label>币种名称 (COIN)</label>
-            <input v-model="form.coinName" required />
+            <select v-model="form.coinName" required class="coin-select">
+              <option value="" disabled selected>请选择币种</option>
+              <option value="BTC">BTC (比特币)</option>
+              <option value="BCH">BCH</option>
+              <option value="KAS">KAS (Kaspa)</option>
+              <option value="LTC">LTC (莱特币)</option>
+              <option value="DOGE">DOGE (狗狗币)</option>
+              <option value="ETC">ETC (以太经典)</option>
+              <option value="ETHW">ETHW</option>
+              <option value="DASH">DASH</option>
+              <option value="CKB">CKB</option>
+              <option value="PRL">PRL (珍珠币 Perle)</option>
+            </select>
           </div>
           <div class="form-group full-width">
             <label>主矿池地址 (MAIN POOL)</label>
@@ -391,18 +403,22 @@ const deleteConfig = async () => {
   font-size: 0.85rem;
   color: var(--text-muted);
 }
-input {
+input, select {
   background: rgba(0,0,0,0.3);
   border: 1px solid rgba(255,255,255,0.1);
   color: white;
   padding: 0.6rem;
   border-radius: 6px;
 }
-input:focus {
+input:focus, select:focus {
   outline: none;
   border-color: var(--accent-cyan);
 }
-input:disabled {
+select option {
+  background: #2a2a2a;
+  color: white;
+}
+input:disabled, select:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
