@@ -18,6 +18,7 @@ import (
 	"proxy-core/internal/proxy"
 	"proxy-core/internal/ui"
 	"proxy-core/internal/sysinfo"
+	"proxy-core/internal/updater"
 	"strings"
 )
 
@@ -59,6 +60,8 @@ func (s *APIServer) Start(port int) error {
 		api.POST("/system/restart", s.restartSystem)
 		api.POST("/system/ping", s.pingPool)
 		api.GET("/system/status", s.getSystemStatus)
+		api.GET("/system/check_update", s.checkUpdate)
+		api.POST("/system/upgrade", s.doUpgrade)
 
 		api.GET("/global", s.getGlobalConfig)
 		api.POST("/config/save", s.saveGlobalConfig)
@@ -407,4 +410,45 @@ func isPortInUse(port int) bool {
 func (s *APIServer) getSystemStatus(c *gin.Context) {
 	status := sysinfo.GetSystemStatus()
 	c.JSON(http.StatusOK, status)
+}
+
+func (s *APIServer) checkUpdate(c *gin.Context) {
+	mock := c.Query("mock")
+	if mock == "1" {
+		c.JSON(http.StatusOK, gin.H{
+			"hasUpdate":      true,
+			"currentVersion": sysinfo.ProxyVersion,
+			"latestVersion":  "v2.0.32-beta",
+			"changelog":      "1. 优化了ETC算力统计数学模型;\n2. 面板新增服务器实时CPU与内存图表显示;\n3. 一键热升级自动化运维支持。",
+		})
+		return
+	}
+
+	status, err := updater.CheckForUpdates()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"hasUpdate":      false,
+			"currentVersion": sysinfo.ProxyVersion,
+			"latestVersion":  "",
+			"changelog":      "",
+			"error":          err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, status)
+}
+
+func (s *APIServer) doUpgrade(c *gin.Context) {
+	mock := c.Query("mock")
+	if mock == "1" {
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Mock upgrade started"})
+		return
+	}
+
+	err := updater.StartUpgrade()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Upgrade started successfully"})
 }

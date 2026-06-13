@@ -1,7 +1,22 @@
 <template>
   <div class="dashboard-container">
     <!-- Top System Metrics Cards (Glassmorphism) -->
-    <div class="metrics-grid">
+    <div class="metrics-grid" :class="{ 'has-upgrade': updateInfo && updateInfo.hasUpdate }">
+      <!-- New Version Card (If hasUpdate is true) -->
+      <div class="metric-card upgrade-card" v-if="updateInfo && updateInfo.hasUpdate">
+        <div class="upgrade-glow"></div>
+        <div class="metric-info">
+          <h3>发现新版本 ({{ updateInfo.latestVersion }})</h3>
+          <div class="upgrade-action-row">
+            <button class="btn-upgrade-now" @click="upgradeSystem">一键热升级</button>
+            <span class="sub-label" :title="updateInfo.changelog">包含新优化及Bug修复</span>
+          </div>
+        </div>
+        <div class="metric-visual">
+          <div class="arrow-up-glow">⇧</div>
+        </div>
+      </div>
+
       <!-- CPU Usage Card -->
       <div class="metric-card sys-card">
         <div class="card-glow"></div>
@@ -167,6 +182,16 @@
         </table>
       </div>
     </div>
+
+    <!-- Upgrade Progress Overlay -->
+    <div class="upgrade-overlay" v-if="upgrading">
+      <div class="upgrade-modal">
+        <div class="upgrade-spinner"></div>
+        <h3>系统自动热升级中</h3>
+        <p class="upgrade-step">{{ upgradeStep }}</p>
+        <p class="upgrade-tips">升级下载通常需要 10-30 秒，期间端口服务可能短暂中断，请勿关闭系统电源。</p>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -175,8 +200,12 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import MinerTable from './MinerTable.vue'
 
 const props = defineProps({
-  sysStatus: Object
+  sysStatus: Object,
+  updateInfo: Object
 })
+
+const upgrading = ref(false)
+const upgradeStep = ref('正在联系服务器，准备下载...')
 
 const configs = ref([])
 const stats = ref([])
@@ -205,6 +234,61 @@ const fetchStats = async () => {
 const refresh = () => {
   fetchConfig()
   fetchStats()
+}
+
+const upgradeSystem = async () => {
+  if (!confirm(`确定要将系统从 ${props.updateInfo.currentVersion} 升级至 ${props.updateInfo.latestVersion} 吗？\n升级过程中代理端口将短暂重启，矿机会自动重新连接。`)) return
+  
+  upgrading.value = true
+  upgradeStep.value = '正在下载新版可执行文件，请稍候...'
+  
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const mockParam = urlParams.get('mock') ? '?mock=1' : '';
+    const res = await fetch('/api/system/upgrade' + mockParam, { method: 'POST' })
+    if (res.ok) {
+      upgradeStep.value = '新版可执行文件下载完成，正在热替换并重启服务...'
+      setTimeout(startReconnecting, 3000)
+    } else {
+      const data = await res.json()
+      alert(data.error || '升级失败')
+      upgrading.value = false
+    }
+  } catch (e) {
+    console.error(e)
+    alert('连接升级 API 失败')
+    upgrading.value = false
+  }
+}
+
+const startReconnecting = () => {
+  let attempts = 0
+  const timer = setInterval(async () => {
+    attempts++
+    upgradeStep.value = `正在重新连接后台服务... (尝试 ${attempts} 次)`
+    
+    try {
+      const res = await fetch('/api/system/status')
+      if (res.ok) {
+        const status = await res.json()
+        if (status && status.cpuPercent !== undefined) {
+          clearInterval(timer)
+          upgradeStep.value = '连接成功，正在刷新页面...'
+          setTimeout(() => {
+            location.reload()
+          }, 1000)
+        }
+      }
+    } catch (e) {
+      // Ignore connection failures during restart
+    }
+    
+    if (attempts > 30) {
+      clearInterval(timer)
+      alert('重启超时，请手动刷新页面或登录服务器检查程序状态！')
+      upgrading.value = false
+    }
+  }, 2000)
 }
 
 defineExpose({ refresh })
@@ -690,5 +774,141 @@ onUnmounted(() => {
   .metrics-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* Upgrade Card Style */
+.upgrade-card {
+  background: rgba(22, 27, 34, 0.85);
+  border: 1px solid rgba(240, 140, 0, 0.4);
+  box-shadow: 0 4px 20px rgba(240, 140, 0, 0.15);
+}
+.upgrade-card:hover {
+  border-color: rgba(240, 140, 0, 0.8);
+  box-shadow: 0 6px 25px rgba(240, 140, 0, 0.25);
+}
+.upgrade-glow {
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(240, 140, 0, 0.06) 0%, transparent 65%);
+  pointer-events: none;
+  animation: rotateGlow 20s linear infinite;
+}
+.upgrade-card h3 {
+  color: #ff9800;
+  text-shadow: 0 0 8px rgba(255, 152, 0, 0.2);
+}
+.upgrade-action-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 6px;
+}
+.btn-upgrade-now {
+  background: linear-gradient(135deg, #ff9800, #f57c00);
+  border: none;
+  color: white;
+  padding: 5px 12px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(245, 124, 0, 0.3);
+  transition: all 0.2s;
+}
+.btn-upgrade-now:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(245, 124, 0, 0.5);
+}
+.arrow-up-glow {
+  font-size: 2.2rem;
+  font-weight: bold;
+  color: #ff9800;
+  text-shadow: 0 0 10px rgba(255, 152, 0, 0.5);
+  animation: bounceUp 2s infinite;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+@keyframes bounceUp {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+/* 5 Columns Layout when Upgrade is visible */
+.metrics-grid.has-upgrade {
+  grid-template-columns: repeat(5, 1fr);
+}
+@media (max-width: 1400px) {
+  .metrics-grid.has-upgrade {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+@media (max-width: 1024px) {
+  .metrics-grid.has-upgrade {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 640px) {
+  .metrics-grid.has-upgrade {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Upgrade Overlay Modal */
+.upgrade-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(13, 17, 23, 0.9);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+.upgrade-modal {
+  background: rgba(22, 27, 34, 0.85);
+  border: 1px solid rgba(88, 166, 255, 0.2);
+  border-radius: 16px;
+  width: 90%;
+  max-width: 460px;
+  padding: 3rem 2rem;
+  text-align: center;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  animation: fadeIn 0.3s ease;
+}
+.upgrade-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid rgba(88, 166, 255, 0.1);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  margin: 0 auto 1.5rem auto;
+  animation: spin 1s linear infinite;
+  box-shadow: 0 0 15px rgba(88, 166, 255, 0.2);
+}
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.upgrade-modal h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.25rem;
+  color: var(--text-main);
+}
+.upgrade-step {
+  color: var(--accent-blue);
+  font-weight: bold;
+  font-size: 0.95rem;
+  margin-bottom: 1rem;
+}
+.upgrade-tips {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
 }
 </style>

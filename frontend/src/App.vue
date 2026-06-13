@@ -35,7 +35,7 @@
       </nav>
 
       <div class="main-content">
-        <Dashboard v-if="currentView === 'dashboard'" ref="dashboardRef" :sys-status="sysStatus" @edit-config="openEditModal" />
+        <Dashboard v-if="currentView === 'dashboard'" ref="dashboardRef" :sys-status="sysStatus" :update-info="updateInfo" @edit-config="openEditModal" />
         <SystemLogs v-if="currentView === 'logs'" />
         <button class="fab" @click="openAddModal">+</button>
       </div>
@@ -76,6 +76,7 @@ const showTunnelModal = ref(false)
 const editingConfig = ref(null)
 
 const sysStatus = ref({ cpuPercent: 0.0, memoryPercent: 0.0, uptimeSeconds: 0 })
+const updateInfo = ref({ hasUpdate: false, currentVersion: '', latestVersion: '', changelog: '' })
 let sysIntervalId = null
 
 const fetchSysStatus = async () => {
@@ -89,8 +90,22 @@ const fetchSysStatus = async () => {
   }
 }
 
+const checkUpdate = async () => {
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const mockParam = urlParams.get('mock') ? '?mock=1' : '';
+    const res = await fetch('/api/system/check_update' + mockParam)
+    if (res.ok) {
+      updateInfo.value = await res.json()
+    }
+  } catch (e) {
+    console.error('Failed to check for updates:', e)
+  }
+}
+
 onMounted(() => {
   fetchSysStatus()
+  checkUpdate()
   sysIntervalId = setInterval(fetchSysStatus, 2000)
 })
 
