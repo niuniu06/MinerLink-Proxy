@@ -82,7 +82,7 @@ const saveConfig = async () => {
 
   saving.value = true
   try {
-    const res = await fetch('/api/global', {
+    const res = await fetch('/api/config/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(form.value)
