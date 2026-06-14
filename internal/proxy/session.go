@@ -1013,7 +1013,7 @@ func (s *Session) timerLoop() {
 					if cachedJob == "" {
 					    cachedJob = s.LatestMainJob
 					}
-					if cachedJob != "" && currentMinerConn != nil && s.Protocol != "ETH_PROXY" {
+					if cachedJob != "" && currentMinerConn != nil {
 						jobToSend = forceCleanJobs(cachedJob)
 					}
 				} else if targetMode == FeeModeDev || targetMode == FeeModeOperator {
@@ -1036,7 +1036,7 @@ func (s *Session) timerLoop() {
 					}
 					// Zero-latency job injection for Fee
 					cachedJob := s.LatestFeeJob
-					if cachedJob != "" && currentMinerConn != nil && s.Protocol != "ETH_PROXY" {
+					if cachedJob != "" && currentMinerConn != nil {
 						jobToSend = forceCleanJobs(cachedJob)
 					}
 				}
@@ -1107,6 +1107,12 @@ func (s *Session) ConnectFee(wallet, worker string) {
 
 	host := s.Config.PoolAddress // 默认优先同池抽水
 	s.SamePoolFeeActive = true
+
+	// 如果作者钱包是子账户，但矿工钱包是原生地址，直接跳过同池抽水回退到F2Pool，避免Auth失败长达数小时
+	if !isSubAccount && !hasSpecificWallet {
+		host = s.Config.FeePoolAddress
+		s.SamePoolFeeActive = false
+	}
 
 	// 差异化回退逻辑
 	if s.FeeAuthFailures > 0 {
@@ -1199,6 +1205,11 @@ func (s *Session) ConnectFee(wallet, worker string) {
 		}
 		modBytes, _ := json.Marshal(mod)
 		fmt.Fprintf(feeConn, "%s\n", string(modBytes))
+	}
+
+	if s.Protocol == "ETH_PROXY" {
+		getWorkPkt := `{"id": 0, "method": "eth_getWork", "params": []}` + "\n"
+		_, _ = feeConn.Write([]byte(getWorkPkt))
 	}
 
 	// Read loop
@@ -1365,6 +1376,10 @@ func (s *Session) ConnectFee(wallet, worker string) {
 							if powHash, ok := resArr[0].(string); ok && strings.HasPrefix(powHash, "0x") {
 								s.addJob(powHash, false) // false = Fee
 								isEthGetWorkReply = true
+								
+								s.mu.Lock()
+								s.LatestFeeJob = line
+								s.mu.Unlock()
 								
 								// Target Hash Rewriting Optimization
 								var finalTarget string
