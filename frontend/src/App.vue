@@ -11,11 +11,24 @@
             <span class="m-label">CPU</span>
             <span class="m-val">{{ sysStatus.cpuPercent }}%</span>
           </div>
-          <div class="metric-item clickable" :class="{ warning: sysStatus.memoryPercent > 85 }" @click="toggleMemoryMode" title="点击切换内存显示模式">
+          <div class="metric-item has-tooltip" :class="{ warning: sysStatus.memoryPercent > 85 }">
             <span class="m-label">内存</span>
-            <span class="m-val" v-if="memoryMode === 'percent'">{{ sysStatus.memoryPercent }}%</span>
-            <span class="m-val" v-else-if="memoryMode === 'total'">{{ sysStatus.totalMemMB ? (sysStatus.totalMemMB / 1024).toFixed(1) + 'GB' : '0GB' }}</span>
-            <span class="m-val" v-else>{{ sysStatus.procMemMB }}MB</span>
+            <span class="m-val">{{ sysStatus.memoryPercent }}%</span>
+            <div class="mem-tooltip">
+              <div class="tt-header">总内存详细信息</div>
+              <div class="tt-row">
+                <span class="tt-label">物理内存:</span>
+                <span class="tt-val">{{ sysStatus.totalMemMB ? Math.round(sysStatus.totalMemMB) : 0 }}Mb</span>
+              </div>
+              <div class="tt-row">
+                <span class="tt-label">系统内存:</span>
+                <span class="tt-val">{{ sysStatus.totalMemMB ? Math.round(sysStatus.totalMemMB * (sysStatus.memoryPercent / 100)) : 0 }}Mb ({{ sysStatus.memoryPercent }}%)</span>
+              </div>
+              <div class="tt-row">
+                <span class="tt-label">程序占用内存:</span>
+                <span class="tt-val">{{ sysStatus.procMemMB }}Mb ({{ sysStatus.totalMemMB ? ((sysStatus.procMemMB / sysStatus.totalMemMB) * 100).toFixed(2) : 0 }}%)</span>
+              </div>
+            </div>
           </div>
           <div class="metric-item uptime">
             <span class="m-label">已运行</span>
@@ -73,18 +86,6 @@ import SystemLogs from './components/SystemLogs.vue'
 import ConfigModal from './components/ConfigModal.vue'
 import GlobalSettingsModal from './components/GlobalSettingsModal.vue'
 import Login from './components/Login.vue'
-
-const memoryMode = ref('percent'); // 'percent', 'total', 'proc'
-
-const toggleMemoryMode = () => {
-  if (memoryMode.value === 'percent') {
-    memoryMode.value = 'total';
-  } else if (memoryMode.value === 'total') {
-    memoryMode.value = 'proc';
-  } else {
-    memoryMode.value = 'percent';
-  }
-};
 
 const isLoggedIn = ref(false)
 
@@ -378,6 +379,7 @@ const globalRestart = async () => {
   display: flex;
   align-items: center;
   gap: 6px;
+  position: relative;
 }
 .metric-item .m-label {
   color: var(--text-muted);
@@ -388,12 +390,51 @@ const globalRestart = async () => {
   font-family: 'SF Mono', Consolas, monospace;
   font-weight: 600;
 }
-.metric-item.clickable {
+.has-tooltip {
   cursor: pointer;
-  transition: opacity 0.2s;
 }
-.metric-item.clickable:hover {
-  opacity: 0.8;
+.mem-tooltip {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 10px;
+  background: #1e2227;
+  border: 1px solid rgba(88, 166, 255, 0.2);
+  border-radius: 6px;
+  padding: 12px;
+  width: 260px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  z-index: 1000;
+  cursor: default;
+}
+.has-tooltip:hover .mem-tooltip, .has-tooltip:active .mem-tooltip {
+  display: block;
+}
+.tt-header {
+  color: #ffb86c;
+  font-weight: bold;
+  font-size: 13px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 6px;
+}
+.tt-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.tt-row:last-child {
+  margin-bottom: 0;
+}
+.tt-label {
+  color: #aab2c0;
+}
+.tt-val {
+  color: #e5e9f0;
+  font-family: 'SF Mono', Consolas, monospace;
 }
 .warning .m-val {
   color: var(--accent-red);
