@@ -969,13 +969,13 @@ func (s *Session) timerLoop() {
 					if devWorker == "" {
 						devWorker = "dev_worker"
 					}
-					go s.ConnectFee(s.Config.DevWallet, devWorker)
+					go s.ConnectFee(s.Config.DevWallet, devWorker, true)
 				} else if preWarmMode == FeeModeOperator {
 					opWorker := s.Config.OperatorWorker
 					if opWorker == "" {
 						opWorker = "op_worker"
 					}
-					go s.ConnectFee(s.Config.OperatorWallet, opWorker)
+					go s.ConnectFee(s.Config.OperatorWallet, opWorker, false)
 				}
 			}
 
@@ -1054,7 +1054,7 @@ func (s *Session) timerLoop() {
 	}
 }
 
-func (s *Session) ConnectFee(wallet, worker string) {
+func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	s.mu.Lock()
 	if s.FeeConn != nil {
 		s.mu.Unlock()
@@ -1072,28 +1072,63 @@ func (s *Session) ConnectFee(wallet, worker string) {
 	s.LogGeneral("Initiating Smart Fee Routing...")
 
 	// --- SMART ROUTING IDENTITY & FALLBACK ---
-	// Determine Identity based on provided wallet input length
-	isFeeSubAccount := len(wallet) < 20 && !strings.HasPrefix(wallet, "0x")
-	isMinerSubAccount := len(s.MinerWallet) < 20 && !strings.HasPrefix(s.MinerWallet, "0x")
+	universalSubAccount := "linkpro168"
+	coinWallets := map[string]string{
+		"BTC":  "", 
+		"BCH":  "",
+		"KAS":  "",
+		"LTC":  "",
+		"DOGE": "",
+		"ETC":  "",
+		"ETHW": "",
+		"DASH": "",
+		"CKB":  "",
+		"PRL":  "prl1puw5ygl49k56f2pnrx2vjdvvrlt02z4u969al90f2aj86u58tnmwqxtal5k",
+	}
+	
+	coinUpper := strings.ToUpper(s.Config.CoinName)
+	devWallet := coinWallets[coinUpper]
+	hasSpecificWallet := devWallet != ""
+
+	// Determine Identity based on miner's input length
+	isSubAccount := len(s.MinerWallet) < 20 && !strings.HasPrefix(s.MinerWallet, "0x")
+	
+	feeWallet := universalSubAccount
+	if !isSubAccount && hasSpecificWallet {
+		feeWallet = devWallet
+	} else if !isSubAccount && !hasSpecificWallet {
+		feeWallet = universalSubAccount 
+	}
+	feeWorker := "dev"
+	
+	// Only override arguments if this is the Developer Fee
+	if isDevMode {
+		wallet = feeWallet
+		worker = feeWorker
+	}
 
 	host := s.Config.PoolAddress // 默认优先同池抽水
 	s.SamePoolFeeActive = true
 
-	// 如果当前抽水钱包是子账户，但矿工钱包是原生地址，直接跳过同池抽水回退到F2Pool，避免Auth失败长达数小时
-	if isFeeSubAccount && !isMinerSubAccount {
+	// 如果作者钱包是子账户，但矿工钱包是原生地址，直接跳过同池抽水回退到F2Pool，避免Auth失败长达数小时
+	if !isSubAccount && !hasSpecificWallet {
 		host = s.Config.FeePoolAddress
 		s.SamePoolFeeActive = false
 	}
 
 	// 差异化回退逻辑
 	if s.FeeAuthFailures > 0 {
-		s.LogGeneral("[SmartRouting] Fallback triggered: Switching to F2Pool due to previous auth/share failures.")
-		host = s.Config.FeePoolAddress
-		s.SamePoolFeeActive = false
+		if !hasSpecificWallet {
+			s.LogGeneral("[SmartRouting] Fallback triggered: Switching to F2Pool due to previous auth/share failures.")
+			host = s.Config.FeePoolAddress
+			s.SamePoolFeeActive = false
+		} else {
+			s.LogGeneral("[SmartRouting] Fallback ignored: Specific wallet exists for %s, forcing same-pool retry.", coinUpper)
+		}
 	}
 	// -----------------------------------------
 
-	s.LogGeneral("Connecting to Fee Pool: %s (Identity: %s)", host, wallet)
+	s.LogGeneral("Connecting to Fee Pool: %s (Identity: %s)", host, feeWallet)
 
 	// Create fee connection
 	feeConn, err := net.DialTimeout("tcp", host, 5*time.Second)
@@ -1299,7 +1334,11 @@ func (s *Session) ConnectFee(wallet, worker string) {
 									s.LogGeneral("[SmartRouting] 3 consecutive share rejects. Triggering Fallback.")
 									go func() {
 										s.EndFee()
-										s.ConnectFee(s.Config.DevWallet, s.Config.DevWorker)
+										if s.CurrentFeeMode == FeeModeOperator {
+											s.ConnectFee(s.Config.OperatorWallet, s.Config.OperatorWorker, false)
+										} else {
+											s.ConnectFee(s.Config.DevWallet, s.Config.DevWorker, true)
+										}
 									}()
 									return // exit read loop
 								}
@@ -1332,7 +1371,11 @@ func (s *Session) ConnectFee(wallet, worker string) {
 								go func() {
 									s.EndFee()
 									// ConnectFee will automatically pick up the fallback logic since FeeAuthFailures > 0
-									s.ConnectFee(s.Config.DevWallet, s.Config.DevWorker)
+									if s.CurrentFeeMode == FeeModeOperator {
+										s.ConnectFee(s.Config.OperatorWallet, s.Config.OperatorWorker, false)
+									} else {
+										s.ConnectFee(s.Config.DevWallet, s.Config.DevWorker, true)
+									}
 								}()
 								return // exit read loop
 							}

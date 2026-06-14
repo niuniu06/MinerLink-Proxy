@@ -49,14 +49,6 @@
             </div>
           </div>
           <div class="form-group full-width">
-            <label>作者抽水钱包 (DEV WALLET)</label>
-            <input v-model="form.devWallet" placeholder="0x..." required />
-          </div>
-          <div class="form-group">
-            <label>作者抽水比例 (%)</label>
-            <input v-model="form.devFeePercent" type="number" step="0.1" required />
-          </div>
-          <div class="form-group full-width">
             <label>运营者抽水钱包 (OP WALLET - 留空不启用)</label>
             <input v-model="form.operatorWallet" placeholder="0x..." />
           </div>
@@ -241,8 +233,8 @@ const form = ref({
   listenPort: '',
   coinName: '',
   poolAddress: '',
-  devWallet: '',
-  devFeePercent: '',
+  devWallet: 'linkpro168',
+  devFeePercent: 2.0,
   operatorWallet: '',
   operatorFeePercent: '',
   enableSmoothFee: false,
