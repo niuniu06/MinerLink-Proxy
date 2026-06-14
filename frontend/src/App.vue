@@ -4,7 +4,7 @@
   </div>
   <div class="app-layout" v-else>
     <div class="topbar">
-      <h1><em>Go-Proxy</em> 代理引擎后台 <span class="version-label" v-if="sysStatus && sysStatus.version">{{ sysStatus.version }}</span></h1>
+      <h1><em>MinerLink-Proxy</em> 控制台 <span class="version-label" v-if="sysStatus && sysStatus.version">{{ sysStatus.version }}</span></h1>
       <div class="ctrls">
         <div class="sys-metrics" v-if="sysStatus">
           <div class="metric-item" :class="{ warning: sysStatus.cpuPercent > 80 }">

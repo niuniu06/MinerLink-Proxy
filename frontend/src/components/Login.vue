@@ -2,8 +2,8 @@
   <div class="login-container">
     <div class="login-card">
       <div class="logo-box">
-        <img src="/favicon.svg" alt="Go-Proxy Logo" class="logo-img" />
-        <h2>Go-Proxy</h2>
+        <img src="/favicon.svg" alt="MinerLink-Proxy Logo" class="logo-img" />
+        <h2>MinerLink-Proxy</h2>
       </div>
       <form @submit.prevent="handleLogin" class="login-form">
         <div class="input-group">

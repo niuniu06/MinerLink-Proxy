@@ -42,8 +42,16 @@ func main() {
 
 	// Check global config for web port override
 	finalPort := *apiPort
-	if err == nil && globalCfg != nil && globalCfg.WebPort > 0 {
-		finalPort = globalCfg.WebPort
+	if err == nil && globalCfg != nil {
+		if globalCfg.WebPort == 8080 && *apiPort != 8080 {
+			// First boot or CLI override detected. Save the CLI port to DB
+			// so the GORM default (8080) doesn't persistently override the script's choice.
+			globalCfg.WebPort = *apiPort
+			db.SaveGlobalConfig(globalCfg)
+			finalPort = *apiPort
+		} else if globalCfg.WebPort > 0 {
+			finalPort = globalCfg.WebPort
+		}
 	}
 
 	// 2. Init Proxy Manager and load existing proxies
