@@ -1,7 +1,7 @@
 $token = "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"
 $headers = @{ Authorization = "token $token"; Accept = "application/vnd.github.v3+json" }
 $repo = "niuniu06/MinerLink-Proxy"
-$tag = "v2.0.59-beta"
+$tag = "v2.0.60-beta"
 
 Write-Host "Checking if release $tag exists..."
 $releaseUrl = "https://api.github.com/repos/$repo/releases/tags/$tag"
