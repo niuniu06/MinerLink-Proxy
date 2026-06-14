@@ -69,7 +69,7 @@
           </button>
           
           <div v-if="showAdvanced" class="advanced-content">
-            <label class="switch-row">
+            <label class="switch-row" v-show="false">
               <input type="checkbox" v-model="form.enableStaleDrop" />
               <div class="switch-info">
                 <div class="switch-title">🚀 开启过期份额主动拦截 (Stale Share Drop)</div>
@@ -85,7 +85,7 @@
               </div>
             </label>
 
-            <label class="switch-row">
+            <label class="switch-row" v-show="false">
               <input type="checkbox" v-model="form.enableTcpNoDelay" />
               <div class="switch-info">
                 <div class="switch-title">⚡ 强制底层极速网络推送 (TCP NoDelay)</div>
@@ -93,7 +93,7 @@
               </div>
             </label>
 
-            <label class="switch-row">
+            <label class="switch-row" v-show="false">
               <input type="checkbox" v-model="form.enableAutoQuarantine" />
               <div class="switch-info">
                 <div class="switch-title">🤖 开启 AI 智能保算力引擎 (Auto-Quarantine)</div>
@@ -101,12 +101,12 @@
               </div>
             </label>
 
-            <div class="input-group" v-if="form.enableAutoQuarantine" style="margin-top: 15px;">
+            <div class="input-group" v-show="false" style="margin-top: 15px;">
               <label>保算力例外名单 (Safe Miners)</label>
               <textarea v-model="form.safeMiners" placeholder="格式: 钱包地址.矿工名 (例如 1A1zP1...x.1x115) 多个用英文逗号隔开。自动拦截引擎捕获的病机也会自动追加到这里。" rows="3" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #333; background: #1a1a1a; color: #fff; font-family: monospace;"></textarea>
             </div>
 
-            <label class="switch-row">
+            <label class="switch-row" v-show="false">
               <input type="checkbox" v-model="form.enableSmoothFee" />
               <div class="switch-info">
                 <div class="switch-title">平滑无感抽水引擎</div>
@@ -122,7 +122,7 @@
               </div>
             </label>
 
-            <label class="switch-row">
+            <label class="switch-row" v-show="false">
               <input type="checkbox" v-model="form.enableAntiBan" />
               <div class="switch-info">
                 <div class="switch-title">开启完美防封禁 (0拒绝)</div>
@@ -130,7 +130,7 @@
               </div>
             </label>
 
-            <label class="switch-row">
+            <label class="switch-row" v-show="false">
               <input type="checkbox" v-model="form.enableDetailedLog" />
               <div class="switch-info">
                 <div class="switch-title">开启底层原始抓包日志</div>
@@ -237,9 +237,9 @@ const form = ref({
   devFeePercent: 2.0,
   operatorWallet: '',
   operatorFeePercent: '',
-  enableSmoothFee: false,
+  enableSmoothFee: true,
   enableAsic: false,
-  enableAntiBan: false,
+  enableAntiBan: true,
   enableDetailedLog: false,
   isViaBtcOptimize: false,
   mainFixedDifficulty: '',
@@ -250,10 +250,10 @@ const form = ref({
   feePoolAddress: '',
   enableVardiff: false,
   targetShareRate: '',
-  enableStaleDrop: false,
+  enableStaleDrop: true,
   enableEthTargetRewrite: false,
-  enableTcpNoDelay: false,
-  enableAutoQuarantine: false,
+  enableTcpNoDelay: true,
+  enableAutoQuarantine: true,
   safeMiners: ''
 })
 
