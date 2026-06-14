@@ -231,6 +231,11 @@ const fetchStats = async () => {
   }
 }
 
+const refresh = () => {
+  fetchConfig()
+  fetchStats()
+}
+
 const performUpgrade = () => {
   // Placeholder logic handled globally
 };
