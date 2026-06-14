@@ -18,8 +18,8 @@ import (
 	"proxy-core/internal/sysinfo"
 )
 
-const RepoOwner = "yao52069"
-const RepoName = "go-proxy"
+const RepoOwner = "niuniu06"
+const RepoName = "MinerLink-Proxy"
 
 type GitHubRelease struct {
 	TagName string `json:"tag_name"`
