@@ -87,12 +87,12 @@ func getSystemCPUPercent() float64 {
 	return float64(activeDiff) * 100.0 / float64(totalDiff)
 }
 
-func getSystemMemoryPercent() float64 {
+func getSystemMemoryStats() (float64, float64) {
 	var memInfo MEMORYSTATUSEX
 	memInfo.dwLength = uint32(unsafe.Sizeof(memInfo))
 	ret, _, _ := procGlobalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&memInfo)))
 	if ret == 0 {
-		return 0.0
+		return 0.0, 0.0
 	}
-	return float64(memInfo.dwMemoryLoad)
+	return float64(memInfo.dwMemoryLoad), float64(memInfo.ullTotalPhys) / 1024.0 / 1024.0
 }

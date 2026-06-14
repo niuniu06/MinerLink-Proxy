@@ -46,9 +46,15 @@
         <div class="card-glow"></div>
         <div class="metric-info">
           <h3>服务器内存</h3>
-          <div class="metric-main">
-            <span class="big-val">{{ sysStatus ? sysStatus.memoryPercent : 0 }}%</span>
-            <span class="sub-label">物理内存占用</span>
+          <div class="metric-main clickable" @click="toggleMemoryMode" title="点击切换内存显示模式">
+            <span class="big-val" v-if="memoryMode === 'percent'">{{ sysStatus ? sysStatus.memoryPercent : 0 }}%</span>
+            <span class="sub-label" v-if="memoryMode === 'percent'">物理内存占用</span>
+            
+            <span class="big-val" v-else-if="memoryMode === 'total'">{{ sysStatus ? (sysStatus.totalMemMB / 1024).toFixed(1) : 0 }}<span style="font-size: 14px">GB</span></span>
+            <span class="sub-label" v-else-if="memoryMode === 'total'">系统内存总量</span>
+            
+            <span class="big-val" v-else>{{ sysStatus ? sysStatus.procMemMB : 0 }}<span style="font-size: 14px">MB</span></span>
+            <span class="sub-label" v-else>代理程序占用</span>
           </div>
         </div>
         <div class="metric-visual">
@@ -203,6 +209,18 @@ const props = defineProps({
   sysStatus: Object,
   updateInfo: Object
 })
+
+const memoryMode = ref('percent');
+
+const toggleMemoryMode = () => {
+  if (memoryMode.value === 'percent') {
+    memoryMode.value = 'total';
+  } else if (memoryMode.value === 'total') {
+    memoryMode.value = 'proc';
+  } else {
+    memoryMode.value = 'percent';
+  }
+};
 
 const upgrading = ref(false)
 const upgradeStep = ref('正在联系服务器，准备下载...')
@@ -432,6 +450,15 @@ onUnmounted(() => {
 .metric-main {
   display: flex;
   flex-direction: column;
+  gap: 4px;
+}
+
+.metric-main.clickable {
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.metric-main.clickable:hover {
+  opacity: 0.8;
 }
 
 .big-val {

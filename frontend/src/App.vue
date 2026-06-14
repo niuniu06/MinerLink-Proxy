@@ -11,9 +11,11 @@
             <span class="m-label">CPU</span>
             <span class="m-val">{{ sysStatus.cpuPercent }}%</span>
           </div>
-          <div class="metric-item" :class="{ warning: sysStatus.memoryPercent > 85 }">
+          <div class="metric-item clickable" :class="{ warning: sysStatus.memoryPercent > 85 }" @click="toggleMemoryMode" title="点击切换内存显示模式">
             <span class="m-label">内存</span>
-            <span class="m-val">{{ sysStatus.memoryPercent }}%</span>
+            <span class="m-val" v-if="memoryMode === 'percent'">{{ sysStatus.memoryPercent }}%</span>
+            <span class="m-val" v-else-if="memoryMode === 'total'">{{ sysStatus.totalMemMB ? (sysStatus.totalMemMB / 1024).toFixed(1) + 'GB' : '0GB' }}</span>
+            <span class="m-val" v-else>{{ sysStatus.procMemMB }}MB</span>
           </div>
           <div class="metric-item uptime">
             <span class="m-label">已运行</span>
@@ -71,6 +73,18 @@ import SystemLogs from './components/SystemLogs.vue'
 import ConfigModal from './components/ConfigModal.vue'
 import GlobalSettingsModal from './components/GlobalSettingsModal.vue'
 import Login from './components/Login.vue'
+
+const memoryMode = ref('percent'); // 'percent', 'total', 'proc'
+
+const toggleMemoryMode = () => {
+  if (memoryMode.value === 'percent') {
+    memoryMode.value = 'total';
+  } else if (memoryMode.value === 'total') {
+    memoryMode.value = 'proc';
+  } else {
+    memoryMode.value = 'percent';
+  }
+};
 
 const isLoggedIn = ref(false)
 
@@ -370,11 +384,18 @@ const globalRestart = async () => {
   font-size: 11px;
 }
 .metric-item .m-val {
-  color: var(--accent-blue);
+  color: #fff;
   font-family: 'SF Mono', Consolas, monospace;
   font-weight: 600;
 }
-.metric-item.warning .m-val {
+.metric-item.clickable {
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.metric-item.clickable:hover {
+  opacity: 0.8;
+}
+.warning .m-val {
   color: var(--accent-red);
 }
 .metric-item.uptime .m-val {

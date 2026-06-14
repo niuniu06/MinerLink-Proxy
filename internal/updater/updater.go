@@ -1,6 +1,7 @@
 package updater
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -174,17 +175,64 @@ func StartUpgrade() error {
 		return fmt.Errorf("failed to download update: %v", err)
 	}
 
+	// Extract the binary from the zip file
+	extractedBinPath := filepath.Join(os.TempDir(), "MinerLink-Proxy-update-bin")
+	if isWindows {
+		extractedBinPath += ".exe"
+	}
+	if err := extractBinaryFromZip(tempFile, extractedBinPath, isWindows); err != nil {
+		_ = os.Remove(tempFile)
+		return fmt.Errorf("failed to extract update binary from zip: %v", err)
+	}
+	_ = os.Remove(tempFile) // delete zip after extraction
+
 	// Trigger the platform specific replacement in a separate goroutine after returning HTTP 200
 	go func() {
 		time.Sleep(1 * time.Second) // Let API response finish
 		if isWindows {
-			_ = upgradeWindows(tempFile)
+			_ = upgradeWindows(extractedBinPath)
 		} else {
-			_ = upgradeLinux(tempFile)
+			_ = upgradeLinux(extractedBinPath)
 		}
 	}()
 
 	return nil
+}
+
+func extractBinaryFromZip(zipPath string, destPath string, isWindows bool) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		name := strings.ToLower(f.Name)
+		// Match the proxy executable
+		if isWindows && strings.HasSuffix(name, ".exe") && !strings.Contains(name, "tunnel") {
+			return extractSingleFile(f, destPath)
+		} else if !isWindows && strings.Contains(name, "linux") && !strings.Contains(name, "tunnel") {
+			return extractSingleFile(f, destPath)
+		}
+	}
+	return errors.New("could not find proxy executable in zip file")
+}
+
+func extractSingleFile(f *zip.File, destPath string) error {
+	rc, err := f.Open()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	out, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, rc)
+	return err
 }
 
 func downloadFile(filepath string, url string) error {

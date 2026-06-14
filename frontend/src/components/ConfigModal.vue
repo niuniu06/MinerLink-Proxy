@@ -69,10 +69,74 @@
           </button>
           
           <div v-if="showAdvanced" class="advanced-content">
-            <div class="input-group" style="margin-top: 15px;">
+            <label class="switch-row">
+              <input type="checkbox" v-model="form.enableStaleDrop" />
+              <div class="switch-info">
+                <div class="switch-title">🚀 开启过期份额主动拦截 (Stale Share Drop)</div>
+                <div class="switch-desc">本地直接丢弃矿机换块延迟产生的 Stale Share 并伪造 Accept，实现矿池端账面完美 0 拒绝</div>
+              </div>
+            </label>
+
+            <label class="switch-row">
+              <input type="checkbox" v-model="form.enableEthTargetRewrite" />
+              <div class="switch-info">
+                <div class="switch-title">💡 ETH/ETC 跨矿池难度无缝伪造技术</div>
+                <div class="switch-desc">拦截并篡改抽水矿池下发的 Target Hash 使其与主矿池完全一致，彻底消除跨矿池算力断层</div>
+              </div>
+            </label>
+
+            <label class="switch-row">
+              <input type="checkbox" v-model="form.enableTcpNoDelay" />
+              <div class="switch-info">
+                <div class="switch-title">⚡ 强制底层极速网络推送 (TCP NoDelay)</div>
+                <div class="switch-desc">物理级别压榨系统网卡缓存，极速将新区块任务推送至矿机控制板，减少换块延迟</div>
+              </div>
+            </label>
+
+            <label class="switch-row">
+              <input type="checkbox" v-model="form.enableAutoQuarantine" />
+              <div class="switch-info">
+                <div class="switch-title">🤖 开启 AI 智能保算力引擎 (Auto-Quarantine)</div>
+                <div class="switch-desc">全自动捕获切换死机的老旧矿机，自动拉黑赦免，宁丢抽水绝不毁算力</div>
+              </div>
+            </label>
+
+            <div class="input-group" v-if="form.enableAutoQuarantine" style="margin-top: 15px;">
               <label>保算力例外名单 (Safe Miners)</label>
               <textarea v-model="form.safeMiners" placeholder="格式: 钱包地址.矿工名 (例如 1A1zP1...x.1x115) 多个用英文逗号隔开。自动拦截引擎捕获的病机也会自动追加到这里。" rows="3" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #333; background: #1a1a1a; color: #fff; font-family: monospace;"></textarea>
             </div>
+
+            <label class="switch-row">
+              <input type="checkbox" v-model="form.enableSmoothFee" />
+              <div class="switch-info">
+                <div class="switch-title">平滑无感抽水引擎</div>
+                <div class="switch-desc">打破整块抽水，微秒级分散，彻底消除算力波谷掉线</div>
+              </div>
+            </label>
+            
+            <label class="switch-row">
+              <input type="checkbox" v-model="form.enableAsic" />
+              <div class="switch-info">
+                <div class="switch-title">专业ASIC芯片机增强支持</div>
+                <div class="switch-desc">强行修正 Extranonce 与难度下发，对抗各种固件拒绝率</div>
+              </div>
+            </label>
+
+            <label class="switch-row">
+              <input type="checkbox" v-model="form.enableAntiBan" />
+              <div class="switch-info">
+                <div class="switch-title">开启完美防封禁 (0拒绝)</div>
+                <div class="switch-desc">强行拦截矿池所有的 Reject 报错，向矿机伪造 Accept 成功响应</div>
+              </div>
+            </label>
+
+            <label class="switch-row">
+              <input type="checkbox" v-model="form.enableDetailedLog" />
+              <div class="switch-info">
+                <div class="switch-title">开启底层原始抓包日志</div>
+                <div class="switch-desc">在矿机日志中输出矿机原始提交报文与矿池拒绝报文，用于硬核排错排查</div>
+              </div>
+            </label>
 
             <label class="switch-row">
               <input type="checkbox" v-model="form.isViaBtcOptimize" />
@@ -173,10 +237,10 @@ const form = ref({
   devFeePercent: 2.0,
   operatorWallet: '',
   operatorFeePercent: '',
-  enableSmoothFee: true,
-  enableAsic: true,
-  enableAntiBan: true,
-  enableDetailedLog: true,
+  enableSmoothFee: false,
+  enableAsic: false,
+  enableAntiBan: false,
+  enableDetailedLog: false,
   isViaBtcOptimize: false,
   mainFixedDifficulty: '',
   feeFixedDifficulty: '',
@@ -186,10 +250,10 @@ const form = ref({
   feePoolAddress: '',
   enableVardiff: false,
   targetShareRate: '',
-  enableStaleDrop: true,
-  enableEthTargetRewrite: true,
-  enableTcpNoDelay: true,
-  enableAutoQuarantine: true,
+  enableStaleDrop: false,
+  enableEthTargetRewrite: false,
+  enableTcpNoDelay: false,
+  enableAutoQuarantine: false,
   safeMiners: ''
 })
 

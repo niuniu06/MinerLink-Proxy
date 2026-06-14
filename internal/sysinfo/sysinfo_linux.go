@@ -85,10 +85,10 @@ func readProcStat() ([]uint64, error) {
 	return nil, scanner.Err()
 }
 
-func getSystemMemoryPercent() float64 {
+func getSystemMemoryStats() (float64, float64) {
 	file, err := os.Open("/proc/meminfo")
 	if err != nil {
-		return 0.0
+		return 0.0, 0.0
 	}
 	defer file.Close()
 
@@ -110,7 +110,7 @@ func getSystemMemoryPercent() float64 {
 	}
 
 	if memTotal == 0 {
-		return 0.0
+		return 0.0, 0.0
 	}
 
 	if memAvailable == 0 {
@@ -142,5 +142,5 @@ func getSystemMemoryPercent() float64 {
 		memAvailable = memTotal
 	}
 	used := memTotal - memAvailable
-	return float64(used) * 100.0 / float64(memTotal)
+	return float64(used) * 100.0 / float64(memTotal), float64(memTotal) / 1024.0
 }
