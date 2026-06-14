@@ -77,16 +77,16 @@
         <div class="metric-icon">💻</div>
       </div>
 
-      <!-- Shares Card -->
+      <!-- Uptime Card -->
       <div class="metric-card">
         <div class="metric-info">
-          <h3>累计拦截份额</h3>
+          <h3>运行时长</h3>
           <div class="metric-main">
-            <span class="big-val total-fee">{{ totalFeeShares }}</span>
-            <span class="sub-label">总提交: {{ totalShares }} | 拦截率: {{ interceptRate }}%</span>
+            <span class="big-val uptime-val" style="font-size: 1.8rem;">{{ formatUptime(sysStatus ? sysStatus.uptimeSeconds : 0) }}</span>
+            <span class="sub-label">程序持续运行时间</span>
           </div>
         </div>
-        <div class="metric-icon fee-icon">🎯</div>
+        <div class="metric-icon">🏃</div>
       </div>
     </div>
 
@@ -231,10 +231,19 @@ const fetchStats = async () => {
   }
 }
 
-const refresh = () => {
-  fetchConfig()
-  fetchStats()
-}
+const performUpgrade = () => {
+  // Placeholder logic handled globally
+};
+
+const formatUptime = (seconds) => {
+  if (!seconds) return '0分';
+  const d = Math.floor(seconds / (3600 * 24));
+  const h = Math.floor((seconds % (3600 * 24)) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}天${h}时${m}分`;
+  if (h > 0) return `${h}时${m}分`;
+  return `${m}分`;
+}; 
 
 const upgradeSystem = async () => {
   if (!confirm(`确定要将系统从 ${props.updateInfo.currentVersion} 升级至 ${props.updateInfo.latestVersion} 吗？\n升级过程中代理端口将短暂重启，矿机会自动重新连接。`)) return

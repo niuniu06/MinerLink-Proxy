@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-const ProxyVersion = "v2.0.54-beta"
+const ProxyVersion = "v2.0.55-beta"
 
 type SystemStatus struct {
 	CPUPercent    float64 `json:"cpuPercent"`

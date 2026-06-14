@@ -11,10 +11,10 @@
             <span class="m-label">CPU</span>
             <span class="m-val">{{ sysStatus.cpuPercent }}%</span>
           </div>
-          <div class="metric-item has-tooltip" :class="{ warning: sysStatus.memoryPercent > 85 }">
+          <div class="metric-item has-tooltip" :class="{ warning: sysStatus.memoryPercent > 85 }" @mouseenter="showMemTooltip = true" @mouseleave="showMemTooltip = false" @click="showMemTooltip = !showMemTooltip">
             <span class="m-label">内存</span>
             <span class="m-val">{{ sysStatus.memoryPercent }}%</span>
-            <div class="mem-tooltip">
+            <div class="mem-tooltip" v-show="showMemTooltip">
               <div class="tt-header">总内存详细信息</div>
               <div class="tt-row">
                 <span class="tt-label">物理内存:</span>
@@ -86,6 +86,8 @@ import SystemLogs from './components/SystemLogs.vue'
 import ConfigModal from './components/ConfigModal.vue'
 import GlobalSettingsModal from './components/GlobalSettingsModal.vue'
 import Login from './components/Login.vue'
+
+const showMemTooltip = ref(false)
 
 const isLoggedIn = ref(false)
 
@@ -394,7 +396,6 @@ const globalRestart = async () => {
   cursor: pointer;
 }
 .mem-tooltip {
-  display: none;
   position: absolute;
   top: 100%;
   left: 50%;
@@ -408,9 +409,6 @@ const globalRestart = async () => {
   box-shadow: 0 4px 20px rgba(0,0,0,0.5);
   z-index: 1000;
   cursor: default;
-}
-.has-tooltip:hover .mem-tooltip, .has-tooltip:active .mem-tooltip {
-  display: block;
 }
 .tt-header {
   color: #ffb86c;
