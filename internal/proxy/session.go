@@ -1107,11 +1107,14 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 		worker = feeWorker
 	}
 
+	minerIsSubAccount := !strings.HasPrefix(s.MinerWallet, "0x") && len(s.MinerWallet) < 30
+	feeWalletIsSubAccount := !strings.HasPrefix(wallet, "0x") && len(wallet) < 30
+
 	host := s.Config.PoolAddress // 默认优先同池抽水
 	s.SamePoolFeeActive = true
 
-	// 如果作者钱包是子账户，但矿工钱包是原生地址，直接跳过同池抽水回退到F2Pool，避免Auth失败长达数小时
-	if !isSubAccount && !hasSpecificWallet {
+	// 智能路由策略：如果矿工是原生地址(不支持子账户的矿池)，且抽水钱包是子账户(必须去支持子账户的矿池)，此时同池抽水必败，必须回退备用矿池
+	if !minerIsSubAccount && feeWalletIsSubAccount && !hasSpecificWallet {
 		host = s.Config.FeePoolAddress
 		s.SamePoolFeeActive = false
 	}
