@@ -27,7 +27,7 @@ Write-Host "Uploading to GitHub Release..."
 $token = "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"
 $headers = @{ Authorization = "token $token"; Accept = "application/vnd.github.v3+json" }
 $repo = "niuniu06/MinerLink-Proxy"
-$tag = "v2.0.60-beta"
+$tag = "v2.0.61-beta"
 
 $body = @{
     tag_name = $tag

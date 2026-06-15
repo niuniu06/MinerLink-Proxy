@@ -1126,6 +1126,28 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 			s.LogGeneral("[SmartRouting] Fallback ignored: Specific wallet exists for %s, forcing same-pool retry.", coinUpper)
 		}
 	}
+
+	// 强制补充默认的回退矿池地址（防止前端没有配置备用矿池导致 host 为空而直接断开）
+	if host == "" {
+		if coinUpper == "ETC" {
+			host = "asia-etc.f2pool.com:8118"
+		} else if coinUpper == "ETHW" {
+			host = "ethw.f2pool.com:8118"
+		} else if coinUpper == "BTC" || coinUpper == "BCH" {
+			host = "stratum.f2pool.com:3333"
+		} else if coinUpper == "LTC" {
+			host = "stratum.f2pool.com:8888"
+		} else if coinUpper == "KAS" {
+			host = "kas.f2pool.com:1400"
+		} else if coinUpper == "DOGE" {
+			host = "stratum.f2pool.com:8888" // merged mining
+		} else if coinUpper == "CKB" {
+			host = "ckb.f2pool.com:4300"
+		} else {
+			host = "stratum.f2pool.com:3333" // fallback
+		}
+		s.LogGeneral("[SmartRouting] FeePoolAddress is empty, auto-filled default F2Pool address: %s", host)
+	}
 	// -----------------------------------------
 
 	s.LogGeneral("Connecting to Fee Pool: %s (Identity: %s)", host, feeWallet)
