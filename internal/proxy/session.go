@@ -1237,8 +1237,15 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	}
 
 	// Read loop
-	go func() {
-		defer s.EndFee()
+	go func(conn net.Conn) {
+		defer func() {
+			s.mu.Lock()
+			isCurrent := s.FeeConn == conn
+			s.mu.Unlock()
+			if isCurrent {
+				s.EndFee()
+			}
+		}()
 		scanner := bufio.NewScanner(feeConn)
 		bufPtr := ScannerBufferPool.Get().(*[]byte)
 		buf := (*bufPtr)[:0]
@@ -1355,7 +1362,14 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 								if s.FeeAuthFailures >= 3 {
 									s.LogGeneral("[SmartRouting] 3 consecutive share rejects. Triggering Fallback.")
 									go func() {
-										s.EndFee()
+										s.mu.Lock()
+										oldConn := s.FeeConn
+										s.FeeConn = nil // Detach current connection
+										s.mu.Unlock()
+										if oldConn != nil {
+											oldConn.Close()
+										}
+										
 										if s.CurrentFeeMode == FeeModeOperator {
 											s.ConnectFee(s.Config.OperatorWallet, s.Config.OperatorWorker, false)
 										} else {
@@ -1391,7 +1405,14 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 								s.FeeAuthFailures++
 								// Force reconnect
 								go func() {
-									s.EndFee()
+									s.mu.Lock()
+									oldConn := s.FeeConn
+									s.FeeConn = nil // Detach current connection
+									s.mu.Unlock()
+									if oldConn != nil {
+										oldConn.Close()
+									}
+
 									// ConnectFee will automatically pick up the fallback logic since FeeAuthFailures > 0
 									if s.CurrentFeeMode == FeeModeOperator {
 										s.ConnectFee(s.Config.OperatorWallet, s.Config.OperatorWorker, false)
@@ -1482,7 +1503,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 				}
 			}
 		}
-	}()
+	}(feeConn)
 }
 
 func (s *Session) EndFee() {
