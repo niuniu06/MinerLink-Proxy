@@ -32,33 +32,32 @@ if command -v chronyc >/dev/null 2>&1; then
 fi
 echo "  -> 时间强制同步完成！(防止挖出过期 Stale 份额)"
 
-# 3. 交互式配置 Web 端口
+# 3. 配置 Web 端口 (支持静默传参)
 echo "[2/7] 正在配置控制台端口..."
-while true; do
-  read -p "请输入您想要的网页控制台端口 (默认 8080): " WEB_PORT
-  WEB_PORT=${WEB_PORT:-8080}
-  
-  if ! [[ "$WEB_PORT" =~ ^[0-9]+$ ]] || [ "$WEB_PORT" -lt 1 ] || [ "$WEB_PORT" -gt 65535 ]; then
-    echo "[错误] 端口必须是 1 - 65535 之间的数字！"
-    continue
+WEB_PORT=${1:-8080}
+
+if ! [[ "$WEB_PORT" =~ ^[0-9]+$ ]] || [ "$WEB_PORT" -lt 1 ] || [ "$WEB_PORT" -gt 65535 ]; then
+  echo "[错误] 传入的端口必须是 1 - 65535 之间的数字！"
+  echo "       用法示例: curl -fsSL ... | sudo bash -s 10010"
+  exit 1
+fi
+
+# 端口占用检测
+if command -v ss >/dev/null 2>&1; then
+  if ss -tuln | grep -E ":$WEB_PORT\b" > /dev/null; then
+    echo "[错误] 安装中止，检测到端口 $WEB_PORT 已被系统占用！"
+    echo "       请更换端口后重新运行，示例: curl -fsSL ... | sudo bash -s 8888"
+    exit 1
   fi
-  
-  # 检查端口占用
-  if command -v ss >/dev/null 2>&1; then
-    if ss -tuln | grep -E ":$WEB_PORT\b" > /dev/null; then
-      echo "[错误] 拒绝使用！检测到端口 $WEB_PORT 已被系统中其他程序占用，请换一个！"
-      continue
-    fi
-  elif command -v netstat >/dev/null 2>&1; then
-    if netstat -tuln | grep -E ":$WEB_PORT\b" > /dev/null; then
-      echo "[错误] 拒绝使用！检测到端口 $WEB_PORT 已被系统中其他程序占用，请换一个！"
-      continue
-    fi
+elif command -v netstat >/dev/null 2>&1; then
+  if netstat -tuln | grep -E ":$WEB_PORT\b" > /dev/null; then
+    echo "[错误] 安装中止，检测到端口 $WEB_PORT 已被系统占用！"
+    echo "       请更换端口后重新运行，示例: curl -fsSL ... | sudo bash -s 8888"
+    exit 1
   fi
-  
-  echo "  -> 网页控制台端口将使用: $WEB_PORT"
-  break
-done
+fi
+
+echo "  -> 面板端口设置为: $WEB_PORT"
 
 # 4. 防火墙自动放行
 echo "[3/7] 正在自动配置防火墙放行策略..."
