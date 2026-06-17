@@ -119,23 +119,21 @@ echo "  -> 并发限制解除完成！(支持百万级无感并发)"
 
 # 7. 全自动拉取与部署 Systemd
 echo "[6/7] 正在拉取最新版代理引擎并注册系统服务..."
-WORK_DIR="/root/go-proxy"
-PROXY_BIN="$WORK_DIR/proxy"
+WORK_DIR="/root/MinerLink-Proxy"
+PROXY_BIN="$WORK_DIR/minerlink-proxy"
 mkdir -p $WORK_DIR
 cd $WORK_DIR
 
 echo "  -> 正在从云端拉取最新版 proxy 程序 (请确保网络畅通)..."
-# 自动检测是否为 beta 分支或 main 分支，此处默认为主仓库占位
-# 未来发布 Release 时将使用最新版的 CDN 链接
-if wget -q --timeout=15 -O proxy "https://github.com/yao52069/go-proxy/releases/latest/download/proxy-linux-amd64"; then
-    chmod +x proxy
+if wget -q --timeout=15 -O minerlink-proxy "https://github.com/niuniu06/MinerLink-Proxy/releases/latest/download/MinerLink-Proxy-linux-amd64"; then
+    chmod +x minerlink-proxy
     echo "  -> 核心引擎下载成功！"
 else
     echo "  [提示] 自动下载失败（可能是国内网络受限或暂未发布 Release）。"
-    echo "  [提示] 稍后请您自行通过 SFTP 将编译好的 proxy 放入 $WORK_DIR 目录并执行 chmod +x proxy"
+    echo "  [提示] 稍后请您自行通过 SFTP 将编译好的 MinerLink-Proxy-linux-amd64 放入 $WORK_DIR 目录并重命名为 minerlink-proxy，然后执行 chmod +x minerlink-proxy"
 fi
 
-cat > /etc/systemd/system/go-proxy.service << EOF
+cat > /etc/systemd/system/minerlink-proxy.service << EOF
 [Unit]
 Description=MinerLink-Proxy Transparent Mining Proxy
 After=network.target
@@ -154,27 +152,27 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable go-proxy > /dev/null 2>&1
-systemctl restart go-proxy > /dev/null 2>&1
+systemctl enable minerlink-proxy > /dev/null 2>&1
+systemctl restart minerlink-proxy > /dev/null 2>&1
 echo "  -> 守护进程注册完成并已尝试启动！"
 
 # 8. 完成提示
 echo "==================================================="
 echo "[7/7] 🎉 MinerLink-Proxy 终极环境部署完毕！"
-echo ""
-echo "👉 您的控制台地址: http://您的云服务器公网IP:$WEB_PORT"
-echo ""
-if [ ! -x "$PROXY_BIN" ]; then
-echo "⚠️ [注意] 您当前的 $WORK_DIR 目录下还没有可执行的 proxy 程序！"
-echo "    请您在 Windows 源码目录通过 'GOOS=linux GOARCH=amd64 go build -o proxy ./cmd/proxy' 编译"
-echo "    然后将 proxy 文件上传到服务器的 $WORK_DIR 目录，最后执行："
-echo "    chmod +x /root/go-proxy/proxy && systemctl restart go-proxy"
+echo "👉 本地端口: 10000 -> 您的矿池地址"
+echo "==================================================="
+
+if [ ! -f "$PROXY_BIN" ]; then
+    echo -e "\n\033[33m[注意] 您当前的 $WORK_DIR 目录下还没有可执行的 proxy 程序！\033[0m"
+    echo "请您在 Windows 源码目录通过 'GOOS=linux GOARCH=amd64 go build -o MinerLink-Proxy-linux-amd64 ./cmd/proxy' 编译"
+    echo "然后将该文件上传到服务器的 $WORK_DIR 目录并重命名为 minerlink-proxy，最后执行："
+    echo "chmod +x $PROXY_BIN && systemctl restart minerlink-proxy"
 fi
-echo ""
-echo "常用维护命令："
-echo "- 启动: systemctl start go-proxy"
-echo "- 停止: systemctl stop go-proxy"
-echo "- 重启: systemctl restart go-proxy"
-echo "- 查看状态: systemctl status go-proxy"
-echo "- 查看实时日志: journalctl -u go-proxy -f"
+
+echo -e "\n常用维护命令："
+echo "- 启动：systemctl start minerlink-proxy"
+echo "- 停止：systemctl stop minerlink-proxy"
+echo "- 重启：systemctl restart minerlink-proxy"
+echo "- 查看状态：systemctl status minerlink-proxy"
+echo "- 查看实时日志：journalctl -u minerlink-proxy -f"
 echo "==================================================="

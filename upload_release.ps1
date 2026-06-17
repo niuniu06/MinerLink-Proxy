@@ -1,7 +1,7 @@
 $token = "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"
 $owner = "niuniu06"
 $repo = "MinerLink-Proxy"
-$tag = "v2.0.81-beta"
+$tag = "v2.0.82-beta"
 $commitish = "5ea09a7ede09b67a2b5b12ed8e3bca419bc8938b"
 
 $headers = @{
@@ -70,6 +70,7 @@ function Upload-Asset {
     }
 }
 
+Upload-Asset -filePath "MinerLink-Proxy-linux-amd64" -contentType "application/octet-stream"
 Upload-Asset -filePath "MinerLink-Proxy-Linux.zip" -contentType "application/zip"
 Upload-Asset -filePath "MinerLink-Proxy-Windows.zip" -contentType "application/zip"
 Upload-Asset -filePath "install.sh" -contentType "text/x-sh"
