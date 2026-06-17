@@ -1,80 +1,72 @@
 #!/bin/bash
 # MinerLink-Proxy One-Click Deployment & Tuning Script
-# Targets: Ubuntu/Debian/CentOS
-# Run with root privileges
 
 echo "==================================================="
-echo "  MinerLink-Proxy 高并发矿池代理 - 一键部署与系统优化脚本"
+echo "  MinerLink-Proxy 一键安装部署 - 全自动极限优化"
 echo "==================================================="
 
-# 1. 检查 root 权限
 if [ "$EUID" -ne 0 ]; then
-  echo "[错误] 请使用 root 权限运行此脚本 (sudo bash install.sh)"
+  echo "[错误] 请使用 root 权限执行此脚本 (sudo bash install.sh)"
   exit 1
 fi
 
-# 2. 基础组件与时间同步 (NTP)
-echo "[1/7] 正在安装基础网络组件并同步全球时间..."
+echo "[1/7] 初始化基础环境并同步系统时间..."
 if command -v apt-get >/dev/null 2>&1; then
     apt-get update -y >/dev/null 2>&1
-    apt-get install -y wget curl ufw chrony tzdata >/dev/null 2>&1
+    apt-get install -y unzip wget curl ufw chrony tzdata >/dev/null 2>&1
     systemctl enable chrony >/dev/null 2>&1
     systemctl restart chrony >/dev/null 2>&1
 elif command -v yum >/dev/null 2>&1; then
-    yum install -y wget curl firewalld chrony tzdata >/dev/null 2>&1
+    yum install -y unzip wget curl firewalld chrony tzdata >/dev/null 2>&1
     systemctl enable chronyd >/dev/null 2>&1
     systemctl restart chronyd >/dev/null 2>&1
 fi
-# 强制设为东八区/UTC，保证与矿池一致
+
 timedatectl set-timezone Asia/Shanghai >/dev/null 2>&1
 if command -v chronyc >/dev/null 2>&1; then
     chronyc -a makestep >/dev/null 2>&1
 fi
-echo "  -> 时间强制同步完成！(防止挖出过期 Stale 份额)"
+echo "  -> 系统时间同步完成 (大幅减少 Stale 份额)"
 
-# 3. 交互式配置 Web 端口
-echo "[2/7] 正在配置控制台端口..."
+echo "[2/7] 配置后台管理面板端口..."
 while true; do
-  read -p "请输入您想要的网页控制台端口 (默认 8080): " WEB_PORT
-  WEB_PORT=${WEB_PORT:-8080}
+  read -p "请输入后台管理面板端口 (默认 10010): " WEB_PORT
+  WEB_PORT=${WEB_PORT:-10010}
   
   if ! [[ "$WEB_PORT" =~ ^[0-9]+$ ]] || [ "$WEB_PORT" -lt 1 ] || [ "$WEB_PORT" -gt 65535 ]; then
-    echo "[错误] 端口必须是 1 - 65535 之间的数字！"
+    echo "[错误] 端口范围必须在 1 - 65535 之间，请重新输入"
     continue
   fi
   
-  # 检查端口占用
   if command -v ss >/dev/null 2>&1; then
     if ss -tuln | grep -E ":$WEB_PORT\b" > /dev/null; then
-      echo "[错误] 拒绝使用！检测到端口 $WEB_PORT 已被系统中其他程序占用，请换一个！"
+      echo "[错误] 端口 $WEB_PORT 已被占用，请更换其他端口"
       continue
     fi
   elif command -v netstat >/dev/null 2>&1; then
     if netstat -tuln | grep -E ":$WEB_PORT\b" > /dev/null; then
-      echo "[错误] 拒绝使用！检测到端口 $WEB_PORT 已被系统中其他程序占用，请换一个！"
+      echo "[错误] 端口 $WEB_PORT 已被占用，请更换其他端口"
       continue
     fi
   fi
   
-  echo "  -> 网页控制台端口将使用: $WEB_PORT"
+  echo "  -> 面板端口设置为: $WEB_PORT"
   break
 done
 
-# 4. 防火墙自动放行
-echo "[3/7] 正在自动配置防火墙放行策略..."
+echo "[3/7] 自动放行防火墙面板端口..."
 if command -v ufw >/dev/null 2>&1; then
     ufw allow $WEB_PORT/tcp >/dev/null 2>&1
-    echo "  -> UFW 防火墙放行 $WEB_PORT 成功！"
+    echo "  -> UFW 防火墙已放行 $WEB_PORT 端口"
 elif command -v firewall-cmd >/dev/null 2>&1; then
     firewall-cmd --zone=public --add-port=$WEB_PORT/tcp --permanent >/dev/null 2>&1
     firewall-cmd --reload >/dev/null 2>&1
-    echo "  -> Firewalld 防火墙放行 $WEB_PORT 成功！"
+    echo "  -> Firewalld 防火墙已放行 $WEB_PORT 端口"
 else
-    echo "  -> 未检测到默认防火墙，已跳过。"
+    echo "  -> 未检测到已知防火墙，已跳过"
 fi
 
-# 5. 开启 Google BBR 拥塞控制
-echo "[4/7] 正在开启 Google BBR 拥塞控制算法 (极大降低跨国丢包率)..."
+echo "[4/7] 开启内核 Google BBR 拥塞控制算法..."
 sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
 sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
 echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
@@ -82,17 +74,16 @@ echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
 sysctl -p > /dev/null 2>&1
 BBR_STATUS=$(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}' 2>/dev/null)
 if [[ "$BBR_STATUS" == *"bbr"* ]]; then
-    echo "  -> BBR 加速开启成功！"
+    echo "  -> BBR 拥塞控制已开启"
 else
-    echo "  -> BBR 加速开启失败 (您的内核可能过旧，但系统会继续安装)。"
+    echo "  -> BBR 开启失败 (内核可能不支持或已手动开启)，跳过"
 fi
 
-# 6. 优化系统内核参数 (sysctl & ulimit)
-echo "[5/7] 正在优化系统内核与并发参数，解除高并发网络拥堵..."
-sed -i '/# ==== MinerLink-Proxy Tuning ====/,+7d' /etc/sysctl.conf 2>/dev/null || true
+echo "[5/7] 解除系统 TCP 连接并发限制..."
+sed -i '/# ==== MinerLink Tuning ====/,+7d' /etc/sysctl.conf 2>/dev/null || true
 cat >> /etc/sysctl.conf << EOF
 
-# ==== MinerLink-Proxy Tuning ====
+# ==== MinerLink Tuning ====
 fs.file-max = 1000000
 net.core.somaxconn = 65535
 net.ipv4.tcp_tw_reuse = 1
@@ -102,10 +93,10 @@ net.ipv4.tcp_fin_timeout = 15
 EOF
 sysctl -p > /dev/null 2>&1
 
-sed -i '/# ==== MinerLink-Proxy Limits ====/,$d' /etc/security/limits.conf 2>/dev/null || true
+sed -i '/# ==== MinerLink Limits ====/,\$d' /etc/security/limits.conf 2>/dev/null || true
 cat >> /etc/security/limits.conf << EOF
 
-# ==== MinerLink-Proxy Limits ====
+# ==== MinerLink Limits ====
 * soft nofile 1000000
 * hard nofile 1000000
 root soft nofile 1000000
@@ -115,22 +106,24 @@ EOF
 if [ -f "/etc/systemd/system.conf" ]; then
     sed -i 's/#DefaultLimitNOFILE=.*/DefaultLimitNOFILE=1000000/g' /etc/systemd/system.conf
 fi
-echo "  -> 并发限制解除完成！(支持百万级无感并发)"
+echo "  -> 网络并发参数优化完毕(百万级连接支持)"
 
-# 7. 全自动拉取与部署 Systemd
-echo "[6/7] 正在拉取最新版代理引擎并注册系统服务..."
+echo "[6/7] 正在拉取代理核心与构建守护进程..."
 WORK_DIR="/root/MinerLink-Proxy"
-PROXY_BIN="$WORK_DIR/minerlink-proxy"
+PROXY_BIN="$WORK_DIR/MinerLink-Proxy-linux-amd64"
 mkdir -p $WORK_DIR
 cd $WORK_DIR
 
-echo "  -> 正在从云端拉取最新版 proxy 程序 (请确保网络畅通)..."
-if wget -q --timeout=15 -O minerlink-proxy "https://github.com/niuniu06/MinerLink-Proxy/releases/latest/download/MinerLink-Proxy-linux-amd64"; then
-    chmod +x minerlink-proxy
-    echo "  -> 核心引擎下载成功！"
+echo "  -> 正在从 Github 获取最新 MinerLink-Proxy 核心包 (请保持网络畅通)..."
+if wget -q --timeout=30 -O MinerLink-Proxy-Linux.zip "https://github.com/niuniu06/MinerLink-Proxy/releases/latest/download/MinerLink-Proxy-Linux.zip"; then
+    unzip -o MinerLink-Proxy-Linux.zip
+    chmod +x MinerLink-Proxy-linux-amd64
+    rm -f MinerLink-Proxy-Linux.zip
+    echo "  -> 下载与解压完成，已赋予执行权限"
 else
-    echo "  [提示] 自动下载失败（可能是国内网络受限或暂未发布 Release）。"
-    echo "  [提示] 稍后请您自行通过 SFTP 将编译好的 MinerLink-Proxy-linux-amd64 放入 $WORK_DIR 目录并重命名为 minerlink-proxy，然后执行 chmod +x minerlink-proxy"
+    echo "  [致命错误] 下载核心包失败，请检查服务器与 Github Release 的连通性！"
+    echo "  [提示] 你可以尝试手动将 ZIP 包上传到 $WORK_DIR 目录然后重新执行脚本"
+    exit 1
 fi
 
 cat > /etc/systemd/system/minerlink-proxy.service << EOF
@@ -154,25 +147,17 @@ EOF
 systemctl daemon-reload
 systemctl enable minerlink-proxy > /dev/null 2>&1
 systemctl restart minerlink-proxy > /dev/null 2>&1
-echo "  -> 守护进程注册完成并已尝试启动！"
+echo "  -> 系统服务已注册并成功启动"
 
-# 8. 完成提示
 echo "==================================================="
-echo "[7/7] 🎉 MinerLink-Proxy 终极环境部署完毕！"
-echo "👉 本地端口: 10000 -> 您的矿池地址"
-echo "==================================================="
-
-if [ ! -f "$PROXY_BIN" ]; then
-    echo -e "\n\033[33m[注意] 您当前的 $WORK_DIR 目录下还没有可执行的 proxy 程序！\033[0m"
-    echo "请您在 Windows 源码目录通过 'GOOS=linux GOARCH=amd64 go build -o MinerLink-Proxy-linux-amd64 ./cmd/proxy' 编译"
-    echo "然后将该文件上传到服务器的 $WORK_DIR 目录并重命名为 minerlink-proxy，最后执行："
-    echo "chmod +x $PROXY_BIN && systemctl restart minerlink-proxy"
-fi
-
-echo -e "\n常用维护命令："
-echo "- 启动：systemctl start minerlink-proxy"
-echo "- 停止：systemctl stop minerlink-proxy"
-echo "- 重启：systemctl restart minerlink-proxy"
-echo "- 查看状态：systemctl status minerlink-proxy"
-echo "- 查看实时日志：journalctl -u minerlink-proxy -f"
+echo "[7/7] 🎉 MinerLink-Proxy 安装部署圆满完成！"
+echo ""
+echo "🚀 立即访问后台面板: http://服务器公网IP:$WEB_PORT/ui/"
+echo ""
+echo "常用维护命令"
+echo "- 启动代理: systemctl start minerlink-proxy"
+echo "- 停止代理: systemctl stop minerlink-proxy"
+echo "- 重启代理: systemctl restart minerlink-proxy"
+echo "- 查看状态: systemctl status minerlink-proxy"
+echo "- 实时运行日志: journalctl -u minerlink-proxy -f"
 echo "==================================================="
