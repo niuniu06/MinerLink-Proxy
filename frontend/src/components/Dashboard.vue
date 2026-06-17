@@ -194,7 +194,7 @@
                     </td>
                     <td class="status-cell" @click.stop>
                       <label class="switch">
-                        <input type="checkbox" v-model="cfg.enabled" @change="togglePortEnabled(cfg)">
+                        <input type="checkbox" :checked="cfg.enabled" @click.prevent="togglePortEnabled(cfg)">
                         <span class="slider round"></span>
                       </label>
                     </td>
@@ -476,7 +476,7 @@ const groupedConfigs = computed(() => {
 })
 
 const togglePortEnabled = async (cfg) => {
-  const requestedState = cfg.enabled; // v-model has already updated this to the new state
+  const requestedState = !cfg.enabled;
   try {
     const res = await fetch('/api/config/toggle', {
       method: 'POST',
@@ -484,20 +484,16 @@ const togglePortEnabled = async (cfg) => {
       body: JSON.stringify({ listenPort: cfg.listenPort, enabled: requestedState })
     })
     if (res.ok) {
+      cfg.enabled = requestedState;
       refresh()
     } else {
       const data = await res.json()
-      // Immediately revert local state so DOM can update
-      cfg.enabled = !requestedState;
-      // Delay the alert slightly to allow DOM re-render before blocking
-      setTimeout(() => {
-        alert(data.error || '切换失败')
-        refresh()
-      }, 50)
+      alert(data.error || '切换失败')
+      refresh()
     }
   } catch (e) {
     console.error(e)
-    cfg.enabled = !requestedState; // revert on network error
+    alert('网络错误')
   }
 }
 
