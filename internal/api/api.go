@@ -300,7 +300,11 @@ func (s *APIServer) addConfig(c *gin.Context) {
 	}
 
 	// Hot reload
-	s.ProxyManager.RestartProxy(cfg.ListenPort)
+	if err := s.ProxyManager.RestartProxy(cfg.ListenPort); err != nil {
+		// Port bind failed
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Config saved but failed to start port %d: %v", cfg.ListenPort, err)})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Config saved and proxy restarted"})
 }
@@ -341,7 +345,13 @@ func (s *APIServer) toggleConfig(c *gin.Context) {
 			cfg.Enabled = req.Enabled
 			db.SaveConfig(&cfg)
 			if req.Enabled {
-				s.ProxyManager.StartProxy(cfg)
+				if err := s.ProxyManager.StartProxy(cfg); err != nil {
+					// Revert DB because it failed to start
+					cfg.Enabled = false
+					db.SaveConfig(&cfg)
+					c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to bind port %d: %v", cfg.ListenPort, err)})
+					return
+				}
 			} else {
 				s.ProxyManager.StopProxy(cfg.ListenPort)
 			}

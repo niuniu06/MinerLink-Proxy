@@ -128,3 +128,9 @@
 *   **现象：** 用户在 Linux 执行一键安装脚本 `curl ... install.sh | bash` 时，出现大面积的 `$'\r': command not found` 报错或中文字符乱码。
 *   **真相深挖：** AI 在 Windows 代理环境中对 `install.sh` 进行了 Git 操作或替换，导致 Git 的 `core.autocrlf` 机制将脚本的所有换行符从 Linux 标准的 `\n` (LF) 强行转译成了 Windows 的 `\r\n` (CRLF)。随后通过 PowerShell 自动发版脚本原封不动上传到 Github Releases。导致 Linux bash 引擎遇到不可见的 `\r` 字符时产生词法解析崩溃。在尝试用 powershell 修复替换时还由于未指定编码导致将 UTF-8 误转码为本地 GBK 导致了第二次乱码。
 *   **修复方案：** 重新从 Git 拉取无损的源文件，利用严谨的 PowerShell 脚本显式以 `UTF-8 without BOM` 编码读取，正则剔除所有的 `\r` 字符后重新覆写，最后再次通过 API 热更新 Releases 资源包。从此规定任何给 Linux 执行的 bash 脚本在 Windows 封包前必须执行严谨的 LF 净化和 UTF-8 编码锁定操作。
+
+## 12. 端口启停失败的错误被吞没 Bug (v2.0.77-beta)
+
+*   **现象：** 用户在前端页面点击端口的“启用”或“修改保存”时，即使该端口（例如 3333）已经被其他程序占用，页面依然会立刻弹出绿色的“成功”提示。但实际上后台监听失败，端口并未真正开启。
+*   **真相深挖：** 这是一个异步逻辑导致的“欺骗性成功”。在老版本的 `manager.go` 中，`StartProxy` 方法内部会立刻调用 `go func()` 开启一个协程去执行真正的 `server.Start()`。这意味着启动过程是完全异步的。底层的 `net.Listen` 哪怕瞬间报出 `bind: address already in use` 失败，也会被包裹在异步协程里，仅仅打印一行日志然后退出。而 HTTP API 层面根本等不到这个结果，就直接向下执行，返回了 `HTTP 200 Success`。
+*   **彻底修复方案：** 重构了 `Manager` 和 `API` 的交互逻辑。将 `Manager.StartProxy` 与 `Manager.RestartProxy` 改造为同步返回 `error`。真正的 `server.Start()` 中的 `net.Listen` 依然保留原有的同步阻塞探测。如果端口占用，会瞬间将 Error 返回给上一级的 HTTP 接口。在 `api.go` 中，一旦捕捉到该 Error，就立刻放弃更新数据库，返回 `HTTP 400 Bad Request` 和错误信息。前端 UI 捕捉到 400 状态码后，会完美弹出原生的报错 Alert，明确告知用户“端口已被占用”。

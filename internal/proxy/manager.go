@@ -30,7 +30,7 @@ func (m *Manager) LoadAllAndStart() {
 	}
 }
 
-func (m *Manager) StartProxy(cfg models.ProxyConfig) {
+func (m *Manager) StartProxy(cfg models.ProxyConfig) error {
 	// Stop existing if any
 	m.StopProxy(cfg.ListenPort)
 
@@ -38,14 +38,14 @@ func (m *Manager) StartProxy(cfg models.ProxyConfig) {
 	// We need a pointer to the config
 	cfgCopy := cfg
 	server := NewServer(&cfgCopy)
-	m.Servers.Store(cfg.ListenPort, server)
 
-	go func() {
-		if err := server.Start(); err != nil {
-			log.Printf("Failed to start proxy on port %d: %v", cfg.ListenPort, err)
-			m.Servers.Delete(cfg.ListenPort)
-		}
-	}()
+	if err := server.Start(); err != nil {
+		log.Printf("Failed to start proxy on port %d: %v", cfg.ListenPort, err)
+		return err
+	}
+
+	m.Servers.Store(cfg.ListenPort, server)
+	return nil
 }
 
 func (m *Manager) StopProxy(port int) {
@@ -55,15 +55,15 @@ func (m *Manager) StopProxy(port int) {
 	}
 }
 
-func (m *Manager) RestartProxy(port int) {
+func (m *Manager) RestartProxy(port int) error {
 	// Load specific config from DB
 	configs, _ := db.GetAllConfigs()
 	for _, cfg := range configs {
 		if cfg.ListenPort == port {
-			m.StartProxy(cfg)
-			break
+			return m.StartProxy(cfg)
 		}
 	}
+	return nil
 }
 
 func (m *Manager) GetAllMiners() []map[string]interface{} {
