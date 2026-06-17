@@ -1,0 +1,63 @@
+====================================================
+ 矿机 (WORKER): 28FED70D6D53
+ 导出时间: 2026/6/11 01:21:25
+====================================================
+
+[异常/拒绝日志 - 包含底层抓包]
+----------------------------------------------------
+[01:05:00] [MAIN] share rejected! Pool Response: {"id":71,"jsonrpc":"2.0","result":null,"error":{"code":23,"message":"Invalid share"}} | Original Request: {"worker":"28FED70D6D53","id":71,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x0ec14602465b1800","0x06f036657a972ae30e93f4d406c853369f363c158db41238ed26a5eceee11245","0x6b1e37d2e5aec12e72609784d0171acac3b81fa82c1f326aa84089089c80f3d0"]}
+[01:10:26] [MAIN] share rejected! Pool Response: {"id":231,"jsonrpc":"2.0","result":null,"error":{"code":23,"message":"Invalid share"}} | Original Request: {"worker":"28FED70D6D53","id":231,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x0bc88ea0024f4a05","0x12a8bf2b43b3a05cd9438e3dd4b6b4decb6cfad61e88dfbb3da00cf6f8470525","0x8618fb10af0ed3837da9056f972ca0a398427e14122221842c94c10dd33f6042"]}
+
+
+[有效份额日志]
+----------------------------------------------------
+[01:20:45] [MAIN] share accepted! [Diff: 1.0000]
+[01:20:45] [RAW MINER RX] {"worker":"28FED70D6D53","id":515,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x0464605b06a9e8c4","0x6a6685589e82fb903f6ad029447a8affdea1136482df1ac2aa77f5678d47de4b","0xb634701754cf2b758623bd6cfa7c70c2e3ea31d21a33e1005da8058ab032da04"]}
+[01:20:45] [RAW MAIN RX] {"id":515,"jsonrpc":"2.0","result":true,"error":null}
+[01:20:45] [MAIN] share accepted! [Diff: 1.0000]
+[01:20:48] [RAW MAIN RX] {"id":0,"jsonrpc":"2.0","result":["0xe39f223faf2b391264ef8dcfc16211126fcbc8521579b8806cecd4a16ceaf6e1","0x6c81497f04471e1f108bbef0c523cbd56e9c42f5bd589208601eeb88c1460cc6","0x000000007fffffffffffffffffffffffffffffffffffffffffffffffffffffff","0x1795f87"],"algo":"etchash"}
+[01:20:52] [RAW MINER RX] {"worker":"28FED70D6D53","id":516,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x1cb8b63385a8bc50","0xe39f223faf2b391264ef8dcfc16211126fcbc8521579b8806cecd4a16ceaf6e1","0x36a576ca93441029ad465ed04390f31cab59570187071e8e7eb0a98c19ae0377"]}
+[01:20:53] [RAW MAIN RX] {"id":516,"jsonrpc":"2.0","result":true,"error":null}
+[01:20:53] [MAIN] share accepted! [Diff: 1.0000]
+[01:20:56] [RAW MINER RX] {"worker":"28FED70D6D53","id":517,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x0ca103e781fa02aa","0xe39f223faf2b391264ef8dcfc16211126fcbc8521579b8806cecd4a16ceaf6e1","0x45ae8b387093a811d6e37c0dd53fed253e168c94a57a1e2928962ddf4e8eeab2"]}
+[01:20:57] [RAW MAIN RX] {"id":517,"jsonrpc":"2.0","result":true,"error":null}
+[01:20:57] [MAIN] share accepted! [Diff: 1.0000]
+[01:20:58] [RAW MAIN RX] {"id":0,"jsonrpc":"2.0","result":["0x44cc99ee18ff6a7ab0eda1ac5ce1db35fb4cae928de70afb96a72b55fb030414","0x6c81497f04471e1f108bbef0c523cbd56e9c42f5bd589208601eeb88c1460cc6","0x000000007fffffffffffffffffffffffffffffffffffffffffffffffffffffff","0x1795f87"],"algo":"etchash"}
+[01:20:58] [RAW MINER RX] {"worker":"28FED70D6D53","id":518,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x18629c0108157143","0x44cc99ee18ff6a7ab0eda1ac5ce1db35fb4cae928de70afb96a72b55fb030414","0xeba47ad1233b51a9ddf044b1b1a4cf4f76161cfd7436534c1a2dd9fbc4e2bd3a"]}
+[01:20:59] [RAW MAIN RX] {"id":518,"jsonrpc":"2.0","result":true,"error":null}
+[01:20:59] [MAIN] share accepted! [Diff: 1.0000]
+[01:20:59] [RAW MINER RX] {"worker":"28FED70D6D53","id":519,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x18629c017592a804","0x44cc99ee18ff6a7ab0eda1ac5ce1db35fb4cae928de70afb96a72b55fb030414","0x77b3386e229e529884d865c4aa04b1e148e002e682fa2bf0b3075e432525d822"]}
+[01:20:59] [RAW MAIN RX] {"id":519,"jsonrpc":"2.0","result":true,"error":null}
+[01:20:59] [MAIN] share accepted! [Diff: 1.0000]
+[01:21:00] [RAW MINER RX] {"worker":"28FED70D6D53","id":520,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x16e7343b4958e310","0x44cc99ee18ff6a7ab0eda1ac5ce1db35fb4cae928de70afb96a72b55fb030414","0xbe9eb2b7f0c07a20cd6f40cb43796ffed09f59d36edebb5dca29419bb5b54ab4"]}
+[01:21:00] [RAW MAIN RX] {"id":520,"jsonrpc":"2.0","result":true,"error":null}
+[01:21:00] [MAIN] share accepted! [Diff: 1.0000]
+[01:21:01] [RAW MINER RX] {"worker":"28FED70D6D53","id":521,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x05a9c5f18682daed","0x44cc99ee18ff6a7ab0eda1ac5ce1db35fb4cae928de70afb96a72b55fb030414","0xaae79970de34e7cef3d45159ee39840aedcbf2f620e7b9b388cd0d8734ee2806"]}
+[01:21:02] [RAW MAIN RX] {"id":521,"jsonrpc":"2.0","result":true,"error":null}
+[01:21:02] [MAIN] share accepted! [Diff: 1.0000]
+[01:21:03] [RAW MINER RX] {"worker":"28FED70D6D53","id":522,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x0da6c4b406eef66a","0x44cc99ee18ff6a7ab0eda1ac5ce1db35fb4cae928de70afb96a72b55fb030414","0x6365fe7b5c39427b7561298ce4d7730296d912e6121fcf8775d2550069b2dd15"]}
+[01:21:04] [RAW MAIN RX] {"id":522,"jsonrpc":"2.0","result":true,"error":null}
+[01:21:04] [MAIN] share accepted! [Diff: 1.0000]
+[01:21:04] [RAW MINER RX] {"worker":"28FED70D6D53","id":523,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x1fedfe17466abaa3","0x44cc99ee18ff6a7ab0eda1ac5ce1db35fb4cae928de70afb96a72b55fb030414","0x2fcae8b025d4a54a098e741a69125d12e7510c0ca7359fa668ff508243b360a2"]}
+[01:21:04] [RAW MAIN RX] {"id":523,"jsonrpc":"2.0","result":true,"error":null}
+[01:21:04] [MAIN] share accepted! [Diff: 1.0000]
+[01:21:06] [RAW MINER RX] {"worker":"28FED70D6D53","id":524,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x1d17013305aba53e","0x44cc99ee18ff6a7ab0eda1ac5ce1db35fb4cae928de70afb96a72b55fb030414","0xf055a5ff7c81066f3531dc34dfb798ee4c9f9cb8e19e8e4671dd978eb8b34334"]}
+[01:21:07] [RAW MINER RX] {"worker":"28FED70D6D53","id":525,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x1d17013324a35b6a","0x44cc99ee18ff6a7ab0eda1ac5ce1db35fb4cae928de70afb96a72b55fb030414","0x206a4022240160ddea96ee9d3356bebcf88fb831f2596fc25fdaaa290a811746"]}
+[01:21:07] [RAW MAIN RX] {"id":524,"jsonrpc":"2.0","result":true,"error":null}
+[01:21:07] [MAIN] share accepted! [Diff: 1.0000]
+[01:21:07] [RAW MAIN RX] {"id":525,"jsonrpc":"2.0","result":true,"error":null}
+[01:21:07] [MAIN] share accepted! [Diff: 1.0000]
+[01:21:08] [RAW MAIN RX] {"id":0,"jsonrpc":"2.0","result":["0xef2885dcfc9f14d49fd82dbb431a045a82e6e26f87a4d64e4bf7b07401503ea5","0x6c81497f04471e1f108bbef0c523cbd56e9c42f5bd589208601eeb88c1460cc6","0x000000007fffffffffffffffffffffffffffffffffffffffffffffffffffffff","0x1795f87"],"algo":"etchash"}
+[01:21:12] [RAW MAIN RX] {"id":0,"jsonrpc":"2.0","result":["0x984fea8254b4c2c2b92efebf5427c30d6946d51eb93ef2fc2709cb8a2367b3b3","0x6c81497f04471e1f108bbef0c523cbd56e9c42f5bd589208601eeb88c1460cc6","0x000000007fffffffffffffffffffffffffffffffffffffffffffffffffffffff","0x1795f88"],"algo":"etchash"}
+[01:21:14] [RAW MAIN RX] {"id":0,"jsonrpc":"2.0","result":["0xf639cac1d38adc51e22fc9a9cc1b7c9a085c6e7b86b43cab8ff95df821016e8d","0x6c81497f04471e1f108bbef0c523cbd56e9c42f5bd589208601eeb88c1460cc6","0x000000007fffffffffffffffffffffffffffffffffffffffffffffffffffffff","0x1795f89"],"algo":"etchash"}
+[01:21:14] [RAW MINER RX] {"worker":"28FED70D6D53","id":526,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x17d780be2970933a","0x984fea8254b4c2c2b92efebf5427c30d6946d51eb93ef2fc2709cb8a2367b3b3","0x208291c12889ae249b666641a870c161f5db422ab691a2224e26e0c494ee1f85"]}
+[01:21:16] [RAW MAIN RX] {"id":0,"jsonrpc":"2.0","result":["0xa96a16519cc7c998ff66a448084aa000351d7772a41f1f4989151f93e40ce43d","0x6c81497f04471e1f108bbef0c523cbd56e9c42f5bd589208601eeb88c1460cc6","0x000000007fffffffffffffffffffffffffffffffffffffffffffffffffffffff","0x1795f8a"],"algo":"etchash"}
+[01:21:17] [RAW MINER RX] {"worker":"28FED70D6D53","id":527,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x1f425b240e06a9de","0xa96a16519cc7c998ff66a448084aa000351d7772a41f1f4989151f93e40ce43d","0xf50c9b3335ec5ce2aa0e7f8a48dde0455154927f99d2355666b342d1ccb9056b"]}
+[01:21:17] [RAW MAIN RX] {"id":527,"jsonrpc":"2.0","result":true,"error":null}
+[01:21:17] [MAIN] share accepted! [Diff: 1.0000]
+[01:21:18] [RAW MINER RX] {"worker":"28FED70D6D53","id":528,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x1200ac8e3bf531a3","0xa96a16519cc7c998ff66a448084aa000351d7772a41f1f4989151f93e40ce43d","0xd29d552c7eb506f52e8bf3caf02caad7f4f44a2e65250dadf0d70257f1fbe8ed"]}
+[01:21:18] [RAW MAIN RX] {"id":528,"jsonrpc":"2.0","result":true,"error":null}
+[01:21:18] [MAIN] share accepted! [Diff: 1.0000]
+[01:21:20] [RAW MINER RX] {"worker":"28FED70D6D53","id":529,"jsonrpc":"2.0","method":"eth_submitWork","params":["0x12c7a33c3b16790e","0xa96a16519cc7c998ff66a448084aa000351d7772a41f1f4989151f93e40ce43d","0x46a2bbb86bea8538c949a4cd92eb4ac835f2ad0a9516c97eac186d877d2f98ce"]}
+[01:21:20] [RAW MAIN RX] {"id":529,"jsonrpc":"2.0","result":true,"error":null}
+[01:21:20] [MAIN] share accepted! [Diff: 1.0000]
