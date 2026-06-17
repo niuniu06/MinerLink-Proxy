@@ -1,325 +1,180 @@
 #!/bin/bash
-
 # MinerLink-Proxy One-Click Deployment & Tuning Script
-
-
-
-echo "==================================================="
-
-echo "  MinerLink-Proxy ÉÌÒµÎÈ¶¨°æ - Ò»¼ü²¿ÊğÓëÏµÍ³ÓÅ»¯½Å±¾"
+# Targets: Ubuntu/Debian/CentOS
+# Run with root privileges
 
 echo "==================================================="
+echo "  MinerLink-Proxy é«˜å¹¶å‘çŸ¿æ± ä»£ç† - ä¸€é”®éƒ¨ç½²ä¸ç³»ç»Ÿä¼˜åŒ–è„šæœ¬"
+echo "==================================================="
 
-
-
+# 1. æ£€æŸ¥ root æƒé™
 if [ "$EUID" -ne 0 ]; then
-
-  echo "[´íÎó] ÇëÊ¹ÓÃ root È¨ÏŞÔËĞĞ´Ë½Å±¾ (sudo bash install.sh)"
-
+  echo "[é”™è¯¯] è¯·ä½¿ç”¨ root æƒé™è¿è¡Œæ­¤è„šæœ¬ (sudo bash install.sh)"
   exit 1
-
 fi
 
-
-
-echo "[1/7] ÕıÔÚ°²×°»ù´¡ÍøÂç×é¼ş²¢Í¬²½È«ÇòÊ±¼ä..."
-
+# 2. åŸºç¡€ç»„ä»¶ä¸æ—¶é—´åŒæ­¥ (NTP)
+echo "[1/7] æ­£åœ¨å®‰è£…åŸºç¡€ç½‘ç»œç»„ä»¶å¹¶åŒæ­¥å…¨çƒæ—¶é—´..."
 if command -v apt-get >/dev/null 2>&1; then
-
     apt-get update -y >/dev/null 2>&1
-
-    apt-get install -y unzip wget curl ufw chrony tzdata >/dev/null 2>&1
-
+    apt-get install -y wget curl ufw chrony tzdata >/dev/null 2>&1
     systemctl enable chrony >/dev/null 2>&1
-
     systemctl restart chrony >/dev/null 2>&1
-
 elif command -v yum >/dev/null 2>&1; then
-
-    yum install -y unzip wget curl firewalld chrony tzdata >/dev/null 2>&1
-
+    yum install -y wget curl firewalld chrony tzdata >/dev/null 2>&1
     systemctl enable chronyd >/dev/null 2>&1
-
     systemctl restart chronyd >/dev/null 2>&1
-
 fi
-
-
-
+# å¼ºåˆ¶è®¾ä¸ºä¸œå…«åŒº/UTCï¼Œä¿è¯ä¸çŸ¿æ± ä¸€è‡´
 timedatectl set-timezone Asia/Shanghai >/dev/null 2>&1
-
 if command -v chronyc >/dev/null 2>&1; then
-
     chronyc -a makestep >/dev/null 2>&1
-
 fi
+echo "  -> æ—¶é—´å¼ºåˆ¶åŒæ­¥å®Œæˆï¼(é˜²æ­¢æŒ–å‡ºè¿‡æœŸ Stale ä»½é¢)"
 
-echo "  -> Ê±¼äÇ¿ÖÆÍ¬²½Íê³É£¡(·ÀÖ¹ÍÚ³ö¹ıÆÚ Stale ·İ¶î)"
-
-
-
-echo "[2/7] ÕıÔÚÅäÖÃ¿ØÖÆÌ¨¶Ë¿Ú..."
-
+# 3. äº¤äº’å¼é…ç½® Web ç«¯å£
+echo "[2/7] æ­£åœ¨é…ç½®æ§åˆ¶å°ç«¯å£..."
 while true; do
-
-  read -p "ÇëÊäÈëÄúÏëÒªµÄÍøÒ³¿ØÖÆÌ¨¶Ë¿Ú (Ä¬ÈÏ 10010): " WEB_PORT
-
-  WEB_PORT=${WEB_PORT:-10010}
-
+  read -p "è¯·è¾“å…¥æ‚¨æƒ³è¦çš„ç½‘é¡µæ§åˆ¶å°ç«¯å£ (é»˜è®¤ 8080): " WEB_PORT
+  WEB_PORT=${WEB_PORT:-8080}
   
-
   if ! [[ "$WEB_PORT" =~ ^[0-9]+$ ]] || [ "$WEB_PORT" -lt 1 ] || [ "$WEB_PORT" -gt 65535 ]; then
-
-    echo "[´íÎó] ¶Ë¿Ú±ØĞëÊÇ 1 - 65535 Ö®¼äµÄÊı×Ö£¡"
-
+    echo "[é”™è¯¯] ç«¯å£å¿…é¡»æ˜¯ 1 - 65535 ä¹‹é—´çš„æ•°å­—ï¼"
     continue
-
   fi
-
   
-
+  # æ£€æŸ¥ç«¯å£å ç”¨
   if command -v ss >/dev/null 2>&1; then
-
     if ss -tuln | grep -E ":$WEB_PORT\b" > /dev/null; then
-
-      echo "[´íÎó] ¾Ü¾øÊ¹ÓÃ£¡¼ì²âµ½¶Ë¿Ú $WEB_PORT ÒÑ±»ÏµÍ³ÖĞÆäËû³ÌĞòÕ¼ÓÃ£¬Çë»»Ò»¸ö£¡"
-
+      echo "[é”™è¯¯] æ‹’ç»ä½¿ç”¨ï¼æ£€æµ‹åˆ°ç«¯å£ $WEB_PORT å·²è¢«ç³»ç»Ÿä¸­å…¶ä»–ç¨‹åºå ç”¨ï¼Œè¯·æ¢ä¸€ä¸ªï¼"
       continue
-
     fi
-
   elif command -v netstat >/dev/null 2>&1; then
-
     if netstat -tuln | grep -E ":$WEB_PORT\b" > /dev/null; then
-
-      echo "[´íÎó] ¾Ü¾øÊ¹ÓÃ£¡¼ì²âµ½¶Ë¿Ú $WEB_PORT ÒÑ±»ÏµÍ³ÖĞÆäËû³ÌĞòÕ¼ÓÃ£¬Çë»»Ò»¸ö£¡"
-
+      echo "[é”™è¯¯] æ‹’ç»ä½¿ç”¨ï¼æ£€æµ‹åˆ°ç«¯å£ $WEB_PORT å·²è¢«ç³»ç»Ÿä¸­å…¶ä»–ç¨‹åºå ç”¨ï¼Œè¯·æ¢ä¸€ä¸ªï¼"
       continue
-
     fi
-
   fi
-
   
-
-  echo "  -> ÍøÒ³¿ØÖÆÌ¨¶Ë¿Ú½«Ê¹ÓÃ: $WEB_PORT"
-
+  echo "  -> ç½‘é¡µæ§åˆ¶å°ç«¯å£å°†ä½¿ç”¨: $WEB_PORT"
   break
-
 done
 
-
-
-echo "[3/7] ÕıÔÚ×Ô¶¯ÅäÖÃ·À»ğÇ½·ÅĞĞ²ßÂÔ..."
-
+# 4. é˜²ç«å¢™è‡ªåŠ¨æ”¾è¡Œ
+echo "[3/7] æ­£åœ¨è‡ªåŠ¨é…ç½®é˜²ç«å¢™æ”¾è¡Œç­–ç•¥..."
 if command -v ufw >/dev/null 2>&1; then
-
     ufw allow $WEB_PORT/tcp >/dev/null 2>&1
-
-    echo "  -> UFW ·À»ğÇ½·ÅĞĞ $WEB_PORT ³É¹¦£¡"
-
+    echo "  -> UFW é˜²ç«å¢™æ”¾è¡Œ $WEB_PORT æˆåŠŸï¼"
 elif command -v firewall-cmd >/dev/null 2>&1; then
-
     firewall-cmd --zone=public --add-port=$WEB_PORT/tcp --permanent >/dev/null 2>&1
-
     firewall-cmd --reload >/dev/null 2>&1
-
-    echo "  -> Firewalld ·À»ğÇ½·ÅĞĞ $WEB_PORT ³É¹¦£¡"
-
+    echo "  -> Firewalld é˜²ç«å¢™æ”¾è¡Œ $WEB_PORT æˆåŠŸï¼"
 else
-
-    echo "  -> Î´¼ì²âµ½Ä¬ÈÏ·À»ğÇ½£¬ÒÑÌø¹ı¡£"
-
+    echo "  -> æœªæ£€æµ‹åˆ°é»˜è®¤é˜²ç«å¢™ï¼Œå·²è·³è¿‡ã€‚"
 fi
 
-
-
-echo "[4/7] ÕıÔÚ¿ªÆô Google BBR ÓµÈû¿ØÖÆËã·¨..."
-
+# 5. å¼€å¯ Google BBR æ‹¥å¡æ§åˆ¶
+echo "[4/7] æ­£åœ¨å¼€å¯ Google BBR æ‹¥å¡æ§åˆ¶ç®—æ³• (æå¤§é™ä½è·¨å›½ä¸¢åŒ…ç‡)..."
 sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
-
 sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
-
 echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
-
 echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
-
 sysctl -p > /dev/null 2>&1
-
 BBR_STATUS=$(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}' 2>/dev/null)
-
 if [[ "$BBR_STATUS" == *"bbr"* ]]; then
-
-    echo "  -> BBR ¼ÓËÙ¿ªÆô³É¹¦£¡"
-
+    echo "  -> BBR åŠ é€Ÿå¼€å¯æˆåŠŸï¼"
 else
-
-    echo "  -> BBR ¼ÓËÙ¿ªÆôÊ§°Ü (ÄúµÄÄÚºË¿ÉÄÜ¹ı¾É£¬µ«ÏµÍ³»á¼ÌĞø°²×°)¡£"
-
+    echo "  -> BBR åŠ é€Ÿå¼€å¯å¤±è´¥ (æ‚¨çš„å†…æ ¸å¯èƒ½è¿‡æ—§ï¼Œä½†ç³»ç»Ÿä¼šç»§ç»­å®‰è£…)ã€‚"
 fi
 
-
-
-echo "[5/7] ÕıÔÚÓÅ»¯ÏµÍ³ÄÚºËÓë²¢·¢²ÎÊı..."
-
-sed -i '/# ==== MinerLink Tuning ====/,+7d' /etc/sysctl.conf 2>/dev/null || true
-
+# 6. ä¼˜åŒ–ç³»ç»Ÿå†…æ ¸å‚æ•° (sysctl & ulimit)
+echo "[5/7] æ­£åœ¨ä¼˜åŒ–ç³»ç»Ÿå†…æ ¸ä¸å¹¶å‘å‚æ•°ï¼Œè§£é™¤é«˜å¹¶å‘ç½‘ç»œæ‹¥å µ..."
+sed -i '/# ==== MinerLink-Proxy Tuning ====/,+7d' /etc/sysctl.conf 2>/dev/null || true
 cat >> /etc/sysctl.conf << EOF
 
-
-
-# ==== MinerLink Tuning ====
-
+# ==== MinerLink-Proxy Tuning ====
 fs.file-max = 1000000
-
 net.core.somaxconn = 65535
-
 net.ipv4.tcp_tw_reuse = 1
-
 net.ipv4.ip_local_port_range = 10000 65000
-
 net.ipv4.tcp_max_syn_backlog = 65535
-
 net.ipv4.tcp_fin_timeout = 15
-
 EOF
-
 sysctl -p > /dev/null 2>&1
 
-
-
-sed -i '/# ==== MinerLink Limits ====/,\$d' /etc/security/limits.conf 2>/dev/null || true
-
+sed -i '/# ==== MinerLink-Proxy Limits ====/,$d' /etc/security/limits.conf 2>/dev/null || true
 cat >> /etc/security/limits.conf << EOF
 
-
-
-# ==== MinerLink Limits ====
-
+# ==== MinerLink-Proxy Limits ====
 * soft nofile 1000000
-
 * hard nofile 1000000
-
 root soft nofile 1000000
-
 root hard nofile 1000000
-
 EOF
-
-
 
 if [ -f "/etc/systemd/system.conf" ]; then
-
     sed -i 's/#DefaultLimitNOFILE=.*/DefaultLimitNOFILE=1000000/g' /etc/systemd/system.conf
-
 fi
+echo "  -> å¹¶å‘é™åˆ¶è§£é™¤å®Œæˆï¼(æ”¯æŒç™¾ä¸‡çº§æ— æ„Ÿå¹¶å‘)"
 
-echo "  -> ²¢·¢ÏŞÖÆ½â³ıÍê³É£¡(Ö§³Ö°ÙÍò¼¶ÎŞ¸Ğ²¢·¢)"
-
-
-
-echo "[6/7] ÕıÔÚÀ­È¡×îĞÂ°æ´úÀíÒıÇæ²¢×¢²áÏµÍ³·şÎñ..."
-
-WORK_DIR="/root/MinerLink-Proxy"
-
-PROXY_BIN="$WORK_DIR/MinerLink-Proxy-linux-amd64"
-
+# 7. å…¨è‡ªåŠ¨æ‹‰å–ä¸éƒ¨ç½² Systemd
+echo "[6/7] æ­£åœ¨æ‹‰å–æœ€æ–°ç‰ˆä»£ç†å¼•æ“å¹¶æ³¨å†Œç³»ç»ŸæœåŠ¡..."
+WORK_DIR="/root/go-proxy"
+PROXY_BIN="$WORK_DIR/proxy"
 mkdir -p $WORK_DIR
-
 cd $WORK_DIR
 
-
-
-echo "  -> ÕıÔÚ´Ó Github ÔÆ¶ËÀ­È¡×îĞÂ°æ MinerLink-Proxy ³ÌĞò (ÇëÈ·±£ÍøÂç³©Í¨)..."
-
-if wget -q --timeout=30 -O MinerLink-Proxy-Linux.zip "https://github.com/niuniu06/MinerLink-Proxy/releases/latest/download/MinerLink-Proxy-Linux.zip"; then
-
-    unzip -o MinerLink-Proxy-Linux.zip
-
-    chmod +x MinerLink-Proxy-linux-amd64
-
-    rm -f MinerLink-Proxy-Linux.zip
-
-    echo "  -> ºËĞÄÒıÇæÏÂÔØ²¢½âÑ¹³É¹¦£¡"
-
+echo "  -> æ­£åœ¨ä»äº‘ç«¯æ‹‰å–æœ€æ–°ç‰ˆ proxy ç¨‹åº (è¯·ç¡®ä¿ç½‘ç»œç•…é€š)..."
+# è‡ªåŠ¨æ£€æµ‹æ˜¯å¦ä¸º beta åˆ†æ”¯æˆ– main åˆ†æ”¯ï¼Œæ­¤å¤„é»˜è®¤ä¸ºä¸»ä»“åº“å ä½
+# æœªæ¥å‘å¸ƒ Release æ—¶å°†ä½¿ç”¨æœ€æ–°ç‰ˆçš„ CDN é“¾æ¥
+if wget -q --timeout=15 -O proxy "https://github.com/yao52069/go-proxy/releases/latest/download/proxy-linux-amd64"; then
+    chmod +x proxy
+    echo "  -> æ ¸å¿ƒå¼•æ“ä¸‹è½½æˆåŠŸï¼"
 else
-
-    echo "  [´íÎó] ×Ô¶¯ÏÂÔØÊ§°Ü£¡¿ÉÄÜÊÇ¹úÄÚÍøÂçÊÜÏŞÎŞ·¨·ÃÎÊ Github Release¡£"
-
-    echo "  [½â¾ö] Äú¿ÉÒÔ×ÔĞĞ½«Ñ¹Ëõ°üÉÏ´«µ½ $WORK_DIR Ä¿Â¼½âÑ¹£¬È»ºóÊÖ¶¯Æô¶¯¡£"
-
-    exit 1
-
+    echo "  [æç¤º] è‡ªåŠ¨ä¸‹è½½å¤±è´¥ï¼ˆå¯èƒ½æ˜¯å›½å†…ç½‘ç»œå—é™æˆ–æš‚æœªå‘å¸ƒ Releaseï¼‰ã€‚"
+    echo "  [æç¤º] ç¨åè¯·æ‚¨è‡ªè¡Œé€šè¿‡ SFTP å°†ç¼–è¯‘å¥½çš„ proxy æ”¾å…¥ $WORK_DIR ç›®å½•å¹¶æ‰§è¡Œ chmod +x proxy"
 fi
 
-
-
-cat > /etc/systemd/system/minerlink-proxy.service << EOF
-
+cat > /etc/systemd/system/go-proxy.service << EOF
 [Unit]
-
 Description=MinerLink-Proxy Transparent Mining Proxy
-
 After=network.target
 
-
-
 [Service]
-
 Type=simple
-
 User=root
-
 WorkingDirectory=$WORK_DIR
-
 ExecStart=$PROXY_BIN -api-port $WEB_PORT
-
 Restart=always
-
 RestartSec=3
-
 LimitNOFILE=1000000
 
-
-
 [Install]
-
 WantedBy=multi-user.target
-
 EOF
 
-
-
 systemctl daemon-reload
+systemctl enable go-proxy > /dev/null 2>&1
+systemctl restart go-proxy > /dev/null 2>&1
+echo "  -> å®ˆæŠ¤è¿›ç¨‹æ³¨å†Œå®Œæˆå¹¶å·²å°è¯•å¯åŠ¨ï¼"
 
-systemctl enable minerlink-proxy > /dev/null 2>&1
-
-systemctl restart minerlink-proxy > /dev/null 2>&1
-
-echo "  -> ÊØ»¤½ø³Ì×¢²áÍê³É²¢ÒÑ³É¹¦Æô¶¯£¡"
-
-
-
+# 8. å®Œæˆæç¤º
 echo "==================================================="
-
-echo "[7/7] ?? MinerLink-Proxy ÖÕ¼«»·¾³²¿ÊğÍê±Ï£¡"
-
+echo "[7/7] ğŸ‰ MinerLink-Proxy ç»ˆæç¯å¢ƒéƒ¨ç½²å®Œæ¯•ï¼"
 echo ""
-
-echo "?? ÄúµÄ¿ØÖÆÌ¨µØÖ·: http://ÄúµÄÔÆ·şÎñÆ÷¹«ÍøIP:$WEB_PORT/ui/"
-
+echo "ğŸ‘‰ æ‚¨çš„æ§åˆ¶å°åœ°å€: http://æ‚¨çš„äº‘æœåŠ¡å™¨å…¬ç½‘IP:$WEB_PORT"
 echo ""
-
-echo "³£ÓÃÎ¬»¤ÃüÁî£º"
-
-echo "- Æô¶¯: systemctl start minerlink-proxy"
-
-echo "- Í£Ö¹: systemctl stop minerlink-proxy"
-
-echo "- ÖØÆô: systemctl restart minerlink-proxy"
-
-echo "- ²é¿´×´Ì¬: systemctl status minerlink-proxy"
-
-echo "- ²é¿´ÊµÊ±ÈÕÖ¾: journalctl -u minerlink-proxy -f"
-
+if [ ! -x "$PROXY_BIN" ]; then
+echo "âš ï¸ [æ³¨æ„] æ‚¨å½“å‰çš„ $WORK_DIR ç›®å½•ä¸‹è¿˜æ²¡æœ‰å¯æ‰§è¡Œçš„ proxy ç¨‹åºï¼"
+echo "    è¯·æ‚¨åœ¨ Windows æºç ç›®å½•é€šè¿‡ 'GOOS=linux GOARCH=amd64 go build -o proxy ./cmd/proxy' ç¼–è¯‘"
+echo "    ç„¶åå°† proxy æ–‡ä»¶ä¸Šä¼ åˆ°æœåŠ¡å™¨çš„ $WORK_DIR ç›®å½•ï¼Œæœ€åæ‰§è¡Œï¼š"
+echo "    chmod +x /root/go-proxy/proxy && systemctl restart go-proxy"
+fi
+echo ""
+echo "å¸¸ç”¨ç»´æŠ¤å‘½ä»¤ï¼š"
+echo "- å¯åŠ¨: systemctl start go-proxy"
+echo "- åœæ­¢: systemctl stop go-proxy"
+echo "- é‡å¯: systemctl restart go-proxy"
+echo "- æŸ¥çœ‹çŠ¶æ€: systemctl status go-proxy"
+echo "- æŸ¥çœ‹å®æ—¶æ—¥å¿—: journalctl -u go-proxy -f"
 echo "==================================================="
