@@ -302,7 +302,11 @@ func (s *APIServer) addConfig(c *gin.Context) {
 	// Hot reload
 	if err := s.ProxyManager.RestartProxy(cfg.ListenPort); err != nil {
 		// Port bind failed
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Config saved but failed to start port %d: %v", cfg.ListenPort, err)})
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "address already in use") {
+			errMsg = "该端口已被其他程序占用 (Address already in use)"
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("配置已保存，但端口 %d 启动失败：%s", cfg.ListenPort, errMsg)})
 		return
 	}
 
@@ -349,7 +353,11 @@ func (s *APIServer) toggleConfig(c *gin.Context) {
 					// Revert DB because it failed to start
 					cfg.Enabled = false
 					db.SaveConfig(&cfg)
-					c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to bind port %d: %v", cfg.ListenPort, err)})
+					errMsg := err.Error()
+					if strings.Contains(errMsg, "address already in use") {
+						errMsg = "该端口已被其他程序占用 (Address already in use)"
+					}
+					c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("端口 %d 启动失败：%s", cfg.ListenPort, errMsg)})
 					return
 				}
 			} else {
