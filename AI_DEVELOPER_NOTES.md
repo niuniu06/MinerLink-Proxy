@@ -152,3 +152,15 @@
     1. **恢复原版文件**：使用 `git checkout origin/main -- install.sh` 从远程仓库直接拉取未被破坏的原始纯净版本。
     2. **强制版本控制规则**：在项目根目录新建 `.gitattributes` 文件，强制声明 `*.sh text eol=lf`，彻底禁止 Git 在任何操作系统上对 `.sh` 脚本进行 CRLF 转换。
     3. **安全的二进制替换**：废弃使用 PowerShell 处理脚本换行符。改用 Python `data.replace(b'\r\n', b'\n')`，以纯二进制流的方式剥离回车符，此操作完全绕过字符编码解析，确保中文字符的 100% 完整与安全。
+
+## 15. install.sh 自动下载核心组件失败修复 (v2.0.82-beta)
+
+*   **现象：** 用户在运行 `install.sh` 时，虽然脚本成功执行到了最后一步，但提示“自动下载失败”并要求用户手动上传 `proxy` 文件，最终导致 `go-proxy` 服务无法启动。
+*   **原因分析：** 
+    1. `install.sh` 中遗留了最初模板代码的硬编码下载链接（指向了原作者 `yao52069/go-proxy` 仓库），导致 `wget` 请求必然失败 404。
+    2. 项目的发布脚本（`upload_release.ps1`）在发布 Linux 版本时只上传了打包好的 `.zip` 压缩包，而 `install.sh` 预期的是可以直接 `chmod +x` 运行的裸二进制文件，导致即便改了链接，直接下载的也是 zip 压缩格式，无法直接运行。
+    3. 全局的系统服务名称、工作目录等依然残留着大量的 `go-proxy` 关键字，未统一改为 `MinerLink-Proxy`。
+*   **解决方案：**
+    1. **修改下载链接**：将 `wget` 的目标 URL 彻底更正为当前仓库 `niuniu06/MinerLink-Proxy` 的最新 Release 地址。
+    2. **上传裸二进制文件**：修改 `upload_release.ps1`，除了上传 zip 压缩包外，额外将原生的 `MinerLink-Proxy-linux-amd64` 文件作为 `application/octet-stream` 上传到 Release 中，专供 `install.sh` 免解压直接下载拉取。
+    3. **品牌词深度替换**：使用安全的二进制替换将 `install.sh` 脚本内所有的 `/root/go-proxy` 目录、`go-proxy.service` 系统服务名、以及二进制执行名全部替换为了 `minerlink-proxy`，实现彻底的品牌独立。
