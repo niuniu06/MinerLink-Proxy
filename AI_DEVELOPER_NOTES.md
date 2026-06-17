@@ -164,3 +164,7 @@
     1. **修改下载链接**：将 `wget` 的目标 URL 彻底更正为当前仓库 `niuniu06/MinerLink-Proxy` 的最新 Release 地址。
     2. **上传裸二进制文件**：修改 `upload_release.ps1`，除了上传 zip 压缩包外，额外将原生的 `MinerLink-Proxy-linux-amd64` 文件作为 `application/octet-stream` 上传到 Release 中，专供 `install.sh` 免解压直接下载拉取。
     3. **品牌词深度替换**：使用安全的二进制替换将 `install.sh` 脚本内所有的 `/root/go-proxy` 目录、`go-proxy.service` 系统服务名、以及二进制执行名全部替换为了 `minerlink-proxy`，实现彻底的品牌独立。
+
+## 15. install.sh 脚本替换 (v2.0.82-beta)
+
+*   **操作：** 按照用户提供的 `install.sh` 进行了全量替换，并使用 Python 进行了严格的二进制 `\r\n` 剔除，确保纯净的 LF 换行。同时配合已加入的 `.gitattributes` 永久杜绝了因为系统差异导致的换行符损坏。
