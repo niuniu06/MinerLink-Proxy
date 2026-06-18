@@ -45,6 +45,15 @@ type SessionStats struct {
 	ConnectedAt   time.Time
 }
 
+// FastStratumMsg is a zero-copy structure optimized for the hottest path of Stratum JSON-RPC.
+type FastStratumMsg struct {
+	ID     json.RawMessage `json:"id,omitempty"`
+	Method string          `json:"method,omitempty"`
+	Params json.RawMessage `json:"params,omitempty"`
+	Result json.RawMessage `json:"result,omitempty"`
+	Error  json.RawMessage `json:"error,omitempty"`
+}
+
 type ShareEvent struct {
 	Timestamp time.Time
 	Diff      float64
