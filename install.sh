@@ -126,10 +126,17 @@ cd $WORK_DIR
 
 echo "  -> 正在从云端拉取最新版 proxy 程序 (请确保网络畅通)..."
 # 自动检测是否为 beta 分支或 main 分支，此处默认为主仓库占位
-# 未来发布 Release 时将使用最新版的 CDN 链接
-if wget -q --timeout=15 -O proxy "https://github.com/niuniu06/MinerLink-Proxy/releases/latest/download/MinerLink-Proxy-linux-amd64"; then
+if wget -q --timeout=15 -O proxy.zip "https://github.com/niuniu06/MinerLink-Proxy/releases/latest/download/MinerLink-Proxy-Linux.zip"; then
+    echo "  -> 正在尝试解压 zip 包..."
+    if ! command -v unzip >/dev/null 2>&1; then
+        echo "  -> 正在安装 unzip 工具..."
+        apt-get update -y && apt-get install -y unzip || yum install -y unzip
+    fi
+    unzip -q -o proxy.zip
+    mv MinerLink-Proxy-linux-amd64 proxy
     chmod +x proxy
-    echo "  -> 核心引擎下载成功！"
+    rm proxy.zip
+    echo "  -> 核心引擎下载并解压成功！"
 else
     echo "  [提示] 自动下载失败（可能是国内网络受限或暂未发布 Release）。"
     echo "  [提示] 稍后请您自行通过 SFTP 将编译好的 proxy 放入 $WORK_DIR 目录并执行 chmod +x proxy"
