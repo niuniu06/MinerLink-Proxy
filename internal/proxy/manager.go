@@ -32,6 +32,11 @@ func (m *Manager) StartProxy(cfg models.ProxyConfig) error {
 	// Stop existing if any
 	m.StopProxy(cfg.ListenPort)
 
+	// If the port is disabled, we just stop it and return
+	if !cfg.Enabled {
+		return nil
+	}
+
 	// Create new server
 	// We need a pointer to the config
 	cfgCopy := cfg
