@@ -24,9 +24,7 @@ func (m *Manager) LoadAllAndStart() {
 	}
 
 	for _, cfg := range configs {
-		if cfg.Enabled {
-			m.StartProxy(cfg)
-		}
+		m.StartProxy(cfg)
 	}
 }
 

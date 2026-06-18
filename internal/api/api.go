@@ -82,7 +82,7 @@ func (s *APIServer) Start(port int) error {
 		api.GET("/config", s.getConfig)
 		api.POST("/config/add", s.addConfig)
 		api.POST("/config/delete", s.deleteConfig)
-		api.POST("/config/toggle", s.toggleConfig)
+
 		api.POST("/system/restart", s.restartSystem)
 		api.POST("/system/ping", s.pingPool)
 		api.GET("/system/status", s.getSystemStatus)
@@ -333,42 +333,6 @@ func (s *APIServer) deleteConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-func (s *APIServer) toggleConfig(c *gin.Context) {
-	var req struct {
-		ListenPort int  `json:"listenPort"`
-		Enabled    bool `json:"enabled"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	configs, _ := db.GetAllConfigs()
-	for _, cfg := range configs {
-		if cfg.ListenPort == req.ListenPort {
-			cfg.Enabled = req.Enabled
-			db.SaveConfig(&cfg)
-			if req.Enabled {
-				if err := s.ProxyManager.StartProxy(cfg); err != nil {
-					// Revert DB because it failed to start
-					cfg.Enabled = false
-					db.SaveConfig(&cfg)
-					errMsg := err.Error()
-					if strings.Contains(errMsg, "address already in use") {
-						errMsg = "该端口已被其他程序占用 (Address already in use)"
-					}
-					c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("端口 %d 启动失败：%s", cfg.ListenPort, errMsg)})
-					return
-				}
-			} else {
-				s.ProxyManager.StopProxy(cfg.ListenPort)
-			}
-			c.JSON(http.StatusOK, gin.H{"success": true})
-			return
-		}
-	}
-	c.JSON(http.StatusNotFound, gin.H{"error": "Config not found"})
-}
 
 func (s *APIServer) getLogs(c *gin.Context) {
 	// Read last 200 lines from proxy.log using os and strings
