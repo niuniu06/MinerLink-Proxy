@@ -194,7 +194,7 @@
                     </td>
                     <td class="status-cell" @click.stop>
                       <label class="switch">
-                        <input type="checkbox" :checked="cfg.enabled" @change="togglePortEnabled(cfg)">
+                        <input type="checkbox" :checked="cfg.enabled" @change="togglePortEnabled(cfg, $event)">
                         <span class="slider round"></span>
                       </label>
                     </td>
@@ -475,10 +475,12 @@ const groupedConfigs = computed(() => {
   return groups;
 })
 
-const togglePortEnabled = async (cfg) => {
+const togglePortEnabled = async (cfg, event) => {
   if (cfg.enabled) {
     if (!confirm(`确定要关闭端口 ${cfg.listenPort} 吗？\n此操作会导致该端口下所有的矿机断开连接！`)) {
-      refresh()
+      if (event && event.target) {
+        event.target.checked = true; // Force DOM back to visually checked
+      }
       return
     }
   }
@@ -495,10 +497,16 @@ const togglePortEnabled = async (cfg) => {
     } else {
       const data = await res.json()
       alert(data.error || '切换失败')
+      if (event && event.target) {
+        event.target.checked = cfg.enabled; // Revert visually
+      }
       refresh()
     }
   } catch (e) {
     console.error(e)
+    if (event && event.target) {
+      event.target.checked = cfg.enabled; // Revert visually
+    }
   }
 }
 
