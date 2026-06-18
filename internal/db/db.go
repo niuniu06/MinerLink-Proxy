@@ -37,6 +37,19 @@ func InitDB(dbPath string) {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
 
+	// Hotfix for v2.0.89 to v2.0.90 migration bug where all existing configs got Enabled=false
+	var totalConfigs int64
+	DB.Model(&models.ProxyConfig{}).Count(&totalConfigs)
+	if totalConfigs > 0 {
+		var enabledConfigs int64
+		DB.Model(&models.ProxyConfig{}).Where("enabled = ?", true).Count(&enabledConfigs)
+		if enabledConfigs == 0 {
+			// All configs are disabled, likely due to migration adding the column with default false in SQLite
+			DB.Model(&models.ProxyConfig{}).Where("enabled = ?", false).Update("enabled", true)
+			log.Println("Applied migration hotfix: Enabled all proxy configs.")
+		}
+	}
+
 	log.Println("Database initialized successfully at", dbPath)
 }
 
