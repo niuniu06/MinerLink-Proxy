@@ -1,12 +1,6 @@
 
-## 14. install.sh 乱码与回车符二次破坏修复 (v2.0.81-beta)
+## 12. 端口启停失败的错误被吞没 Bug (v2.0.77-beta)
 
-*   **现象：** 用户在 Linux 下载 `install.sh` 运行再次报错 `\r: command not found` 且显示乱码字符 `MinerLink-Proxy ҵȶ`。
-*   **原因分析：** 
-    1. 在 Windows 环境下，Git 的 `core.autocrlf=true` 机制会在检出文件时自动将 `LF` 转换为 `CRLF`。
-    2. 当运行之前的 `fix_crlf.ps1` 脚本修复 `\r` 符号时，PowerShell 默认以系统 ANSI 编码（即 GBK）读取并没有 BOM 的 UTF-8 文件，导致中文字符在内存中被错误解析。
-    3. PowerShell 随后将这些已被破坏的“乱码字符”转换回 UTF-8 并写入文件，导致真正的文件内容永久损坏。同时，在重新上传发布后，文件依然被赋予了 CRLF 换行符。
-*   **解决方案：**
-    1. **恢复原版文件**：使用 `git checkout origin/main -- install.sh` 从远程仓库直接拉取未被破坏的原始纯净版本。
-    2. **强制版本控制规则**：在项目根目录新建 `.gitattributes` 文件，强制声明 `*.sh text eol=lf`，彻底禁止 Git 在任何操作系统上对 `.sh` 脚本进行 CRLF 转换。
-    3. **安全的二进制替换**：废弃使用 PowerShell 处理脚本换行符。改用 Python `data.replace(b'\r\n', b'\n')`，以纯二进制流的方式剥离回车符，此操作完全绕过字符编码解析，确保中文字符的 100% 完整与安全。
+*   **现象：** 用户在前端页面点击端口的“启用”或“修改保存”时，即使该端口（例如 3333）已经被其他程序占用，页面依然会立刻弹出绿色的“成功”提示。但实际上后台监听失败，端口并未真正开启。
+*   **真相深挖：** 这是一个异步逻辑导致的“欺骗性成功”。在老版本的 `manager.go` 中，`StartProxy` 方法内部会立刻调用 `go func()` 开启一个协程去执行真正的 `server.Start()`。这意味着启动过程是完全异步的。底层的 `net.Listen` 哪怕瞬间报出 `bind: address already in use` 失败，也会被包裹在异步协程里，仅仅打印一行日志然后退出。而 HTTP API 层面根本等不到这个结果，就直接向下执行，返回了 `HTTP 200 Success`。
+*   **彻底修复方案：** 重构了 `Manager` 和 `API` 的交互逻辑。将 `Manager.StartProxy` 与 `Manager.RestartProxy` 改造为同步返回 `error`。真正的 `server.Start()` 中的 `net.Listen` 依然保留原有的同步阻塞探测。如果端口占用，会瞬间将 Error 返回给上一级的 HTTP 接口。在 `api.go` 中，一旦捕捉到该 Error，就立刻放弃更新数据库，返回 `HTTP 400 Bad Request` 和错误信息。前端 UI 捕捉到 400 状态码后，会完美弹出原生的报错 Alert，明确告知用户“端口已被占用”。

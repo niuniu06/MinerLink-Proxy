@@ -194,7 +194,7 @@
                     </td>
                     <td class="status-cell" @click.stop>
                       <label class="switch">
-                        <input type="checkbox" :checked="cfg.enabled" @click.prevent="togglePortEnabled(cfg)">
+                        <input type="checkbox" :checked="cfg.enabled" @change="togglePortEnabled(cfg)">
                         <span class="slider round"></span>
                       </label>
                     </td>
@@ -476,15 +476,21 @@ const groupedConfigs = computed(() => {
 })
 
 const togglePortEnabled = async (cfg) => {
-  const requestedState = !cfg.enabled;
+  if (cfg.enabled) {
+    if (!confirm(`确定要关闭端口 ${cfg.listenPort} 吗？\n此操作会导致该端口下所有的矿机断开连接！`)) {
+      refresh()
+      return
+    }
+  }
+
   try {
     const res = await fetch('/api/config/toggle', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ listenPort: cfg.listenPort, enabled: requestedState })
+      body: JSON.stringify({ listenPort: cfg.listenPort, enabled: !cfg.enabled })
     })
     if (res.ok) {
-      cfg.enabled = requestedState;
+      cfg.enabled = !cfg.enabled;
       refresh()
     } else {
       const data = await res.json()
@@ -493,7 +499,6 @@ const togglePortEnabled = async (cfg) => {
     }
   } catch (e) {
     console.error(e)
-    alert('网络错误')
   }
 }
 
