@@ -176,3 +176,8 @@
 ## 14. 修复 install.sh 下载旧仓库与 Vue 开关 DOM 脱步 Bug (v2.0.81-beta)  
 *   **现象1：** 用户执行一键更新脚本后，发现功能没有任何变化。原因是 install.sh 脚本中硬编码了原始仓库 \yao52069/go-proxy\ 的下载链接，导致用户每次更新拉取的都是旧版核心。  
 *   **现象2：** Vue 的复选框（非 v-model 绑定）在触发 confirm 后若点击取消，DOM 的视觉状态（变成未选中）与 Vue 的响应式状态（依然是 true）会发生脱步。  
+  
+## 15. 修复 install.sh 换行符与终端显示名称问题 (v2.0.84-beta)  
+*   **现象：** 用户执行 wget 或 curl 下载一键安装脚本并执行时，出现 \$'\r': command not found\ 的报错。同时，安装完成后终端输出的守护进程名称仍为 \go-proxy\ 而不是 \minerlink-proxy\。  
+*   **原因：** Windows 环境下修改脚本默认会采用 CRLF (\r\n) 换行符，而 Linux 的 bash 只能解析 LF (\n)。  
+*   **修复：** 编写 Go 脚本强制转换换行符，并添加 \.gitattributes\ 文件强制要求 \*.sh\ 提交和检出为 LF。同时全面替换脚本中的项目名为 \MinerLink-Proxy\ 和 \minerlink-proxy\。 
