@@ -1017,9 +1017,7 @@ func (s *Session) timerLoop() {
 							}
 							if !isSafe {
 								extranonceToSend = s.MainExtranonce
-								s.mu.Lock()
 								s.LastExtranonceCmdTime = time.Now()
-								s.mu.Unlock()
 							}
 						}
 					}
@@ -1033,9 +1031,7 @@ func (s *Session) timerLoop() {
 					}
 					// Zero-latency job recovery for ETH_PROXY when returning to Main
 					if s.Protocol == "ETH_PROXY" {
-						s.mu.Lock()
 						mainConn := s.MainConn
-						s.mu.Unlock()
 						if mainConn != nil {
 							go func(conn net.Conn) {
 								getWorkPkt := `{"id": 0, "method": "eth_getWork", "params": []}` + "\n"
@@ -1044,9 +1040,7 @@ func (s *Session) timerLoop() {
 						}
 					}
 				} else if targetMode == FeeModeDev || targetMode == FeeModeOperator {
-					s.mu.Lock()
 					isConnDead := s.FeeConn == nil && s.FeeAuthFailures > 0
-					s.mu.Unlock()
 					
 					if isConnDead {
 						s.TargetState = "MAIN"
@@ -1063,9 +1057,7 @@ func (s *Session) timerLoop() {
 							}
 							if !isSafe {
 								extranonceToSend = s.FeeExtranonce
-								s.mu.Lock()
 								s.LastExtranonceCmdTime = time.Now()
-								s.mu.Unlock()
 							}
 						}
 					}
