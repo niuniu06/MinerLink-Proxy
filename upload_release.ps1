@@ -72,6 +72,7 @@ function Upload-Asset {
 
 Upload-Asset -filePath "MinerLink-Proxy-Linux.zip" -contentType "application/zip"
 Upload-Asset -filePath "MinerLink-Proxy-Windows.zip" -contentType "application/zip"
+Upload-Asset -filePath "MinerLink-Proxy-linux-amd64" -contentType "application/octet-stream"
 Upload-Asset -filePath "install.sh" -contentType "text/x-sh"
 
 Write-Host "All done!"

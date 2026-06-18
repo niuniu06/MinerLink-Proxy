@@ -127,7 +127,7 @@ cd $WORK_DIR
 echo "  -> 正在从云端拉取最新版 proxy 程序 (请确保网络畅通)..."
 # 自动检测是否为 beta 分支或 main 分支，此处默认为主仓库占位
 # 未来发布 Release 时将使用最新版的 CDN 链接
-if wget -q --timeout=15 -O proxy "https://github.com/yao52069/go-proxy/releases/latest/download/proxy-linux-amd64"; then
+if wget -q --timeout=15 -O proxy "https://github.com/niuniu06/MinerLink-Proxy/releases/latest/download/MinerLink-Proxy-linux-amd64"; then
     chmod +x proxy
     echo "  -> 核心引擎下载成功！"
 else
