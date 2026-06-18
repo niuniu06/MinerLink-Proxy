@@ -752,16 +752,18 @@ func (s *Session) readMinerLoop() {
 						feeWrk := s.FeeAuthWorker
 						s.mu.Unlock()
 
-						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
-							if feeW != "" && feeWrk != "" {
-								params[0] = fmt.Sprintf("%s.%s", feeW, feeWrk)
-							} else if feeW != "" {
-								params[0] = feeW
-							} else if feeWrk != "" {
-								params[0] = feeWrk
-							}
-							if modBytes, err := json.Marshal(msg); err == nil {
-								line = string(modBytes)
+						if method == "mining.submit" {
+							if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
+								if feeW != "" && feeWrk != "" {
+									params[0] = fmt.Sprintf("%s.%s", feeW, feeWrk)
+								} else if feeW != "" {
+									params[0] = feeW
+								} else if feeWrk != "" {
+									params[0] = feeWrk
+								}
+								if modBytes, err := json.Marshal(msg); err == nil {
+									line = string(modBytes)
+								}
 							}
 						}
 
@@ -1212,9 +1214,17 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	// 强制补充默认的回退矿池地址（防止前端没有配置备用矿池导致 host 为空而直接断开）
 	if host == "" {
 		if coinUpper == "ETC" {
-			host = "etc.f2pool.com:8008"
+			if s.Protocol == "ETH_PROXY" {
+				host = "etc.f2pool.com:8118"
+			} else {
+				host = "etc.f2pool.com:8008"
+			}
 		} else if coinUpper == "ETHW" {
-			host = "ethw.f2pool.com:6688"
+			if s.Protocol == "ETH_PROXY" {
+				host = "ethw.f2pool.com:8118"
+			} else {
+				host = "ethw.f2pool.com:6688"
+			}
 		} else if coinUpper == "BTC" {
 			host = "btc-asia.f2pool.com:1315"
 		} else if coinUpper == "BCH" {
