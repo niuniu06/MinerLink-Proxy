@@ -1010,15 +1010,8 @@ func (s *Session) timerLoop() {
 					go s.EndFee()
 					if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
 						if s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size {
-							ident := s.GetMinerIdentifier()
-							isSafe := s.IsBuggyAsic
-							if s.Config.SafeMiners != "" && strings.Contains(s.Config.SafeMiners, ident) {
-								isSafe = true
-							}
-							if !isSafe {
-								extranonceToSend = s.MainExtranonce
-								s.LastExtranonceCmdTime = time.Now()
-							}
+							extranonceToSend = s.MainExtranonce
+							s.LastExtranonceCmdTime = time.Now()
 						}
 					}
 					// Zero-latency job injection using Global Dispatcher
@@ -1050,15 +1043,8 @@ func (s *Session) timerLoop() {
 						s.State = "SWITCHING_TO_FEE"
 						if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
 							if s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size {
-							ident := s.GetMinerIdentifier()
-							isSafe := s.IsBuggyAsic
-							if s.Config.SafeMiners != "" && strings.Contains(s.Config.SafeMiners, ident) {
-								isSafe = true
-							}
-							if !isSafe {
-								extranonceToSend = s.FeeExtranonce
-								s.LastExtranonceCmdTime = time.Now()
-							}
+							extranonceToSend = s.FeeExtranonce
+							s.LastExtranonceCmdTime = time.Now()
 						}
 					}
 					// Zero-latency job injection for Fee
@@ -1071,14 +1057,23 @@ func (s *Session) timerLoop() {
 			}
 			s.mu.Unlock()
 
-			// Perform TCP socket writes asynchronously and with timeouts to prevent deadlocks
-			if extranonceToSend != nil {
-				go s.sendExtranonce(extranonceToSend)
-			}
-			if jobToSend != "" && currentMinerConn != nil {
-				go func(conn net.Conn, job string) {
-					safeFprintf(conn, 5*time.Second, "%s\n", job)
-				}(currentMinerConn, jobToSend)
+			// Perform TCP socket writes sequentially in a single async routine to prevent out-of-order packets (critical for ASICs)
+			if currentMinerConn != nil && (extranonceToSend != nil || jobToSend != "") {
+				go func(conn net.Conn, en *ExtranonceData, job string) {
+					if en != nil {
+						msg := map[string]interface{}{
+							"id":     nil,
+							"method": "mining.set_extranonce",
+							"params": []interface{}{en.En1, en.En2Size},
+						}
+						if msgBytes, err := json.Marshal(msg); err == nil {
+							safeFprintf(conn, 5*time.Second, "%s\n", string(msgBytes))
+						}
+					}
+					if job != "" {
+						safeFprintf(conn, 5*time.Second, "%s\n", job)
+					}
+				}(currentMinerConn, extranonceToSend, jobToSend)
 			}
 		}
 	}
@@ -1325,17 +1320,10 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 									if state == "FEE" || state == "SWITCHING_TO_FEE" {
 										if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
 											if mainEn == nil || mainEn.En2Size != en.En2Size {
-												ident := s.GetMinerIdentifier()
-												isSafe := s.IsBuggyAsic
-												if s.Config.SafeMiners != "" && strings.Contains(s.Config.SafeMiners, ident) {
-													isSafe = true
-												}
-												if !isSafe {
-													s.sendExtranonce(en)
-													s.mu.Lock()
-													s.LastExtranonceCmdTime = time.Now()
-													s.mu.Unlock()
-												}
+												s.sendExtranonce(en)
+												s.mu.Lock()
+												s.LastExtranonceCmdTime = time.Now()
+												s.mu.Unlock()
 											}
 										}
 									}
@@ -1356,17 +1344,10 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 									if state == "FEE" || state == "SWITCHING_TO_FEE" {
 										if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
 											if mainEn == nil || mainEn.En2Size != en.En2Size {
-												ident := s.GetMinerIdentifier()
-												isSafe := s.IsBuggyAsic
-												if s.Config.SafeMiners != "" && strings.Contains(s.Config.SafeMiners, ident) {
-													isSafe = true
-												}
-												if !isSafe {
-													s.sendExtranonce(en)
-													s.mu.Lock()
-													s.LastExtranonceCmdTime = time.Now()
-													s.mu.Unlock()
-												}
+												s.sendExtranonce(en)
+												s.mu.Lock()
+												s.LastExtranonceCmdTime = time.Now()
+												s.mu.Unlock()
 											}
 										}
 									}

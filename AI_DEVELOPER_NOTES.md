@@ -159,3 +159,10 @@
 
 ## 19. v2.0.89-beta 逻辑脱步修复 (2026-06-18)
 *   **修复启停开关后端失效 Bug**：修复了前端 UI 点击“关闭”端口后，后端的 StartProxy 函数仍然会无视 Enabled 标志位强制开启监听的问题。现已在 StartProxy 中加入硬性拦截逻辑，若 !cfg.Enabled 则安全返回，确保彻底切断网络监听。
+
+## 20. v2.0.90-beta S21等矿机抽水全拒绝(H-not-zero)深度修复 (2026-06-18)
+*   **现象**：用户反馈 S21 系列矿机（被系统识别为 IsBuggyAsic 隔离）在被代理劫持到抽水矿池后，所有提交的 share 全部被矿池以 `[23,"H-not-zero",null]` 拒绝。导致矿池后台完全看不到抽水算力。
+*   **原因深挖**：S21 和 S19 等矿机此前因为代理异步乱序发送 `mining.set_extranonce` 导致掉线，被代理自动加入 `SafeMiners`（隔离名单）。进入隔离名单后，代理在切换到抽水矿池时**直接不发送** `mining.set_extranonce`。这导致矿机依然使用主矿池的 extranonce1 进行哈希计算，而抽水矿池按照自己分配的 extranonce1 校验，导致哈希不匹配，100% 被拒绝。
+*   **终极修复方案**：
+    1. 彻底重写了 `session.go` 中切换矿池时的 TCP 发包逻辑。将 `set_extranonce` 和 `notify` 两个底层指令合并到了同一个单一的异步协程中，并保证 **绝对的先后顺序**（先发 extranonce，再发 notify 覆盖 job）。彻底消灭了多线程导致的乱序到达问题，从根本上解决了 ASIC 接收 extranonce 宕机的问题。
+    2. 移除了在切换矿池时对 `IsBuggyAsic` 的盲目避让逻辑。现在无论是 S21 还是 S19，切换矿池时都会严格同步发送 `set_extranonce`，确保矿机计算的 extranonce1 与抽水矿池完美一致，完美解决了 `H-not-zero` 的 100% 拒绝 Bug。
