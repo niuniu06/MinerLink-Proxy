@@ -7,12 +7,35 @@ import (
 	"log"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/yamux"
 	"proxy-core/internal/models"
 	"proxy-core/internal/tunnel"
 )
+
+type MinerStatsData struct {
+	ID            string  `json:"id"`
+	IsOffline     bool    `json:"isOffline"`
+	Wallet        string  `json:"wallet"`
+	Worker        string  `json:"worker"`
+	ClientAgent   string  `json:"clientAgent"`
+	Shares        int64   `json:"shares"`
+	FeeShares     int64   `json:"feeShares"`
+	ValidShares   int64   `json:"validShares"`
+	InvalidShares int64   `json:"invalidShares"`
+	CurrentDiff   float64 `json:"currentDiff"`
+	Hashrate      string  `json:"hashrate"`
+	Uptime        int64   `json:"uptime"`
+	IsEncrypted   bool    `json:"isEncrypted"`
+}
+
+type GlobalMinerStats struct {
+	MinerStatsData
+	Port     int    `json:"port"`
+	CoinName string `json:"coinName"`
+}
 
 type Server struct {
 	Config                  *models.ProxyConfig
@@ -21,6 +44,7 @@ type Server struct {
 	MinerLoggers            sync.Map // map[string]*MinerLogger
 	ClientAgentCache        sync.Map // map[string]string (IP -> Agent)
 	Quit                    chan struct{}
+	ActiveConnections       int32
 }
 
 func NewServer(cfg *models.ProxyConfig) *Server {
@@ -186,6 +210,16 @@ func (s *Server) handleNewConnection(conn net.Conn, tlsConfig *tls.Config) {
 }
 
 func (s *Server) startSession(conn net.Conn, isEncrypted bool) {
+	currentActive := atomic.LoadInt32(&s.ActiveConnections)
+	if currentActive >= 50000 {
+		log.Printf("Port %d rejected connection: reached 50000 max connection limit", s.Config.ListenPort)
+		conn.Close()
+		return
+	}
+
+	atomic.AddInt32(&s.ActiveConnections, 1)
+	defer atomic.AddInt32(&s.ActiveConnections, -1)
+
 	session := NewSession(conn, s.Config, isEncrypted)
 	session.Server = s // Link server to session so session can write logs
 	s.Sessions.Store(session.ID, session)
@@ -334,8 +368,8 @@ func (s *Server) GetStats() map[string]interface{} {
 	}
 }
 
-func (s *Server) GetPaginatedMiners(page, limit int) (int, []map[string]interface{}) {
-	miners := make([]map[string]interface{}, 0)
+func (s *Server) GetPaginatedMiners() (int, []MinerStatsData) {
+	miners := make([]MinerStatsData, 0)
 	now := time.Now()
 
 	s.Sessions.Range(func(key, value interface{}) bool {
@@ -373,20 +407,20 @@ func (s *Server) GetPaginatedMiners(page, limit int) (int, []map[string]interfac
 			hashrateStr = "0.00 TH/s"
 		}
 
-		miners = append(miners, map[string]interface{}{
-			"id":            sess.ID,
-			"isOffline":     isOffline,
-			"wallet":        wallet,
-			"worker":        worker,
-			"clientAgent":   sess.ClientAgent,
-			"shares":        shares,
-			"feeShares":     feeShares,
-			"validShares":   validShares,
-			"invalidShares": invalidShares,
-			"currentDiff":   currentDiff,
-			"hashrate":      hashrateStr,
-			"uptime":        uptimeSecs,
-			"isEncrypted":   sess.IsEncrypted,
+		miners = append(miners, MinerStatsData{
+			ID:            sess.ID,
+			IsOffline:     isOffline,
+			Wallet:        wallet,
+			Worker:        worker,
+			ClientAgent:   sess.ClientAgent,
+			Shares:        shares,
+			FeeShares:     feeShares,
+			ValidShares:   validShares,
+			InvalidShares: invalidShares,
+			CurrentDiff:   currentDiff,
+			Hashrate:      hashrateStr,
+			Uptime:        uptimeSecs,
+			IsEncrypted:   sess.IsEncrypted,
 		})
 		return true
 	})

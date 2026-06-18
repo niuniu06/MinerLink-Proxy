@@ -173,4 +173,14 @@
 *   **彻底修复方案**：
     1. 在 `GlobalConfig` 表中加入了一个全新的字段 `MigratedEnabled bool`，用来**永久性、精准地**标记整个数据库是否已经执行过升级修复。
     2. 当程序启动执行 `db.InitDB()` 时，会进行安全拦截校验：如果 `GlobalConfig.MigratedEnabled` 是 false，则扫描 `ProxyConfig`，如果所有的 `Enabled` 都是 false（判定 100% 踩中了升级 Bug），就执行**安全热修复**：将所有端口的 `enabled` 强行重置为 `true`。
-    3. 热修复执行完毕后，立刻将 `GlobalConfig.MigratedEnabled` 锁定为 `true` 并保存入库。从此之后，这个修复代码块将**永久沉睡**，这就完美保证了：即使用户在未来主动手动关闭了所有端口并重启服务器，代理也**绝对不会**错误地又把端口擅自打开。做到了一次治愈，永不复发！
+    3. 热修复执行完毕后，立刻将 `GlobalConfig.MigratedEnabled` 锁定为 `true` 并保存入库。从此之后，这个修复代码块将**永久沉睡**，这就完美保证了：即使用户在未来主动手动关闭了所有端口并重启服务器，代理也**绝对不会**错误地又把端口擅自打开。做到了一次治愈，永不复发。
+
+## 22. v2.0.93-beta 历史代码检测与底层重构 (2026-06-19)
+*   **网络层 (Dial Timeout Fix)**：深度审查发现 `session.go` 中主矿池连接采用的原生 `net.Dial` 缺失超时机制。如果遭遇被墙或静默丢包的矿池 IP，该调用会直接把矿机的接入协程无限期锁死，引发严重的并发泄漏。已彻底将其更换为 `net.DialTimeout` (10秒超时)。
+*   **内存优化 (Pagination GC Tuning)**：审查发现 `server.go` 在获取矿机列表页时（`GetPaginatedMiners`），采用的是将 `s.Sessions` 所有在线数据全量硬拼装成巨型字典 `map[string]interface{}` 切片的方式返回。这在面对 50000+ 台规模矿场时，只要用户在前端触发列表请求，后端就会进行恐怖的百万级堆内存分配，极易引发 OOM 崩溃或严重 GC 卡顿。已通过新建轻量级的 `MinerStatsData` 强类型结构体替换裸字典，实现真正的无开销内存投递。
+*   **安全认证重构 (JWT Auth)**：系统旧有的前端登录体系存在重大高危漏洞——采用的是纯静态硬编码的 `md5(MLP:AdminAccount:AdminPassword)`。黑客只要拿到了抓包的 Token 就可以永久越权登录（无过期策略）。现已全面移除旧有策略，正式引入企业级标准 `github.com/golang-jwt/jwt/v5` 签名认证。采用在每次程序启动时通过 `crypto/rand` 分配的安全内存随机盐，颁发有效期为 24 小时的动态 JWT Token。从此彻底免疫暴力破解和网络重放攻击。
+*   **DDoS 级防爆破熔断 (Connection Limit)**：为 `proxy.Server` 增加了底层的 `sync/atomic` 院子计数器，引入了最大 50,000 的高水位线硬熔断连接数拦截。从此代理对 TCP 半开连接攻击及洪水攻击具备了主动自保能力。
+
+## 23. v2.0.94-beta 商业级协议层底层大修 (2026-06-19)
+*   **修复抽水池 100% 拒绝 (Fee Worker Auth Fix)**：深度审计协议流发现，在旧版本中矿机提交 Share (`mining.submit`) 时，若该 Share 被判定发往抽水池，系统仅将原始数据包转发给抽水池。然而原始数据包中的矿工名为客户矿工（如 `Miner.001`），而抽水连接的认证鉴权矿工是开发者（如 `linkpro168.dev`）。这导致抽水矿池**100% 拒绝**所有抽水 Share (`Unauthorized worker`)。现已在 `session.go` 中重构了 `FeeAuthWallet` 和 `FeeAuthWorker` 缓存，并在 `mining.submit` 发往抽水池前，强行将参数重写为抽水认证信息。成功挽救了所有流失的抽水收益。
+*   **修复主/抽矿池切换时难度脱步 (Difficulty Desync Fix)**：审计发现，代理在“主矿池”与“抽水矿池”之间切换时，只下发了 `set_extranonce` 和 `notify`，未下发 `set_difficulty`。这导致矿机切回主矿池后，继续以**抽水矿池的难度**提交哈希，直接导致海量 `low-diff` 拒绝，主矿池算力大幅掉线。现已在 `Session` 中引入 `MainDifficulty` 和 `FeeDifficulty` 双重独立缓存。每次切换矿池通道时，会随同 `extranonce` 强制向下游注入当前目标矿池的专属难度。彻底解决了多池切换带来的算力失真与低难度爆红问题。

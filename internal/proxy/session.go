@@ -126,6 +126,8 @@ type Session struct {
 	CurrentDiff    float64
 	RemoteDiff     float64
 	LocalDiff      float64
+	MainDifficulty float64
+	FeeDifficulty  float64
 	LastHashUpdate time.Time
 	LastShareTime  time.Time
 	DisplayHash    float64
@@ -134,6 +136,9 @@ type Session struct {
 
 	IsOffline      bool
 	OfflineAt      time.Time
+
+	FeeAuthWallet  string
+	FeeAuthWorker  string
 
 	LastExtranonceCmdTime time.Time
 	IsBuggyAsic           bool
@@ -273,9 +278,9 @@ func (s *Session) Start() {
 
 	// Connect to main pool
 	var err error
-	s.MainConn, err = net.Dial("tcp", s.Config.PoolAddress)
+	s.MainConn, err = net.DialTimeout("tcp", s.Config.PoolAddress, 10*time.Second)
 	if err != nil {
-		s.LogError("Failed to connect to main pool: %v", err)
+		s.LogError("Failed to connect to main pool (Timeout/Error): %v", err)
 		s.Close()
 		return
 	}
@@ -742,6 +747,24 @@ func (s *Session) readMinerLoop() {
 							safeWrite(s.MinerConn, []byte(fakeReply), 5*time.Second)
 						}
 					} else {
+						s.mu.Lock()
+						feeW := s.FeeAuthWallet
+						feeWrk := s.FeeAuthWorker
+						s.mu.Unlock()
+
+						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
+							if feeW != "" && feeWrk != "" {
+								params[0] = fmt.Sprintf("%s.%s", feeW, feeWrk)
+							} else if feeW != "" {
+								params[0] = feeW
+							} else if feeWrk != "" {
+								params[0] = feeWrk
+							}
+							if modBytes, err := json.Marshal(msg); err == nil {
+								line = string(modBytes)
+							}
+						}
+
 						safeFprintf(feeConn, 5*time.Second, "%s\n", line)
 					}
 				} else {
@@ -872,6 +895,7 @@ func (s *Session) readMainLoop() {
 						if diffFloat, ok := params[0].(float64); ok {
 							s.mu.Lock()
 							s.CurrentDiff = diffFloat
+							s.MainDifficulty = diffFloat
 							s.RemoteDiff = diffFloat
 							enableVardiff := s.Config.EnableVardiff
 							s.mu.Unlock()
@@ -997,6 +1021,7 @@ func (s *Session) timerLoop() {
 			// Handle Actual Switch
 			var extranonceToSend *ExtranonceData
 			var jobToSend string
+			var difficultyToSend float64
 			var currentMinerConn net.Conn
 
 			if targetMode != s.CurrentFeeMode {
@@ -1012,6 +1037,10 @@ func (s *Session) timerLoop() {
 						if s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size {
 							extranonceToSend = s.MainExtranonce
 							s.LastExtranonceCmdTime = time.Now()
+						}
+						if s.MainDifficulty > 0 && s.MainDifficulty != s.CurrentDiff {
+							difficultyToSend = s.MainDifficulty
+							s.CurrentDiff = s.MainDifficulty // Update local tracking immediately
 						}
 					}
 					// Zero-latency job injection using Global Dispatcher
@@ -1043,23 +1072,37 @@ func (s *Session) timerLoop() {
 						s.State = "SWITCHING_TO_FEE"
 						if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
 							if s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size {
-							extranonceToSend = s.FeeExtranonce
-							s.LastExtranonceCmdTime = time.Now()
+								extranonceToSend = s.FeeExtranonce
+								s.LastExtranonceCmdTime = time.Now()
+							}
+							if s.FeeDifficulty > 0 && s.FeeDifficulty != s.CurrentDiff {
+								difficultyToSend = s.FeeDifficulty
+								s.CurrentDiff = s.FeeDifficulty // Update local tracking immediately
+							}
 						}
-					}
-					// Zero-latency job injection for Fee
-					cachedJob := s.LatestFeeJob
-					if cachedJob != "" && currentMinerConn != nil {
-						jobToSend = forceCleanJobs(cachedJob)
-					}
+						// Zero-latency job injection for Fee
+						cachedJob := s.LatestFeeJob
+						if cachedJob != "" && currentMinerConn != nil {
+							jobToSend = forceCleanJobs(cachedJob)
+						}
 					} // Close else block
 				}
 			}
 			s.mu.Unlock()
 
 			// Perform TCP socket writes sequentially in a single async routine to prevent out-of-order packets (critical for ASICs)
-			if currentMinerConn != nil && (extranonceToSend != nil || jobToSend != "") {
-				go func(conn net.Conn, en *ExtranonceData, job string) {
+			if currentMinerConn != nil && (extranonceToSend != nil || jobToSend != "" || difficultyToSend > 0) {
+				go func(conn net.Conn, en *ExtranonceData, job string, diff float64) {
+					if diff > 0 {
+						msg := map[string]interface{}{
+							"id":     nil,
+							"method": "mining.set_difficulty",
+							"params": []interface{}{diff},
+						}
+						if msgBytes, err := json.Marshal(msg); err == nil {
+							safeFprintf(conn, 5*time.Second, "%s\n", string(msgBytes))
+						}
+					}
 					if en != nil {
 						msg := map[string]interface{}{
 							"id":     nil,
@@ -1073,7 +1116,7 @@ func (s *Session) timerLoop() {
 					if job != "" {
 						safeFprintf(conn, 5*time.Second, "%s\n", job)
 					}
-				}(currentMinerConn, extranonceToSend, jobToSend)
+				}(currentMinerConn, extranonceToSend, jobToSend, difficultyToSend)
 			}
 		}
 	}
@@ -1192,6 +1235,11 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	// -----------------------------------------
 
 	s.LogGeneral("Connecting to Fee Pool: %s (Identity: %s)", host, feeWallet)
+
+	s.mu.Lock()
+	s.FeeAuthWallet = wallet
+	s.FeeAuthWorker = worker
+	s.mu.Unlock()
 
 	// Create fee connection
 	feeConn, err := net.DialTimeout("tcp", host, 5*time.Second)
@@ -1528,6 +1576,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 							if diffFloat, ok := params[0].(float64); ok {
 								s.mu.Lock()
 								s.CurrentDiff = diffFloat
+								s.FeeDifficulty = diffFloat
 								s.mu.Unlock()
 							}
 						}

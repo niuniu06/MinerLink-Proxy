@@ -69,16 +69,18 @@ func (m *Manager) RestartProxy(port int) error {
 	return nil
 }
 
-func (m *Manager) GetAllMiners() []map[string]interface{} {
-	allMiners := make([]map[string]interface{}, 0)
+func (m *Manager) GetAllMiners() []GlobalMinerStats {
+	allMiners := make([]GlobalMinerStats, 0)
 	m.Servers.Range(func(key, value interface{}) bool {
 		server := value.(*Server)
-		_, miners := server.GetPaginatedMiners(1, 999999)
+		_, miners := server.GetPaginatedMiners()
 		for _, miner := range miners {
-			// Add port info to the miner object
-			miner["port"] = server.Config.ListenPort
-			miner["coinName"] = server.Config.CoinName
-			allMiners = append(allMiners, miner)
+			globalMiner := GlobalMinerStats{
+				MinerStatsData: miner,
+				Port:           server.Config.ListenPort,
+				CoinName:       server.Config.CoinName,
+			}
+			allMiners = append(allMiners, globalMiner)
 		}
 		return true
 	})

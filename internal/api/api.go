@@ -19,27 +19,40 @@ import (
 	"proxy-core/internal/ui"
 	"proxy-core/internal/sysinfo"
 	"proxy-core/internal/updater"
+	"crypto/rand"
 	"strings"
-	"crypto/md5"
+	"github.com/golang-jwt/jwt/v5"
 )
+
+var jwtSecret []byte
+
+func init() {
+	jwtSecret = make([]byte, 32)
+	rand.Read(jwtSecret)
+}
 
 func authMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token := c.GetHeader("Authorization")
-		token = strings.TrimPrefix(token, "Bearer ")
+		tokenString := c.GetHeader("Authorization")
+		tokenString = strings.TrimPrefix(tokenString, "Bearer ")
 		
-		globalCfg, err := db.GetGlobalConfig()
-		if err != nil || globalCfg == nil {
+		if tokenString == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method")
+			}
+			return jwtSecret, nil
+		})
+
+		if err != nil || !token.Valid {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
 		
-		expectedToken := fmt.Sprintf("%x", md5.Sum([]byte("MLP:"+globalCfg.AdminAccount+":"+globalCfg.AdminPassword)))
-		
-		if token != expectedToken {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-			return
-		}
 		c.Next()
 	}
 }
@@ -125,10 +138,20 @@ func (s *APIServer) login(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}
-	expectedToken := fmt.Sprintf("%x", md5.Sum([]byte("MLP:"+globalCfg.AdminAccount+":"+globalCfg.AdminPassword)))
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"account": req.Account,
+		"exp":     time.Now().Add(24 * time.Hour).Unix(),
+	})
+	
+	tokenString, err := token.SignedString(jwtSecret)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"token":   expectedToken,
+		"token":   tokenString,
 	})
 }
 
@@ -164,13 +187,9 @@ func (s *APIServer) getMiners(c *gin.Context) {
 		
 		// Apply search filter if present
 		if searchStr != "" {
-			filtered := make([]map[string]interface{}, 0)
+			filtered := make([]proxy.GlobalMinerStats, 0)
 			for _, m := range allMiners {
-				worker := ""
-				if w, ok := m["worker"].(string); ok {
-					worker = strings.ToLower(w)
-				}
-				if strings.Contains(worker, searchStr) {
+				if strings.Contains(strings.ToLower(m.Worker), searchStr) || strings.Contains(strings.ToLower(m.Wallet), searchStr) {
 					filtered = append(filtered, m)
 				}
 			}
@@ -203,12 +222,33 @@ func (s *APIServer) getMiners(c *gin.Context) {
 	}
 	server := val.(*proxy.Server)
 	
-	total, paginatedMiners := server.GetPaginatedMiners(page, limit)
+	_, allMiners := server.GetPaginatedMiners()
+	
+	if searchStr != "" {
+		filtered := make([]proxy.MinerStatsData, 0)
+		for _, m := range allMiners {
+			if strings.Contains(strings.ToLower(m.Worker), searchStr) || strings.Contains(strings.ToLower(m.Wallet), searchStr) {
+				filtered = append(filtered, m)
+			}
+		}
+		allMiners = filtered
+	}
+
+	total := len(allMiners)
+	start := (page - 1) * limit
+	end := start + limit
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"total": total,
 		"page": page,
 		"limit": limit,
-		"miners": paginatedMiners,
+		"miners": allMiners[start:end],
 	})
 }
 
