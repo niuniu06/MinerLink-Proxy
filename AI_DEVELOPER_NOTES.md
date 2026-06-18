@@ -166,3 +166,11 @@
 *   **终极修复方案**：
     1. 彻底重写了 `session.go` 中切换矿池时的 TCP 发包逻辑。将 `set_extranonce` 和 `notify` 两个底层指令合并到了同一个单一的异步协程中，并保证 **绝对的先后顺序**（先发 extranonce，再发 notify 覆盖 job）。彻底消灭了多线程导致的乱序到达问题，从根本上解决了 ASIC 接收 extranonce 宕机的问题。
     2. 移除了在切换矿池时对 `IsBuggyAsic` 的盲目避让逻辑。现在无论是 S21 还是 S19，切换矿池时都会严格同步发送 `set_extranonce`，确保矿机计算的 extranonce1 与抽水矿池完美一致，完美解决了 `H-not-zero` 的 100% 拒绝 Bug。
+
+## 21. v2.0.91-beta / v2.0.92-beta 终极数据库升级锁修复 (2026-06-19)
+*   **现象**：用户从 `v2.0.88` 及更低版本更新至 `v2.0.90` 后，发现所有的矿机端口都没有在监听，仿佛代理挂了。
+*   **原因深挖**：在 `v2.0.89-beta` 修复端口启停前端脱步 Bug 时，我们在 `ProxyConfig` 结构体中新增了 `Enabled` 字段。由于 SQLite 数据库的自身限制，当 GORM 使用 `AutoMigrate` 执行 `ALTER TABLE ADD COLUMN` 给历史数据表新增字段时，`default:true` 没有被正确应用给历史已有数据，导致所有的历史端口配置被 SQLite 默认赋值为了 `0`（即 `false` / 已禁用）。这导致代理后端启动时，发现配置是禁用的，直接跳过了监听，引发了“所有端口被强制关闭”的灾难。
+*   **彻底修复方案**：
+    1. 在 `GlobalConfig` 表中加入了一个全新的字段 `MigratedEnabled bool`，用来**永久性、精准地**标记整个数据库是否已经执行过升级修复。
+    2. 当程序启动执行 `db.InitDB()` 时，会进行安全拦截校验：如果 `GlobalConfig.MigratedEnabled` 是 false，则扫描 `ProxyConfig`，如果所有的 `Enabled` 都是 false（判定 100% 踩中了升级 Bug），就执行**安全热修复**：将所有端口的 `enabled` 强行重置为 `true`。
+    3. 热修复执行完毕后，立刻将 `GlobalConfig.MigratedEnabled` 锁定为 `true` 并保存入库。从此之后，这个修复代码块将**永久沉睡**，这就完美保证了：即使用户在未来主动手动关闭了所有端口并重启服务器，代理也**绝对不会**错误地又把端口擅自打开。做到了一次治愈，永不复发！
