@@ -181,3 +181,6 @@
 *   **现象：** 用户执行 wget 或 curl 下载一键安装脚本并执行时，出现 \$'\r': command not found\ 的报错。同时，安装完成后终端输出的守护进程名称仍为 \go-proxy\ 而不是 \minerlink-proxy\。  
 *   **原因：** Windows 环境下修改脚本默认会采用 CRLF (\r\n) 换行符，而 Linux 的 bash 只能解析 LF (\n)。  
 *   **修复：** 编写 Go 脚本强制转换换行符，并添加 \.gitattributes\ 文件强制要求 \*.sh\ 提交和检出为 LF。同时全面替换脚本中的项目名为 \MinerLink-Proxy\ 和 \minerlink-proxy\。 
+  
+## 16. 修复删除开关未重构 Vue 前端打包的 Bug (v2.0.85-beta)  
+*   **现象：** v2.0.83-beta 中删除了代码但用户网页上仍然显示" "启停状态开关。  
