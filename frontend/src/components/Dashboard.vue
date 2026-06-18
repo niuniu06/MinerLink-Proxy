@@ -147,7 +147,6 @@
                   <th width="120">端口算力</th>
                   <th width="120">抽水设置</th>
                   <th width="160">提交 / 拦截份额</th>
-                  <th>启停状态</th>
                   <th width="200" style="text-align: right">操作</th>
                 </tr>
               </thead>
@@ -156,7 +155,7 @@
                   <!-- Port Row -->
                   <tr 
                     class="port-row" 
-                    :class="{ active: expandedPort === cfg.listenPort, disabled: !cfg.enabled }"
+                    :class="{ active: expandedPort === cfg.listenPort }"
                     @click="toggleExpand(cfg.listenPort)"
                   >
                     <td class="td-expand">
@@ -191,12 +190,6 @@
                     <td class="shares-cell">
                       <span class="sh-total">{{ getStatsForPort(cfg.listenPort).totalShares }}</span> /
                       <span class="sh-fee">{{ getStatsForPort(cfg.listenPort).totalFeeShares }}</span>
-                    </td>
-                    <td class="status-cell" @click.stop>
-                      <label class="switch">
-                        <input type="checkbox" :checked="cfg.enabled" @change="togglePortEnabled(cfg, $event)">
-                        <span class="slider round"></span>
-                      </label>
                     </td>
                     <td class="actions-cell" style="text-align: right" @click.stop>
                       <button class="tbl-btn" @click="toggleExpand(cfg.listenPort)">
@@ -475,34 +468,6 @@ const groupedConfigs = computed(() => {
   return groups;
 })
 
-const togglePortEnabled = async (cfg, event) => {
-  if (cfg.enabled) {
-    if (!confirm(`确定要关闭端口 ${cfg.listenPort} 吗？\n此操作会导致该端口下所有的矿机断开连接！`)) {
-      if (event && event.target) {
-        event.target.checked = true;
-      }
-      return
-    }
-  }
-
-  try {
-    const res = await fetch('/api/config/toggle', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ listenPort: cfg.listenPort, enabled: !cfg.enabled })
-    })
-    if (res.ok) {
-      cfg.enabled = !cfg.enabled;
-      refresh()
-    } else {
-      const data = await res.json()
-      alert(data.error || '切换失败')
-      refresh()
-    }
-  } catch (e) {
-    console.error(e)
-  }
-}
 
 // Circular progress offset (radius = 24, circumference = 150.796)
 const calculateOffset = (percent) => {
@@ -1194,14 +1159,6 @@ onUnmounted(() => {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.port-row.disabled td {
-  opacity: 0.5;
-}
-.port-row.disabled .td-expand,
-.port-row.disabled .actions-cell,
-.port-row.disabled .status-cell {
-  opacity: 1;
-}
 
 .hash-badge {
   font-family: 'SF Mono', Consolas, monospace;
@@ -1209,49 +1166,5 @@ onUnmounted(() => {
   color: var(--accent-blue);
 }
 
-/* Switch Component */
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 22px;
-}
-.switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-.slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background-color: rgba(255, 255, 255, 0.1);
-  transition: .3s;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-.slider:before {
-  position: absolute;
-  content: "";
-  height: 16px;
-  width: 16px;
-  left: 2px;
-  bottom: 2px;
-  background-color: #8b949e;
-  transition: .3s;
-}
-input:checked + .slider {
-  background-color: rgba(63, 185, 80, 0.2);
-  border-color: rgba(63, 185, 80, 0.5);
-}
-input:checked + .slider:before {
-  transform: translateX(22px);
-  background-color: var(--accent-green);
-  box-shadow: 0 0 8px rgba(63, 185, 80, 0.8);
-}
-.slider.round {
-  border-radius: 22px;
-}
-.slider.round:before {
-  border-radius: 50%;
-}
+
 </style>
