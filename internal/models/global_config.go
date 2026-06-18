@@ -11,4 +11,5 @@ type GlobalConfig struct {
 	EnableLogging bool   `json:"enableLogging" gorm:"default:true"`
 	AdminAccount  string `json:"adminAccount" gorm:"default:'admin'"`
 	AdminPassword string `json:"adminPassword" gorm:"default:'admin'"`
+	MigratedEnabled bool `json:"migratedEnabled" gorm:"default:false"`
 }

@@ -38,15 +38,24 @@ func InitDB(dbPath string) {
 	}
 
 	// Hotfix for v2.0.89 to v2.0.90 migration bug where all existing configs got Enabled=false
-	var totalConfigs int64
-	DB.Model(&models.ProxyConfig{}).Count(&totalConfigs)
-	if totalConfigs > 0 {
-		var enabledConfigs int64
-		DB.Model(&models.ProxyConfig{}).Where("enabled = ?", true).Count(&enabledConfigs)
-		if enabledConfigs == 0 {
-			// All configs are disabled, likely due to migration adding the column with default false in SQLite
-			DB.Model(&models.ProxyConfig{}).Where("enabled = ?", false).Update("enabled", true)
-			log.Println("Applied migration hotfix: Enabled all proxy configs.")
+	// We only run this ONCE. We track it using MigratedEnabled in GlobalConfig.
+	var globalCfg models.GlobalConfig
+	if err := DB.First(&globalCfg).Error; err == nil {
+		if !globalCfg.MigratedEnabled {
+			// Check if we need to apply the hotfix
+			var totalConfigs int64
+			DB.Model(&models.ProxyConfig{}).Count(&totalConfigs)
+			if totalConfigs > 0 {
+				var enabledConfigs int64
+				DB.Model(&models.ProxyConfig{}).Where("enabled = ?", true).Count(&enabledConfigs)
+				if enabledConfigs == 0 {
+					DB.Model(&models.ProxyConfig{}).Where("enabled = ?", false).Update("enabled", true)
+					log.Println("Applied migration hotfix: Enabled all proxy configs.")
+				}
+			}
+			// Mark as migrated
+			globalCfg.MigratedEnabled = true
+			DB.Save(&globalCfg)
 		}
 	}
 
@@ -89,7 +98,7 @@ func GetGlobalConfig() (*models.GlobalConfig, error) {
 	if result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
 			// Initialize default
-			cfg = models.GlobalConfig{WebPort: 0, EnableLogging: true}
+			cfg = models.GlobalConfig{WebPort: 0, EnableLogging: true, MigratedEnabled: true}
 			DB.Create(&cfg)
 			return &cfg, nil
 		}
