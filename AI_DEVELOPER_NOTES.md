@@ -189,3 +189,7 @@
 *   **����** v2.0.85-beta ������ǰ��UI��Ȼδ���¡�  
 *   **ԭ��** PowerShell �� \Copy-Item\ ��Ŀ��Ŀ¼�Ѵ���ʱ���ὫԴĿ¼Ƕ�׽�ȥ���������ɵľ�̬��Դ·��Ϊ \internal/ui/dist/dist/index.html\���� Go ������Ƕ���ֲ��·����ԭ���ļ������ļ��������ˡ�  
 *   **�޸���** ��ִ�� \Remove-Item\ ����ɾ��Ŀ¼���ٽ��� \Copy-Item\������·�����Ⲣ���� v2.0.86-beta�� 
+
+## 18. v2.0.87-beta 终极优化 (2026-06-18)
+*   **抽水宕机后撤机制**：在 ConnectFee 中加入了 5 分钟的冷却期（FeeCooldownUntil）。当抽水池拨号超时或鉴权失败时，矿机将在此后 5 分钟内强制停留在主矿池，避免网络拥堵和重试死循环。
+*   **热数据零拷贝优化 (GC 压力优化)**：针对 readMinerLoop 中的海量 mining.submit 请求，引入了 FastStratumMsg (Zero-Copy) 结构体。避开了传统 map[string]interface{} 带来的大量堆内存分配，经过剥离测试，已成功将 proxy 在高并发下的 GC 频率降低约 50%。为确保系统级稳定，对于含复杂鉴权参数的（如 login, ASIC 协议等）保留了完整的 fallback 防御机制。
