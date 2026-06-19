@@ -187,3 +187,23 @@
 
 ## 24. v2.0.95-beta 淇 ETH_PROXY 鍗忚鍙傛暟鐮村潖鍙婂洖閫€绔彛 Bug (2026-06-19)
 *   **鐜拌薄**锛氱敤鎴峰弽棣堣繍琛?ETC 鐭挎満 6 涓皬鏃讹紝浠ｇ悊鍚庡彴鏄剧ず鎷︽埅浜嗘娊姘寸畻鍔涳紝浣嗘娊姘寸熆姹?瀛愯处鎴凤紙`linkpro168`锛夊畬鍏ㄦ病鏈変换浣曟敹鐩娿€?*   **鍘熷洜娣辨寲 1 (鍗忚鐮村潖)**锛氬湪 v2.0.94-beta 涓紝涓轰簡瑙ｅ喅 Stratum (`mining.submit`) 鐨勬娊姘撮壌鏉冨け璐ラ棶棰橈紝鎴戜滑鍦?`readMinerLoop` 涓己琛岄噸鍐欎簡 `msg["params"][0]` 鐨勫€间负鎶芥按閽卞寘鍦板潃銆傜劧鑰岋紝瀵逛簬 `ETH_PROXY` 鍗忚锛堝 ETC锛夛紝鍏舵彁浜ょ畻鍔涚殑鎸囦护鏄?`eth_submitWork`锛岃鎸囦护鐨?`params[0]` 浠ｈ〃鐨勬槸**璁＄畻鎵€寰楃殑 Nonce 闅忔満鏁?*锛屾牴鏈笉鏄挶鍖呭湴鍧€锛佽繖瀵艰嚧绋嬪簭鎶?`Nonce` 缁欏己琛屾浛鎹㈡垚浜?`linkpro168.dev` 瀛楃涓层€備笅娓哥熆姹犳敹鍒伴潪娉曟牸寮忕殑 Nonce 鍚庯紝鐩存帴浠?100% 鐨勬鐜囩灛闂存嫆缁濇墍鏈夋娊姘?Share锛?*   **鍘熷洜娣辨寲 2 (鍥為€€鐭挎睜绔彛閿欎綅)**锛氬綋鎶芥按鐭挎睜鍥犱负 Nonce 闈炴硶杩炵画鎷掔粷瓒呰繃 3 娆¤Е鍙戞櫤鑳藉洖閫€鏃讹紝绯荤粺灏?ETC 鍥為€€鍒颁簡榛樿鐨勫厹搴曠熆姹?`etc.f2pool.com:8008`銆傜劧鑰?`8008` 鏄奔姹犵殑 Stratum 绔彛锛屾牴鏈笉鍏煎 `ETH_PROXY`銆傚鑷村洖閫€杩炴帴寤虹珛鍚庯紝鐭挎満鍙戝嚭鐨?`eth_submitLogin` 琚湇鍔″櫒瑙嗕负鍨冨溇鏁版嵁锛岃繛鎺ョ珛鍗虫寕姝汇€?*   **褰诲簳淇鏂规**锛?    1. 鍦?`params[0]` 绡℃敼閫昏緫鍓嶏紝娣诲姞浜嗕弗鏍肩殑鏂规硶鍒ゆ柇锛堜粎闄?`method == "mining.submit"` 鏃舵墠绡℃敼鍙傛暟锛夛紝瀹岀編鏀捐浜?`eth_submitWork` 鐨?Nonce 鎻愪氦銆?    2. 鍦ㄥ厹搴曠熆姹犻€夋嫨閫昏緫涓紝澧炲姞瀵?`s.Protocol` 鐨勫垽瀹氥€傝嫢妫€娴嬪埌鏄?`ETH_PROXY`锛屽垯灏嗛奔姹犵殑 ETC 鍜?ETHW 鍏滃簳绔彛绮惧噯鍒囨崲涓?`8118`銆傛尳鏁戜簡杩欓儴鍒嗙熆鏈虹殑鏀剁泭銆?
+## v2.0.96-beta Fixes
+- Fixed BTC/Stratum H-not-zero rejection bug caused by missing extranonce1 synchronization when switching between pools of the same extranonce2 size.
+- Fixed randomized offset distribution causing simultaneous fee triggers for short fee cycles due to maxR defaulting to 1.
+
+## v2.0.97-beta Fixes
+- Removed completely flawed EnableStaleDrop logic that blocked clean_jobs=false shares (causing S21/BTC ASICs to display extremely low 17TH/s hashrates due to fake-accepting valid history shares). JobTracker natively perfectly handles zero-loss routing without this block.
+
+## v2.0.98-beta Fixes
+- Fixed a secondary Extranonce1 sync bug in readFeeLoop. When switching pools without a pre-warmed connection, the initial Extranonce1 reply from the fee pool was ignored if the En2Size did not change, causing high H-not-zero rejection rates on the fee pool during cold switches.
+
+## 2026-06-19: 同池无损主抽 (In-Band Fee Routing) 优化
+- **现象**：现代矿机（如S21）在短周期抽水时，由于代理新建 TCP 连接导致 Extranonce 变更，矿机算力板会被迫重启，从而造成抽水周期内出现长达 15-20 秒的算力真空期，导致 4 小时内实际抽水算力不到 1T（严重掉损）。
+- **方案**：当检测到抽水矿池与主矿池相同（同池抽水）时，代理不再新建 TCP 连接。
+- **实现**：
+  1. 引入 `s.InBandFeeActive` 状态标志。
+  2. 抽水时在原 `s.MainConn` 上直接发送抽水钱包的 `mining.authorize`，并且不会切断现有的 `MainConn`。
+  3. 拦截抽水周期内的 `mining.submit`，将 `params[0]`（钱包名）瞬间替换为抽水钱包，然后直接发送给 `s.MainConn`。
+  4. 将 `pendingShares` 改造为存储带有 `IsFee` 标记的 `PendingShare` 结构体，以便 `readMainLoop` 在收到矿池的 accepted 时能正确识别该 share 到底是主账号的还是抽水账号的，从而精准记录到 FeeShares 统计中。
+  5. 最关键：在此模式下，**代理不再向矿机发送任何 `mining.set_extranonce` 或 `mining.set_difficulty` 指令**，矿机全程无感，算力板绝对不会重启，实现 100% 满血无损同池抽水！
+

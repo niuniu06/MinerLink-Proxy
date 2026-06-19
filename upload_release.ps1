@@ -1,7 +1,7 @@
 $token = "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"
 $owner = "niuniu06"
 $repo = "MinerLink-Proxy"
-$tag = "v2.0.95-beta"
+$tag = "v2.0.98-beta"
 $commitish = "5ea09a7ede09b67a2b5b12ed8e3bca419bc8938b"
 
 $headers = @{
@@ -26,7 +26,7 @@ $releaseBody = @{
     tag_name = $tag
     target_commitish = $commitish
     name = $tag
-    body = "Release v2.0.76-beta: Added Global Miner Table SVG Icons, Completely decoupled logging from TCP read loops, effectively eliminating system deadlocks and miner drops under high disk I/O load."
+    body = "Release v2.0.98-beta: Fixed secondary Extranonce1 bug in readFeeLoop causing high rejection rates on Fee Pool when switching without pre-warmed connection."
     draft = $false
     prerelease = $false
 } | ConvertTo-Json

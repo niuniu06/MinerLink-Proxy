@@ -59,21 +59,26 @@ type ShareEvent struct {
 	Diff      float64
 }
 
+type PendingShare struct {
+	Req   string
+	IsFee bool
+}
+
 // PendingTracker (LRU) to prevent memory leak from unreplied shares
 type PendingTracker struct {
 	mu     sync.Mutex
-	shares map[interface{}]string
+	shares map[interface{}]PendingShare
 	order  []interface{}
 }
 
 func NewPendingTracker() *PendingTracker {
 	return &PendingTracker{
-		shares: make(map[interface{}]string),
+		shares: make(map[interface{}]PendingShare),
 		order:  make([]interface{}, 0),
 	}
 }
 
-func (t *PendingTracker) Store(id interface{}, reqLine string) {
+func (t *PendingTracker) Store(id interface{}, ps PendingShare) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if _, exists := t.shares[id]; !exists {
@@ -84,17 +89,17 @@ func (t *PendingTracker) Store(id interface{}, reqLine string) {
 			delete(t.shares, oldest)
 		}
 	}
-	t.shares[id] = reqLine
+	t.shares[id] = ps
 }
 
-func (t *PendingTracker) LoadAndDelete(id interface{}) (string, bool) {
+func (t *PendingTracker) LoadAndDelete(id interface{}) (PendingShare, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if val, exists := t.shares[id]; exists {
 		delete(t.shares, id)
 		return val, true
 	}
-	return "", false
+	return PendingShare{}, false
 }
 
 func (t *PendingTracker) Delete(id interface{}) {
@@ -139,6 +144,8 @@ type Session struct {
 
 	FeeAuthWallet  string
 	FeeAuthWorker  string
+
+	InBandFeeActive bool
 
 	LastExtranonceCmdTime time.Time
 	IsBuggyAsic           bool
@@ -647,9 +654,6 @@ func (s *Session) readMinerLoop() {
 				s.mu.Lock()
 				s.LastShareTime = time.Now()
 				s.mu.Unlock()
-				if id, ok := msg["id"]; ok {
-					s.pendingShares.Store(id, strings.TrimSpace(line))
-				}
 			}
 		}
 
@@ -705,17 +709,6 @@ func (s *Session) readMinerLoop() {
 						}
 					}
 
-					// Stale Share Drop Optimization
-					if s.Config.EnableStaleDrop {
-						s.mu.Lock()
-						activeMain := s.currentMainJob
-						s.mu.Unlock()
-						// Check if it's an ETH_PROXY style hash or standard Job ID
-						if activeMain != "" && submitJobID != "" && submitJobID != activeMain {
-							// For stratum, it's exact match. For eth_proxy, it's exact match on headerHash.
-							shouldFakeAccept = true
-						}
-					}
 
 					if shouldFakeAccept {
 						if id, ok := msg["id"]; ok {
@@ -724,22 +717,20 @@ func (s *Session) readMinerLoop() {
 							safeWrite(s.MinerConn, []byte(fakeReply), 5*time.Second)
 						}
 					} else {
+						if id, ok := msg["id"]; ok {
+							s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: false})
+						}
 						safeFprintf(mainConn, 5*time.Second, "%s\n", line)
 					}
 				}
 			} else {
-				if feeConn != nil {
+				s.mu.Lock()
+				inBandFeeActive := s.InBandFeeActive
+				s.mu.Unlock()
+
+				if feeConn != nil || inBandFeeActive {
 					shouldFakeAccept := false
-					// Stale Share Drop Optimization for Fee Pool
-					if s.Config.EnableStaleDrop {
-						s.mu.Lock()
-						activeFee := s.currentFeeJob
-						s.mu.Unlock()
-						if activeFee != "" && submitJobID != "" && submitJobID != activeFee {
-							shouldFakeAccept = true
-						}
-					}
-					
+
 					if shouldFakeAccept {
 						if id, ok := msg["id"]; ok {
 							s.pendingShares.Delete(id)
@@ -767,7 +758,15 @@ func (s *Session) readMinerLoop() {
 							}
 						}
 
-						safeFprintf(feeConn, 5*time.Second, "%s\n", line)
+						if id, ok := msg["id"]; ok {
+							s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: true})
+						}
+
+						if inBandFeeActive && mainConn != nil {
+							safeFprintf(mainConn, 5*time.Second, "%s\n", line)
+						} else if feeConn != nil {
+							safeFprintf(feeConn, 5*time.Second, "%s\n", line)
+						}
 					}
 				} else {
 					// Fee pool disconnected, rescue via fake accept
@@ -781,8 +780,13 @@ func (s *Session) readMinerLoop() {
 			}
 		} else {
 			// Non-submit packets route by current state
+			s.mu.Lock()
+			inBandFeeActive := s.InBandFeeActive
+			s.mu.Unlock()
 			if state == "FEE" || state == "SWITCHING_TO_FEE" {
-				if feeConn != nil {
+				if inBandFeeActive && mainConn != nil {
+					safeFprintf(mainConn, 5*time.Second, "%s\n", line)
+				} else if feeConn != nil {
 					safeFprintf(feeConn, 5*time.Second, "%s\n", line)
 				}
 			} else {
@@ -842,7 +846,10 @@ func (s *Session) readMainLoop() {
 			}
 
 			if id, ok := msg["id"]; ok && id != nil {
-				if origReq, isShareReply := s.pendingShares.LoadAndDelete(id); isShareReply {
+				if pending, isShareReply := s.pendingShares.LoadAndDelete(id); isShareReply {
+					origReq := pending.Req
+					isFee := pending.IsFee
+
 					isReject := false
 					if errObj, ok := msg["error"]; ok && errObj != nil {
 						s.Stats.InvalidShares++
@@ -853,6 +860,9 @@ func (s *Session) readMainLoop() {
 					} else if res, ok := msg["result"]; ok && res == true {
 						s.Stats.ValidShares++
 						s.mu.Lock()
+						if isFee && s.CurrentFeeMode == FeeModeOperator {
+							s.Stats.FeeShares++
+						}
 						s.ShareHistory = append(s.ShareHistory, ShareEvent{
 							Timestamp: time.Now(),
 							Diff:      s.CurrentDiff,
@@ -860,20 +870,52 @@ func (s *Session) readMainLoop() {
 						s.mu.Unlock()
 					}
 
-					if isReject {
-						if s.Config.EnableDetailedLog {
-							s.LogError("[MAIN] share rejected! Pool Response: %s | Original Request: %s", strings.TrimSpace(line), origReq)
+					if isFee {
+						if isReject {
+							if s.Config.EnableDetailedLog {
+								s.LogError("[FEE] share rejected! Pool Response: %s | Original Request: %s", strings.TrimSpace(line), origReq)
+							} else {
+								s.LogError("[FEE] share rejected! %s", strings.TrimSpace(line))
+							}
+							
+							s.mu.Lock()
+							samePool := s.SamePoolFeeActive
+							s.mu.Unlock()
+							if samePool {
+								s.FeeAuthFailures++
+								if s.FeeAuthFailures >= 3 {
+									s.LogGeneral("[SmartRouting] 3 consecutive in-band fee share rejects. Triggering Fallback.")
+									go func() {
+										s.mu.Lock()
+										s.InBandFeeActive = false
+										s.mu.Unlock()
+										if s.CurrentFeeMode == FeeModeOperator {
+											s.ConnectFee(s.Config.OperatorWallet, s.Config.OperatorWorker, false)
+										} else {
+											s.ConnectFee(s.Config.DevWallet, s.Config.DevWorker, true)
+										}
+									}()
+								}
+							}
 						} else {
-							s.LogError("[MAIN] share rejected! %s", strings.TrimSpace(line))
-						}
-						s.mu.Lock()
-						antiBan := s.Config.EnableAntiBan
-						s.mu.Unlock()
-						if antiBan {
-							line = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`, id)
+							s.LogGeneral("[FEE] share accepted! [Diff: %.4f]", s.CurrentDiff)
 						}
 					} else {
-						s.LogGeneral("[MAIN] share accepted! [Diff: %.4f]", s.CurrentDiff)
+						if isReject {
+							if s.Config.EnableDetailedLog {
+								s.LogError("[MAIN] share rejected! Pool Response: %s | Original Request: %s", strings.TrimSpace(line), origReq)
+							} else {
+								s.LogError("[MAIN] share rejected! %s", strings.TrimSpace(line))
+							}
+							s.mu.Lock()
+							antiBan := s.Config.EnableAntiBan
+							s.mu.Unlock()
+							if antiBan {
+								line = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`, id)
+							}
+						} else {
+							s.LogGeneral("[MAIN] share accepted! [Diff: %.4f]", s.CurrentDiff)
+						}
 					}
 				} else {
 					// Check for eth_getWork response
@@ -974,6 +1016,9 @@ func (s *Session) timerLoop() {
 					// Ensure at least 20 minutes (1200s) grace period before fee triggers to establish PeakHash
 					maxR := nonFeeLength - 1200
 					if maxR < 1 {
+						maxR = nonFeeLength // Fallback to full random if cycle is short
+					}
+					if maxR < 1 {
 						maxR = 1
 					}
 					R := rand.Intn(maxR)
@@ -1035,36 +1080,41 @@ func (s *Session) timerLoop() {
 					s.TargetState = "MAIN"
 					s.State = "SWITCHING_TO_MAIN"
 					go s.EndFee()
-					if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
-						if s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size {
-							extranonceToSend = s.MainExtranonce
-							s.LastExtranonceCmdTime = time.Now()
+					
+					if !s.InBandFeeActive {
+						if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
+							if s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size || s.FeeExtranonce.En1 != s.MainExtranonce.En1 {
+								extranonceToSend = s.MainExtranonce
+								s.LastExtranonceCmdTime = time.Now()
+							}
+							if s.MainDifficulty > 0 && s.MainDifficulty != s.CurrentDiff {
+								difficultyToSend = s.MainDifficulty
+								s.CurrentDiff = s.MainDifficulty // Update local tracking immediately
+							}
 						}
-						if s.MainDifficulty > 0 && s.MainDifficulty != s.CurrentDiff {
-							difficultyToSend = s.MainDifficulty
-							s.CurrentDiff = s.MainDifficulty // Update local tracking immediately
+						// Zero-latency job injection using Global Dispatcher
+						cachedJob := GlobalDispatcher.GetJob(s.Config.PoolAddress)
+						if cachedJob == "" {
+							cachedJob = s.LatestMainJob
 						}
-					}
-					// Zero-latency job injection using Global Dispatcher
-					cachedJob := GlobalDispatcher.GetJob(s.Config.PoolAddress)
-					if cachedJob == "" {
-					    cachedJob = s.LatestMainJob
-					}
-					if cachedJob != "" && currentMinerConn != nil {
-						jobToSend = forceCleanJobs(cachedJob)
-					}
-					// Zero-latency job recovery for ETH_PROXY when returning to Main
-					if s.Protocol == "ETH_PROXY" {
-						mainConn := s.MainConn
-						if mainConn != nil {
-							go func(conn net.Conn) {
-								getWorkPkt := `{"id": 0, "method": "eth_getWork", "params": []}` + "\n"
-								safeWrite(conn, []byte(getWorkPkt), 5*time.Second)
-							}(mainConn)
+						if cachedJob != "" && currentMinerConn != nil {
+							jobToSend = forceCleanJobs(cachedJob)
 						}
+						// Zero-latency job recovery for ETH_PROXY when returning to Main
+						if s.Protocol == "ETH_PROXY" {
+							mainConn := s.MainConn
+							if mainConn != nil {
+								go func(conn net.Conn) {
+									getWorkPkt := `{"id": 0, "method": "eth_getWork", "params": []}` + "\n"
+									safeWrite(conn, []byte(getWorkPkt), 5*time.Second)
+								}(mainConn)
+							}
+						}
+					} else {
+						s.State = "MAIN" // instant switch
 					}
 				} else if targetMode == FeeModeDev || targetMode == FeeModeOperator {
-					isConnDead := s.FeeConn == nil && s.FeeAuthFailures > 0
+					isConnDead := s.FeeConn == nil && !s.InBandFeeActive && s.FeeAuthFailures > 0
 					
 					if isConnDead {
 						s.TargetState = "MAIN"
@@ -1072,20 +1122,25 @@ func (s *Session) timerLoop() {
 					} else {
 						s.TargetState = "FEE"
 						s.State = "SWITCHING_TO_FEE"
-						if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
-							if s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size {
-								extranonceToSend = s.FeeExtranonce
-								s.LastExtranonceCmdTime = time.Now()
+						
+						if !s.InBandFeeActive {
+							if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
+								if s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size || s.FeeExtranonce.En1 != s.MainExtranonce.En1 {
+									extranonceToSend = s.FeeExtranonce
+									s.LastExtranonceCmdTime = time.Now()
+								}
+								if s.FeeDifficulty > 0 && s.FeeDifficulty != s.CurrentDiff {
+									difficultyToSend = s.FeeDifficulty
+									s.CurrentDiff = s.FeeDifficulty // Update local tracking immediately
+								}
 							}
-							if s.FeeDifficulty > 0 && s.FeeDifficulty != s.CurrentDiff {
-								difficultyToSend = s.FeeDifficulty
-								s.CurrentDiff = s.FeeDifficulty // Update local tracking immediately
+							// Zero-latency job injection for Fee
+							cachedJob := s.LatestFeeJob
+							if cachedJob != "" && currentMinerConn != nil {
+								jobToSend = forceCleanJobs(cachedJob)
 							}
-						}
-						// Zero-latency job injection for Fee
-						cachedJob := s.LatestFeeJob
-						if cachedJob != "" && currentMinerConn != nil {
-							jobToSend = forceCleanJobs(cachedJob)
+						} else {
+							s.State = "FEE" // instant switch
 						}
 					} // Close else block
 				}
@@ -1251,6 +1306,34 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	s.FeeAuthWorker = worker
 	s.mu.Unlock()
 
+	if s.SamePoolFeeActive && s.Protocol != "ETH_PROXY" {
+		s.LogGeneral("[SmartRouting] In-Band Fee Routing Activated! Authorizing fee worker on Main connection.")
+		s.mu.Lock()
+		s.InBandFeeActive = true
+		mainConn := s.MainConn
+		s.mu.Unlock()
+		
+		if mainConn != nil {
+			for _, pkt := range s.loginPackets {
+				pktBytes, _ := json.Marshal(pkt)
+				var mod map[string]interface{}
+				_ = json.Unmarshal(pktBytes, &mod)
+				method, _ := mod["method"].(string)
+				if method == "mining.authorize" || method == "login" {
+					if params, ok := mod["params"].([]interface{}); ok && len(params) > 0 {
+						if _, ok := params[0].(string); ok {
+							mod["params"].([]interface{})[0] = fmt.Sprintf("%s.%s", wallet, worker)
+							mod["id"] = 99999 // High ID for fee auth
+						}
+					}
+					modBytes, _ := json.Marshal(mod)
+					safeFprintf(mainConn, 5*time.Second, "%s\n", string(modBytes))
+				}
+			}
+		}
+		return
+	}
+
 	// Create fee connection
 	feeConn, err := net.DialTimeout("tcp", host, 5*time.Second)
 	if err != nil {
@@ -1377,7 +1460,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 									s.mu.Unlock()
 									if state == "FEE" || state == "SWITCHING_TO_FEE" {
 										if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
-											if mainEn == nil || mainEn.En2Size != en.En2Size {
+											if mainEn == nil || mainEn.En2Size != en.En2Size || mainEn.En1 != en.En1 {
 												s.sendExtranonce(en)
 												s.mu.Lock()
 												s.LastExtranonceCmdTime = time.Now()
@@ -1401,7 +1484,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 									s.mu.Unlock()
 									if state == "FEE" || state == "SWITCHING_TO_FEE" {
 										if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
-											if mainEn == nil || mainEn.En2Size != en.En2Size {
+											if mainEn == nil || mainEn.En2Size != en.En2Size || mainEn.En1 != en.En1 {
 												s.sendExtranonce(en)
 												s.mu.Lock()
 												s.LastExtranonceCmdTime = time.Now()
@@ -1416,7 +1499,9 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 				}
 
 				if id, ok := msg["id"]; ok && id != nil {
-					if origReq, isShareReply := s.pendingShares.LoadAndDelete(id); isShareReply {
+					if pending, isShareReply := s.pendingShares.LoadAndDelete(id); isShareReply {
+						origReq := pending.Req
+
 						isReject := false
 						if errObj, ok := msg["error"]; ok && errObj != nil {
 							s.Stats.InvalidShares++
@@ -1632,6 +1717,7 @@ func (s *Session) EndFee() {
 		s.TargetState = "MAIN"
 	}
 
+	s.InBandFeeActive = false
 	connToClose := s.FeeConn
 	s.mu.Unlock()
 
