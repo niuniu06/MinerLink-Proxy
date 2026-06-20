@@ -45,6 +45,7 @@ type Server struct {
 	ClientAgentCache        sync.Map // map[string]string (IP -> Agent)
 	Quit                    chan struct{}
 	ActiveConnections       int32
+	FeeScheduler            *FeeScheduler
 }
 
 func NewServer(cfg *models.ProxyConfig) *Server {
@@ -52,6 +53,7 @@ func NewServer(cfg *models.ProxyConfig) *Server {
 		Config: cfg,
 		Quit:   make(chan struct{}),
 	}
+	s.FeeScheduler = NewFeeScheduler(s)
 	go s.ReapOfflineSessions()
 	return s
 }
@@ -80,6 +82,7 @@ func (s *Server) Start() error {
 
 	go s.acceptLoop()
 	go s.logPruneLoop()
+	go s.FeeScheduler.Start()
 	return nil
 }
 
@@ -301,6 +304,7 @@ func (s *Server) ReapOfflineSessions() {
 
 func (s *Server) Stop() {
 	close(s.Quit)
+	s.FeeScheduler.Stop()
 	if s.Listener != nil {
 		s.Listener.Close()
 	}

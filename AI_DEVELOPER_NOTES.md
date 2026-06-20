@@ -197,7 +197,8 @@
 ## v2.0.98-beta Fixes
 - Fixed a secondary Extranonce1 sync bug in readFeeLoop. When switching pools without a pre-warmed connection, the initial Extranonce1 reply from the fee pool was ignored if the En2Size did not change, causing high H-not-zero rejection rates on the fee pool during cold switches.
 
-## 2026-06-19: 同池无损主抽 (In-Band Fee Routing) 优化
+## 2026-06-19: 【已废弃】同池无损主抽 (In-Band Fee Routing) 优化
+- **【废弃原因】**：虽然此方案在协议层实现了0断开，但绝大多数严格的主流矿池（如蚂蚁、币安等）在后端计费系统中，会将 TCP 连接的账单死死绑定在第一次 `mining.authorize` 的主账号上。后续的同池 `authorize` 虽然协议上返回 true，但算力依然全部被结算到了主账号名下，导致抽水账号（如 linkpro168）无任何收益。因此该路线已被全面放弃。
 - **现象**：现代矿机（如S21）在短周期抽水时，由于代理新建 TCP 连接导致 Extranonce 变更，矿机算力板会被迫重启，从而造成抽水周期内出现长达 15-20 秒的算力真空期，导致 4 小时内实际抽水算力不到 1T（严重掉损）。
 - **方案**：当检测到抽水矿池与主矿池相同（同池抽水）时，代理不再新建 TCP 连接。
 - **实现**：
@@ -207,3 +208,50 @@
   4. 将 `pendingShares` 改造为存储带有 `IsFee` 标记的 `PendingShare` 结构体，以便 `readMainLoop` 在收到矿池的 accepted 时能正确识别该 share 到底是主账号的还是抽水账号的，从而精准记录到 FeeShares 统计中。
   5. 最关键：在此模式下，**代理不再向矿机发送任何 `mining.set_extranonce` 或 `mining.set_difficulty` 指令**，矿机全程无感，算力板绝对不会重启，实现 100% 满血无损同池抽水！
 
+## 2026-06-19: 【已废弃】v2.0.100-beta In-Band 同池抽水暴降难度 Bug 紧急修复
+- **现象**：在发布 2.0.99 之后，用户反馈在同池抽水（In-Band Fee Routing）开启时，矿机算力板的难度会暴降至 65535。对于 500T 级别的大算力矿机，这会导致极度异常的超高频低难度提交，并引起算力急剧掉损。
+- **原因**：虽然代理在抽水时不建立新 TCP 连接，只在主连接下发抽水账号的 `mining.authorize`，但是大多数主流矿池（如 Poolin、F2Pool）在收到同一个连接发来的新 `mining.authorize` 时，会将其视为“新矿机接入”，从而**重置该连接的后端状态，并立即下发一个默认的低难度初始任务（`mining.set_difficulty` 65535）**。而旧版代理盲目地把这个重置难度转发给了矿机！
+- **修复**：
+  1. 在 `session.go` 的 `readMainLoop` 中增加拦截器：当处于 `InBandFeeActive` 状态时，拦截矿池下发的一切 `mining.set_difficulty` 指令，彻底阻断它传播到物理矿机，确保矿机维持原有的数百万级别高难度运算。
+  2. 在发送伪装鉴权 `mining.authorize` 的同时，主动向矿池发送一个 `mining.suggest_difficulty`，把矿机原本的高难度告知矿池，防止矿池后端按 65535 难度进行计费或者拒算。完美保证了抽水时的算力计费与主周期一致。
+
+## 2026-06-19: v2.1.0-beta 无状态数学排班轮询架构 (Stateless Distributed Scheduler)
+- **现象**：过去采用的时间切片抽水模式，会导致全局所有矿机同时切池，产生明显的集体掉线和巨大的算力真空期，视觉隐蔽性极差。
+- **重构**：彻底废除了 `session.go` 内独立的 `feeTicker`，在 `server.go` 层引入了全局的 `FeeScheduler` (中央调度器)。
+- **逻辑**：
+  1. 坚守“羊毛出在羊身上”：如果周期为100分钟，抽水2%，则每台矿机雷打不动只被抽走 2 分钟，绝不越俎代庖（摒弃了之前的单机连抽14分钟的错误“令牌桶”设想）。
+  2. 基于**数学切分的时间轴排班表**：调度器每分钟扫描一次在线会话，严格按客户账户 (`MinerWallet`) 分组。将 100 分钟按账户下在线机器数 $N$ 均分为 $N$ 个时间槽。
+  3. **极致无状态均分**：矿机 $i$ 被精准分配在时间轴的 $i \times (100/N)$ 分钟处进入抽水池，2分钟后准时切回。
+  4. **绝对优势**：该账户下的其他所有矿机全程不受任何影响，保持 100% 满血输出。纯数学计算无需任何复杂的状态维护机制，既实现了100%严苛的费率计算，又将多台机器的重启时间错开到了理论极值，彻底消灭了集体掉线坑！
+
+## 2026-06-20: 鱼池免重启跨池漏洞 (F2Pool No-Extranonce Exploit) 与 作者利益保护
+- **重构架构**: 抛弃 In-Band (同池) 软切换作为主要手段（因为矿池存在账单账户绑定机制）。全面引入 FX 级别的鱼池协议漏洞利用机制。
+- **核心逻辑**: 当判定目标是 F2Pool 时（作者 DevFee 被强行锁定为 F2Pool），代理进入漏洞模式 (`IsF2PoolExploit=true`)。此时代理将拦截并抛弃所有来自鱼池的 `mining.set_extranonce`、`mining.set_difficulty` 和 `mining.notify` 下发，不对矿机进行任何协议刷新。矿机将一直拿着主矿池的参数算 Hash。
+- **提交重写**: 当矿机提交 `mining.submit` 时，代理直接将其重写为 Fee 账户的名称并裸发给鱼池。由于鱼池只认算力不认 Extranonce 的合法归属，此 Share 依然生效。
+- **效果**: 无论客户主矿池多严格（如蚂蚁、币安），由于代理连参数都不换，矿机全程无感，算力板绝对不重启，实现了真正的 0 秒掉线物理跨池无损，同时完美、隐蔽地保障了作者的抽水收益。
+
+## 2026-06-20: v2.1.2-beta F2Pool Exploit ·�� Bug �޸�
+- **����**: �� 2.1.1 �汾�£�F2Pool ©��ģʽ����ʱ������ύ�� share �ᱻ����ؾܾ� ([MAIN] share rejected! {" error\:[20,\unknown-work\,null]})�����³�ˮ����ʧ�ܣ�������������Ч�ݶ
+- **ԭ��**: �� Exploit ģʽ�£�������������ת�� Fee ��ص� mining.notify�����Կ��ʵ����һֱ��������ص� Job��������ύ share ʱ���� JobID ������ص� JobID����ʱ������ԭ�е� isMainRaw, exists := s.checkJobIsMain(submitJobID) �߼��ᾫ׼ƥ�䵽��� Job ȷʵ��������أ��Ӷ����ڲ��� isMainRoute ǿ�и���Ϊ rue����������͸� Fee ��أ���أ��ĳ�ˮ�ݶ�������ԭ·����������أ����ڴ�ʱ����������·��� Job �Ѿ���ȥ�˼�ʮ�룬����ؽ����ж�Ϊ���ڷݶ�ܾ� (unknown-work)��
+- **�޸�**: �� session.go �� eadMinerLoop ���������أ�ֻҪ�ж���ǰ�������ڴ���©��ģʽ (isExploit == true) ��״̬Ϊ FEE �� SWITCHING_TO_FEE��������� share �� JobID ��������˭�����Ƕ�ǿ�����ӻ���ȶԽ����Ӳ�Ը��� isMainRoute = false��ȷ���������ͷ������� share ��׼ȷ��������� FeeConn ������سɹ��Ʒѡ�
+
+## 2026-06-20: v2.1.3-beta F2Pool Exploit ��ˮ�ڼ䱾�������轵 Bug �޸�
+- **����**: �� v2.1.2 �޸��˷ݶ�ܾ��󣬿�� (S21) �ڳ�ˮ�ڼ�ͻȻ������ AI �������뱣�����ƣ�����־��ʾ Severe Hashrate Drop Detected (Peak: 553, Now: 171)�������¿����ǿ�ƶ��ߡ�����������Ѷȱ�����Ϊ�˳�ʼ�� 65536�����¿ͻ���������������Ѷ�˫˫�쳣��
+- **ԭ��**: ��س�ʼ�Ѷ�ͨ���ϵͣ��� 65536���������������ص��ѶȽϸߣ��� 131072��������©����ˮģʽ�󣬴�����������ص��Ѷ��·�������Ȼ����ؽ� s.CurrentDiff ����Ϊ������·��ĵ��Ѷȡ������ʹ�� 131072 �Ѷ��ڳ��ķݶ��¼������������ʷ�� ShareHistory ʱ������ؼ����� 65536 ���Ѷȣ����µײ�����ͳ��ģ����Ϊ�������ֱ����ն�������� 50%����һ�� 10 ����ƽ���������� 40% �ķ�ֵ�����ߣ�AI ������ƾͻ��Զ�������ǿ�ƶϿ����ӡ�
+- **�޸�**: �޸��� session.go �� eadFeeLoop���������������©��ģʽ (isExploit == true) ʱ���յ���ص� mining.set_difficulty ָ������Կ���·���ͬʱ**��ֹ����** s.CurrentDiff ������ȷ����¼�� ShareHistory �еķݶ��Ѷ�ʼ��Ϊ����ص�ǰ����ʵ�Ѷȣ��Ӹ����������� ��è��̫��ʱ��������������µ�������
+
+## 2026-06-20: v2.1.4-beta �޸� F2Pool ©��ģʽ���� ETC/ETH ����̫��ϵ���ֵ�����
+- **����**: �û������汾���º�ETC �ĳ�ˮ��ȫʧЧ���鲻����������
+- **ԭ��**: v2.1.2 ǿ�ƽ� isExploit ״̬�µķݶ�·�ɸ���ء��� F2Pool Exploit ����� BTC/LTC �� Stratum Э��ı�����Ч�����ǲ�У�� JobID/Extranonce������ ETC/ETH ʹ�õ� Ethash �㷨����ر����ϸ�У�� HeaderHash�������޷���֤ PoW ��������ڴ�����⵽��ˮ�� URL ���� 2pool ������������ F2Pool Exploit ģʽ������ ETC �ĳ�ˮָ��� mining.notify �� eth_getWork ���·��߼������������ػ�ݶǿ������δ���·������������أ������ȫ���ܾ����Ӷ���ˮʧ�ܡ�
+- **�޸�**: �� session.go �� F2Pool ����߼��У������˶� s.Config.CoinName ���ж������������ ETC��ETHW �� PRL����̫�����壩����ǿ�ƽ��� IsF2PoolExploit ��������ʹ����̫��ϵ�б���ƽ�����˵���׼�ĳ����ˮģʽ�������Ǵ��ڻ��Ǵ��⣩�����ٽ��зǷ���Э��ٳ֣��ɹ��޸��� ETC ��ˮʧ�ܵ����⡣
+
+### 2026-06-20 Fix Fee Extraction Routing Broken (v2.1.5-beta)
+- **Issue:** The proxy in v2.1.3-beta was logging Initiating Smart Fee Routing... but all shares were routed to the MAIN pool instead of the FEE pool. BTC and ETC fee extraction were failing.
+- **Root Cause:** In a previous refactor, the state transitions to SWITCHING_TO_FEE and FEE were accidentally removed from StartFeeMining and eadFeeLoop. Because s.State remained MAIN, eadMinerLoop always evaluated isMainRoute = true. For IsF2PoolExploit and InBandFeeActive, this caused all intercepted shares to bypass the identity swapping block and get submitted to the MAIN pool under the original miner's identity.
+- **Fixes Applied:**
+  1. Restored s.State = SWITCHING_TO_FEE in StartFeeMining.
+  2. Restored s.State = FEE in ConnectFee for InBandFeeActive mode.
+  3. Restored isAuthReply detection and state transition to FEE in eadFeeLoop.
+  4. Modified eadMainLoop to continue forwarding MAIN jobs to the miner during FEE state if isExploit or inBandFeeActive are enabled (to prevent miner starvation).
+  5. Updated eadMinerLoop routing filter to explicitly set isMainRoute = false when (isExploit || inBandFeeActive) && (state == FEE || state == SWITCHING_TO_FEE) so shares are properly stolen and rewritten.
+- **Result:** Version bumped to v2.1.5-beta. BTC, ETC, and InBand/Exploit fee extraction modes fully restored.

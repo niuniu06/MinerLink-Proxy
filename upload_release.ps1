@@ -1,8 +1,8 @@
 $token = "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"
 $owner = "niuniu06"
 $repo = "MinerLink-Proxy"
-$tag = "v2.0.98-beta"
-$commitish = "5ea09a7ede09b67a2b5b12ed8e3bca419bc8938b"
+$tag = "v2.1.5-beta"
+$commitish = "main"
 
 $headers = @{
     "Authorization" = "token $token"
@@ -26,7 +26,7 @@ $releaseBody = @{
     tag_name = $tag
     target_commitish = $commitish
     name = $tag
-    body = "Release v2.0.98-beta: Fixed secondary Extranonce1 bug in readFeeLoop causing high rejection rates on Fee Pool when switching without pre-warmed connection."
+    body = "Release v2.1.0-beta: [MAJOR UPDATE] Implemented Stateless Distributed Rotation Scheduler for perfectly smooth, visual-lossless fee routing. Fees are now dynamically distributed across active miners per account, guaranteeing exact 2% withdrawal while mathematically eliminating simultaneous miner restarts."
     draft = $false
     prerelease = $false
 } | ConvertTo-Json
