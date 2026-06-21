@@ -942,6 +942,8 @@ func (s *Session) readMainLoop() {
 							}
 						}
 					}
+					
+
 				}
 			} else if method, ok := msg["method"].(string); ok {
 				if method == "mining.set_difficulty" {
