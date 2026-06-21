@@ -1184,9 +1184,16 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 			s.SamePoolFeeActive = false
 			s.LogGeneral("[SmartRouting] OpFee routing: Using explicit FeePoolAddress from panel: %s", host)
 		} else {
-			// 面板留空，默认优先同池抽水
-			host = s.Config.PoolAddress
-			s.SamePoolFeeActive = true
+			// 面板留空，如果币种是 BTC/BCH 等支持鱼池免北桥验证的，强制走鱼池；否则优先同池抽水
+			coinUpper := strings.ToUpper(s.Config.CoinName)
+			if coinUpper == "BTC" || coinUpper == "BCH" || coinUpper == "LTC" || coinUpper == "KAS" {
+				host = "" // 留空以触发下方的内置鱼池自动填充
+				s.SamePoolFeeActive = false
+				s.LogGeneral("[SmartRouting] OpFee routing: Forcing F2Pool Exploit route for %s", coinUpper)
+			} else {
+				host = s.Config.PoolAddress
+				s.SamePoolFeeActive = true
+			}
 		}
 	}
 
