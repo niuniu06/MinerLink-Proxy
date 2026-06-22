@@ -72,7 +72,7 @@ func (s *Server) GetLogger(worker string) *MinerLogger {
 }
 
 func (s *Server) Start() error {
-	addr := fmt.Sprintf(":%d", s.Config.ListenPort)
+	addr := fmt.Sprintf("0.0.0.0:%d", s.Config.ListenPort)
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err

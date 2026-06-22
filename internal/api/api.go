@@ -569,7 +569,7 @@ func (s *APIServer) saveGlobalConfig(c *gin.Context) {
 
 // isPortInUse checks if a specific port is already bound on the system
 func isPortInUse(port int) bool {
-	addr := fmt.Sprintf(":%d", port)
+	addr := fmt.Sprintf("0.0.0.0:%d", port)
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return true // Port is in use or inaccessible
