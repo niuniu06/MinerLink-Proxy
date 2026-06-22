@@ -77,6 +77,29 @@ func (s *Server) Start() error {
 	if err != nil {
 		return err
 	}
+
+	// Double check if any specific IP is taken by another process.
+	// On Windows/Linux, if another process is bound to 192.168.1.100:port,
+	// our wildcard bind to 0.0.0.0:port WILL SUCCEED silently, but that process will
+	// steal all traffic arriving on that IP!
+	addrs, err2 := net.InterfaceAddrs()
+	if err2 == nil {
+		for _, a := range addrs {
+			if ipnet, ok := a.(*net.IPNet); ok {
+				ip := ipnet.IP
+				if ip.To4() != nil {
+					specificAddr := fmt.Sprintf("%s:%d", ip.String(), s.Config.ListenPort)
+					sl, serr := net.Listen("tcp", specificAddr)
+					if serr != nil {
+						l.Close()
+						return fmt.Errorf("该端口已被其他程序占用 (Conflict on %s)", ip.String())
+					}
+					sl.Close()
+				}
+			}
+		}
+	}
+
 	s.Listener = l
 	log.Printf("Proxy server started on port %d for %s", s.Config.ListenPort, s.Config.CoinName)
 
