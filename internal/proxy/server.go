@@ -72,32 +72,10 @@ func (s *Server) GetLogger(worker string) *MinerLogger {
 }
 
 func (s *Server) Start() error {
-	addr := fmt.Sprintf("0.0.0.0:%d", s.Config.ListenPort)
+	addr := fmt.Sprintf(":%d", s.Config.ListenPort)
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
-	}
-
-	// Double check if any specific IP is taken by another process.
-	// On Windows/Linux, if another process is bound to 192.168.1.100:port,
-	// our wildcard bind to 0.0.0.0:port WILL SUCCEED silently, but that process will
-	// steal all traffic arriving on that IP!
-	addrs, err2 := net.InterfaceAddrs()
-	if err2 == nil {
-		for _, a := range addrs {
-			if ipnet, ok := a.(*net.IPNet); ok {
-				ip := ipnet.IP
-				if ip.To4() != nil {
-					specificAddr := fmt.Sprintf("%s:%d", ip.String(), s.Config.ListenPort)
-					sl, serr := net.Listen("tcp", specificAddr)
-					if serr != nil {
-						l.Close()
-						return fmt.Errorf("该端口已被其他程序占用 (Conflict on %s)", ip.String())
-					}
-					sl.Close()
-				}
-			}
-		}
 	}
 
 	s.Listener = l
