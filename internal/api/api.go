@@ -569,12 +569,34 @@ func (s *APIServer) saveGlobalConfig(c *gin.Context) {
 
 // isPortInUse checks if a specific port is already bound on the system
 func isPortInUse(port int) bool {
+	// First check wildcard bind
 	addr := fmt.Sprintf("0.0.0.0:%d", port)
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
-		return true // Port is in use or inaccessible
+		return true // Port is in use
 	}
 	l.Close()
+
+	// If wildcard succeeds, we must also check specific binds.
+	// On Windows/Linux, if another process is bound to 192.168.1.100:port,
+	// our wildcard bind to 0.0.0.0:port WILL SUCCEED silently, but that process will
+	// steal all traffic arriving on that IP!
+	addrs, err := net.InterfaceAddrs()
+	if err == nil {
+		for _, a := range addrs {
+			if ipnet, ok := a.(*net.IPNet); ok {
+				ip := ipnet.IP
+				if ip.To4() != nil {
+					specificAddr := fmt.Sprintf("%s:%d", ip.String(), port)
+					sl, serr := net.Listen("tcp", specificAddr)
+					if serr != nil {
+						return true // Port is in use on a specific interface
+					}
+					sl.Close()
+				}
+			}
+		}
+	}
 	return false
 }
 
