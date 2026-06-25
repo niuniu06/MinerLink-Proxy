@@ -47,9 +47,9 @@
             </div>
           </td>
           <td class="hashrate">{{ miner.hashrate }}</td>
-          <td>
-            <span class="valid">{{ miner.validShares }} 有效</span> | 
-            <span class="invalid">{{ miner.invalidShares }} 无效</span>
+          <td class="submits-cell">
+            <div class="valid">有效 {{ miner.validShares }}</div>
+            <div class="invalid">无效 {{ miner.invalidShares }}</div>
           </td>
           <td class="fee">{{ miner.feeShares }}</td>
           <td class="diff">{{ miner.currentDiff ? miner.currentDiff.toFixed(2) : '...' }}</td>
@@ -263,6 +263,13 @@ const maskWallet = (wallet) => {
 .hashrate {
   color: var(--accent-cyan);
   font-weight: bold;
+}
+
+.submits-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.85rem;
 }
 
 .valid {
