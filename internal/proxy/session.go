@@ -11,8 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"proxy-core/internal/db"
 	"proxy-core/internal/models"
 )
 
@@ -151,7 +149,6 @@ type Session struct {
 	IsF2PoolExploit bool
 
 	LastExtranonceCmdTime time.Time
-	IsBuggyAsic           bool
 
 	// Locks and sync
 	mu   sync.Mutex
@@ -309,22 +306,6 @@ func (s *Session) Start() {
 func (s *Session) Close() {
 	s.LogGeneral("Session Close called")
 	s.mu.Lock()
-	
-	lastExt := s.LastExtranonceCmdTime
-	isBuggy := s.IsBuggyAsic
-	enableAuto := s.Config.EnableAutoQuarantine
-	
-	ident := ""
-	if s.MinerWallet != "" && s.MinerWorker != "" {
-		ident = fmt.Sprintf("%s.%s", s.MinerWallet, s.MinerWorker)
-	} else if s.MinerWorker != "" {
-		ident = s.MinerWorker
-	} else if s.MinerWallet != "" {
-		ident = s.MinerWallet
-	} else if s.MinerConn != nil {
-		ident = s.MinerConn.RemoteAddr().String()
-	}
-
 	defer s.mu.Unlock()
 
 	select {
@@ -332,18 +313,6 @@ func (s *Session) Close() {
 		return
 	default:
 		close(s.quit)
-	}
-
-	if enableAuto && !isBuggy && !lastExt.IsZero() && time.Since(lastExt) < 15*time.Second && s.PhysicalShares > 0 {
-		s.IsBuggyAsic = true
-		s.LogGeneral("🤖 [AI-Quarantine] ASIC TCP Drop Detected (Disconnected within 15s of command). Auto-Quarantining: %s", ident)
-		_ = db.AddSafeMiner(s.Config.ListenPort, ident)
-		
-		if s.Config.SafeMiners == "" {
-			s.Config.SafeMiners = ident
-		} else {
-			s.Config.SafeMiners += "," + ident
-		}
 	}
 
 	if s.MinerConn != nil {
@@ -621,14 +590,7 @@ func (s *Session) readMinerLoop() {
 							s.LogGeneral("Miner authorized: %s", s.MinerWorker)
 						}
 						
-						// Inherit AI Quarantine state
-						ident := s.GetMinerIdentifier()
-						s.mu.Lock()
-						if strings.Contains(s.Config.SafeMiners, ident) {
-							s.IsBuggyAsic = true
-							s.LogGeneral("🤖 [AI-Quarantine] Miner recognized as SafeMiner. Applying protective AI Quarantine constraints.")
-						}
-						s.mu.Unlock()
+						// Skip inheritance of AI Quarantine state
 					}
 
 					// Inject fixed difficulty
@@ -838,8 +800,6 @@ func (s *Session) reconnectMainPool() bool {
 	}
 	
 	s.mu.Lock()
-	currentDiff := s.MainDifficulty
-	protocol := s.Protocol
 	packets := make([]map[string]interface{}, len(s.loginPackets))
 	for i, p := range s.loginPackets {
 		pktBytes, _ := json.Marshal(p)
@@ -848,11 +808,6 @@ func (s *Session) reconnectMainPool() bool {
 		packets[i] = mod
 	}
 	s.mu.Unlock()
-	
-	if currentDiff > 0 && protocol != "ETH_PROXY" {
-		suggestMsg := fmt.Sprintf(`{"id": 99997, "method": "mining.suggest_difficulty", "params": [%f]}`+"\n", currentDiff)
-		safeWrite(newConn, []byte(suggestMsg), 5*time.Second)
-	}
 	
 	for _, pkt := range packets {
 		pktBytes, _ := json.Marshal(pkt)
@@ -1886,56 +1841,9 @@ func (s *Session) Watchdog() {
 			s.mu.Lock()
 			lastShare := s.LastShareTime
 			connAt := s.Stats.ConnectedAt
-			lastExt := s.LastExtranonceCmdTime
-			isBuggy := s.IsBuggyAsic
-			enableAuto := s.Config.EnableAutoQuarantine
 			s.mu.Unlock()
 
 			now := time.Now()
-
-			// Phase 1: 0 shares for 60s
-			if enableAuto && !isBuggy && !lastExt.IsZero() && now.Sub(lastExt) > 60*time.Second {
-				if lastShare.Before(lastExt) {
-					s.mu.Lock()
-					s.IsBuggyAsic = true
-					s.mu.Unlock()
-					ident := s.GetMinerIdentifier()
-					s.LogGeneral("🤖 [AI-Quarantine] ASIC Hashboard Crash Detected (No shares 60s after command). Auto-Quarantining: %s", ident)
-					_ = db.AddSafeMiner(s.Config.ListenPort, ident)
-
-					s.mu.Lock()
-					if s.Config.SafeMiners == "" {
-						s.Config.SafeMiners = ident
-					} else {
-						s.Config.SafeMiners += "," + ident
-					}
-					s.mu.Unlock()
-				}
-			}
-
-			// Phase 2: Hashrate Drop Detection
-			uptime := now.Sub(connAt)
-			if enableAuto && !isBuggy && uptime > 20*time.Minute && s.PeakHash > 0 && !lastExt.IsZero() && now.Sub(lastExt) < 30*time.Minute {
-				if s.DisplayHash < s.PeakHash * 0.4 {
-					s.mu.Lock()
-					s.IsBuggyAsic = true
-					s.mu.Unlock()
-					ident := s.GetMinerIdentifier()
-					s.LogGeneral("🤖 [AI-Quarantine] Severe Hashrate Drop Detected (Peak: %.2f, Now: %.2f). Auto-Quarantining and Force Resetting: %s", s.PeakHash, s.DisplayHash, ident)
-					_ = db.AddSafeMiner(s.Config.ListenPort, ident)
-					
-					s.mu.Lock()
-					if s.Config.SafeMiners == "" {
-						s.Config.SafeMiners = ident
-					} else {
-						s.Config.SafeMiners += "," + ident
-					}
-					s.mu.Unlock()
-					
-					s.Close() // Force physical reset to trigger 150T recovery
-					return
-				}
-			}
 
 			if now.Sub(lastShare) > 10*time.Minute && now.Sub(connAt) > 5*time.Minute {
 				log.Printf("[Watchdog] Miner %s timed out (no shares for 10 mins). Force closing.", s.ID)

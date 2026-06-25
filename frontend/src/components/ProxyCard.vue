@@ -13,13 +13,13 @@
       <div class="stat-box">
         <div class="box-title">调度引擎状态</div>
         <div class="box-content status">
-          <div class="status-indicator" :class="{ smooth: config.enableSmoothFee }">
+          <div class="status-indicator smooth">
             <span class="pulse"></span>
-            {{ config.enableSmoothFee ? '平滑无感拦截中' : '静默拦截中' }}
+            平滑无感拦截中
             <span class="machine-count" v-if="stats">({{ stats.activeMiners }} 台)</span>
           </div>
           <div class="status-sub">
-            {{ config.enableSmoothFee ? '全分布时间轮算法生效中' : '标准时间轮机制生效中' }}
+            全分布时间轮算法生效中
             <span v-if="config.enableAsic" class="asic-tag"> | ASIC兼容开启</span>
           </div>
         </div>

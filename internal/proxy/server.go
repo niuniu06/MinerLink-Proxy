@@ -367,7 +367,6 @@ func (s *Server) GetStats() map[string]interface{} {
 		"activeDevFees":      activeDevFees,
 		"activeOpFees":       activeOpFees,
 		// Exposed flags for UI:
-		"enableSmoothFee": s.Config.EnableSmoothFee,
 		"enableAsic":      s.Config.EnableAsic,
 		"enableAntiBan":   s.Config.EnableAntiBan,
 	}

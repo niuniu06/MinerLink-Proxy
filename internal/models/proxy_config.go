@@ -33,22 +33,17 @@ type ProxyConfig struct {
 	HashrateUnit       string  `json:"hashrateUnit"`
 	
 	// Advanced settings
-	EnableSmoothFee    bool    `json:"enableSmoothFee"`
 	EnableAsic         bool    `json:"enableAsic"`
 	EnableAntiBan      bool    `json:"enableAntiBan"`
 	EnableDetailedLog  bool    `json:"enableDetailedLog"`
-	IsViaBtcOptimize   bool    `json:"isViaBtcOptimize"`
 	MainFixedDifficulty string  `json:"mainFixedDifficulty"`
 	FeeFixedDifficulty  string  `json:"feeFixedDifficulty"`
 	WebhookUrl         string  `json:"webhookUrl"`
 	AutoRestart        bool    `json:"autoRestart"`
 	FeeCycleMinutes    int     `json:"feeCycleMinutes"`
 
-	EnableStaleDrop      bool    `json:"enableStaleDrop"`
 	EnableEthTargetRewrite bool  `json:"enableEthTargetRewrite"`
 	EnableTcpNoDelay     bool    `json:"enableTcpNoDelay"`
-	EnableAutoQuarantine bool    `json:"enableAutoQuarantine"`
-	SafeMiners           string  `json:"safeMiners"`
 
 	// Auto-Vardiff settings
 	EnableVardiff      bool    `json:"enableVardiff"`
