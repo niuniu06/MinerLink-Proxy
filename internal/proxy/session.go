@@ -1,4 +1,4 @@
-﻿package proxy
+package proxy
 
 import (
 	"bufio"
@@ -418,24 +418,7 @@ func (s *Session) GetHashrateMHs() float64 {
 
 func (s *Session) FormatHashrate() string {
 	hs := s.GetHashrateMHs()
-
-	unit := s.Config.HashrateUnit
-	if unit == "" {
-		if hs >= 1000000000 {
-			hs = hs / 1000000000
-			unit = "PH/s"
-		} else if hs >= 1000000 {
-			hs = hs / 1000000
-			unit = "TH/s"
-		} else if hs >= 1000 {
-			hs = hs / 1000
-			unit = "GH/s"
-		} else {
-			unit = "MH/s"
-		}
-	}
-
-	return fmt.Sprintf("%.2f %s", hs, unit)
+	return FormatHashrateMHs(hs, s.Config.HashrateUnit)
 }
 
 // readMinerLoop reads lines from the miner

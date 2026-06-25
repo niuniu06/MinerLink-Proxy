@@ -1,4 +1,4 @@
-package proxy
+﻿package proxy
 
 import (
 	"crypto/tls"
@@ -8,6 +8,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"strconv"
 	"time"
 
 	"github.com/hashicorp/yamux"
@@ -373,7 +374,7 @@ func (s *Server) GetStats() map[string]interface{} {
 }
 
 func (s *Server) GetPaginatedMiners() (int, []MinerStatsData) {
-	miners := make([]MinerStatsData, 0)
+	minerMap := make(map[string]*MinerStatsData)
 	now := time.Now()
 
 	s.Sessions.Range(func(key, value interface{}) bool {
@@ -414,29 +415,74 @@ func (s *Server) GetPaginatedMiners() (int, []MinerStatsData) {
 		if isOffline && !sess.OfflineAt.IsZero() {
 			uptimeSecs = int64(sess.OfflineAt.Sub(connectedAt).Seconds())
 		}
-
-		hashrateStr := sess.FormatHashrate()
-		if isOffline {
-			hashrateStr = "0.00 TH/s"
+		
+		rawHashrate := 0.0
+		if !isOffline {
+			rawHashrate = sess.GetHashrateMHs()
 		}
 
-		miners = append(miners, MinerStatsData{
-			ID:            sess.ID,
-			IsOffline:     isOffline,
-			Wallet:        wallet,
-			Worker:        worker,
-			ClientAgent:   sess.ClientAgent,
-			Shares:        shares,
-			FeeShares:     feeShares,
-			ValidShares:   validShares,
-			InvalidShares: invalidShares,
-			CurrentDiff:   currentDiff,
-			Hashrate:      hashrateStr,
-			Uptime:        uptimeSecs,
-			IsEncrypted:   sess.IsEncrypted,
-		})
+		mapID := wallet + "." + worker
+
+		existing, ok := minerMap[mapID]
+		if !ok {
+			minerMap[mapID] = &MinerStatsData{
+				ID:            sess.ID,
+				IsOffline:     isOffline,
+				Wallet:        wallet,
+				Worker:        worker,
+				ClientAgent:   sess.ClientAgent,
+				Shares:        shares,
+				FeeShares:     feeShares,
+				ValidShares:   validShares,
+				InvalidShares: invalidShares,
+				CurrentDiff:   currentDiff,
+				Hashrate:      fmt.Sprintf("%f", rawHashrate), // Temporary raw storage
+				Uptime:        uptimeSecs,
+				IsEncrypted:   sess.IsEncrypted,
+			}
+		} else {
+			// Aggregate duplicate workers
+			existing.Shares += shares
+			existing.FeeShares += feeShares
+			existing.ValidShares += validShares
+			existing.InvalidShares += invalidShares
+			
+			// If at least one session is online, the aggregated worker is online
+			if !isOffline {
+				existing.IsOffline = false
+				existing.ID = sess.ID // Use ID of online session
+			}
+			
+			// Use the maximum uptime
+			if uptimeSecs > existing.Uptime {
+				existing.Uptime = uptimeSecs
+			}
+			
+			// Sum the raw hashrate
+			oldRaw, _ := strconv.ParseFloat(existing.Hashrate, 64)
+			existing.Hashrate = fmt.Sprintf("%f", oldRaw + rawHashrate)
+			
+			// Use the highest difficulty
+			if currentDiff > existing.CurrentDiff {
+				existing.CurrentDiff = currentDiff
+			}
+		}
+
 		return true
 	})
+
+	miners := make([]MinerStatsData, 0, len(minerMap))
+	for _, data := range minerMap {
+		// Format the aggregated hashrate
+		rawMHs, _ := strconv.ParseFloat(data.Hashrate, 64)
+		if data.IsOffline {
+			data.Hashrate = "0.00 TH/s"
+		} else {
+			data.Hashrate = FormatHashrateMHs(rawMHs, s.Config.HashrateUnit)
+		}
+		miners = append(miners, *data)
+	}
+
 	return len(miners), miners
 }
 
