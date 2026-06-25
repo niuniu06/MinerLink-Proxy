@@ -138,6 +138,7 @@ type Session struct {
 	DisplayHash    float64
 	PeakHash       float64
 	IsEncrypted    bool
+	IsProbe        bool
 
 	IsOffline      bool
 	OfflineAt      time.Time
@@ -444,6 +445,15 @@ func (s *Session) readMinerLoop() {
 			continue
 		}
 
+		s.mu.Lock()
+		isProbe := s.IsProbe
+		s.mu.Unlock()
+		if isProbe {
+			// Silently consume packets for probes to keep the TCP connection alive
+			// without forwarding them to the upstream pool.
+			continue
+		}
+
 		if s.Config.EnableDetailedLog {
 			s.LogGeneral("[RAW MINER RX] %s", strings.TrimSpace(line))
 		}
@@ -545,12 +555,21 @@ func (s *Session) readMinerLoop() {
 					s.MinerWorker = strings.ReplaceAll(s.MinerWorker, "(", "")
 					s.MinerWorker = strings.ReplaceAll(s.MinerWorker, ")", "")
 
-					// [Anti-Probe] Drop connections with empty wallet
+					// [Anti-Probe] Quarantine connections with empty wallet
 					// Probes/scanners often send empty authorization strings which pollutes the UI as "worker"
 					if s.MinerWallet == "" {
-						s.LogGeneral("[Anti-Probe] Dropping probe connection with empty wallet")
-						s.Close()
-						return
+						s.LogGeneral("[Anti-Probe] Identified as Probe. Sending fake success and blackholing connection.")
+						s.mu.Lock()
+						s.IsProbe = true
+						if s.MainConn != nil {
+							s.MainConn.Close()
+						}
+						s.mu.Unlock()
+						
+						if msgID, ok := msg["id"]; ok {
+							safeWrite(s.MinerConn, []byte(fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", msgID)), 5*time.Second)
+						}
+						continue
 					}
 					// Rewrite params to ensure the upstream pool receives the sanitized worker name
 					if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {

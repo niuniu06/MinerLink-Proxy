@@ -330,7 +330,13 @@ func (s *Server) GetStats() map[string]interface{} {
 		sess.mu.Lock()
 		isOffline := sess.IsOffline
 		lastShareTime := sess.LastShareTime
+		isProbe := sess.IsProbe
 		sess.mu.Unlock()
+		
+		if isProbe {
+			return true // Skip probe connections
+		}
+		
 		if isOffline || time.Since(lastShareTime) > 3*time.Minute {
 			return true // Skip offline miners for active stats
 		}
@@ -389,7 +395,12 @@ func (s *Server) GetPaginatedMiners() (int, []MinerStatsData) {
 		connectedAt := sess.Stats.ConnectedAt
 		wallet := sess.MinerWallet
 		worker := sess.MinerWorker
+		isProbe := sess.IsProbe
 		sess.mu.Unlock()
+
+		if isProbe {
+			return true // Skip probe connections
+		}
 
 		uptimeSecs := int64(now.Sub(connectedAt).Seconds())
 		
