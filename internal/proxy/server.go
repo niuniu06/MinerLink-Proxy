@@ -181,7 +181,7 @@ func (s *Server) handleNewConnection(conn net.Conn, tlsConfig *tls.Config) {
 		if s.Config.EnableTcpNoDelay {
 			ApplyTcpNoDelay(conn)
 		}
-		yamuxSession, err := yamux.Server(tlsConn, yamux.DefaultConfig())
+		yamuxSession, err := yamux.Server(tlsConn, getTunnelConfig())
 		if err != nil {
 			log.Printf("Tunnel Yamux server failed: %v", err)
 			conn.Close()
@@ -512,4 +512,13 @@ func ApplyTcpNoDelay(conn net.Conn) {
 		_ = tcpConn.SetKeepAlive(true)
 		_ = tcpConn.SetKeepAlivePeriod(3 * time.Minute)
 	}
+}
+
+func getTunnelConfig() *yamux.Config {
+	cfg := yamux.DefaultConfig()
+	cfg.EnableKeepAlive = true
+	cfg.KeepAliveInterval = 30 * time.Second
+	cfg.ConnectionWriteTimeout = 5 * time.Minute // Prevent aggressive dropping on slow connections
+	cfg.MaxStreamWindowSize = 1024 * 1024        // 1MB window instead of 256KB
+	return cfg
 }

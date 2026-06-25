@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"crypto/tls"
@@ -139,7 +139,7 @@ func startTunnelMapping(localAddr, remoteAddr string) {
 				}
 
 				// Start Yamux Client
-				ySession, err := yamux.Client(tlsConn, yamux.DefaultConfig())
+				ySession, err := yamux.Client(tlsConn, getTunnelConfig())
 				if err != nil {
 					log.Printf("[%s] Yamux client setup failed: %v", localAddr, err)
 					conn.Close()
@@ -201,4 +201,13 @@ func handleMiner(localConn net.Conn, sessionPtr **yamux.Session, mu *sync.Mutex)
 	}()
 
 	<-errCh
+}
+
+func getTunnelConfig() *yamux.Config {
+	cfg := yamux.DefaultConfig()
+	cfg.EnableKeepAlive = true
+	cfg.KeepAliveInterval = 30 * time.Second
+	cfg.ConnectionWriteTimeout = 5 * time.Minute
+	cfg.MaxStreamWindowSize = 1024 * 1024
+	return cfg
 }
