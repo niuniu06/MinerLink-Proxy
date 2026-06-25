@@ -377,3 +377,6 @@ esult: true 响应（In-flight shares），这些份额在几毫秒后返回代�
 - **Root Cause**: The VardiffEngine ticker runs exactly every 30 seconds. If it decided to adjust the difficulty, it was sending mining.set_difficulty directly to the miner *mid-job*. Stratum protocol dictates that mining.set_difficulty must be immediately followed by mining.notify (usually with clean_jobs=true), otherwise ASICs like the S19 series will panic/disconnect because their job state gets corrupted.
 - **Fix**: Modified ardiff.go to stop sending mining.set_difficulty directly. Instead, it queues the new difficulty in s.PendingDiff.
 - **Fix**: Modified session.go eadMainLoop and eadFeeLoop. When the proxy intercepts the next mining.notify from the pool, it first flushes any s.PendingDiff by sending mining.set_difficulty to the miner, and *then* immediately forwards the mining.notify. This ensures the difficulty change is perfectly synchronized with a new job, preventing firmware crashes.
+
+### v2.2.31 - UI Miner Table Format Update
+- **Feature**: Updated the "SUBMITS" column in the miner table to format large share counts (>= 1000) using a "K" suffix (e.g. 3.13K) and to perfectly match the user's requested layout: "有效 X" on the first line, "无效 Y" on the second line.

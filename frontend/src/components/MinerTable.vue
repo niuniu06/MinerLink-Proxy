@@ -48,8 +48,8 @@
           </td>
           <td class="hashrate">{{ miner.hashrate }}</td>
           <td class="submits-cell">
-            <div class="valid">有效 {{ miner.validShares }}</div>
-            <div class="invalid">无效 {{ miner.invalidShares }}</div>
+            <div class="valid">有效 {{ formatSubmits(miner.validShares) }}</div>
+            <div class="invalid">无效 {{ formatSubmits(miner.invalidShares) }}</div>
           </td>
           <td class="fee">{{ miner.feeShares }}</td>
           <td class="diff">{{ miner.currentDiff ? miner.currentDiff.toFixed(2) : '...' }}</td>
@@ -150,6 +150,14 @@ const formatUptime = (secs) => {
 const maskWallet = (wallet) => {
   if (!wallet || wallet.length < 10) return wallet
   return wallet.substring(0, 5) + '...' + wallet.substring(wallet.length - 4)
+}
+
+const formatSubmits = (val) => {
+  if (val == null) return "0"
+  if (val >= 1000) {
+    return (val / 1000).toFixed(2) + 'K'
+  }
+  return val.toString()
 }
 </script>
 
