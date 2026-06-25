@@ -838,6 +838,8 @@ func (s *Session) reconnectMainPool() bool {
 	}
 	
 	s.mu.Lock()
+	currentDiff := s.MainDifficulty
+	protocol := s.Protocol
 	packets := make([]map[string]interface{}, len(s.loginPackets))
 	for i, p := range s.loginPackets {
 		pktBytes, _ := json.Marshal(p)
@@ -846,6 +848,11 @@ func (s *Session) reconnectMainPool() bool {
 		packets[i] = mod
 	}
 	s.mu.Unlock()
+	
+	if currentDiff > 0 && protocol != "ETH_PROXY" {
+		suggestMsg := fmt.Sprintf(`{"id": 99997, "method": "mining.suggest_difficulty", "params": [%f]}`+"\n", currentDiff)
+		safeWrite(newConn, []byte(suggestMsg), 5*time.Second)
+	}
 	
 	for _, pkt := range packets {
 		pktBytes, _ := json.Marshal(pkt)
