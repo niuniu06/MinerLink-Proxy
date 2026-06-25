@@ -261,15 +261,9 @@ func (s *Server) CleanOfflineWorker(worker string, remoteIP string) *Session {
 		sess.mu.Lock()
 		isOffline := sess.IsOffline
 		w := sess.MinerWorker
-		var ip string
-		if sess.MinerConn != nil {
-			if tcpAddr, ok := sess.MinerConn.RemoteAddr().(*net.TCPAddr); ok {
-				ip = tcpAddr.IP.String()
-			}
-		}
 		sess.mu.Unlock()
 		
-		if isOffline && w == worker && ip == remoteIP {
+		if isOffline && w == worker {
 			oldSession = sess
 			s.DeleteSession(sess)
 		}
@@ -411,6 +405,10 @@ func (s *Server) GetPaginatedMiners() (int, []MinerStatsData) {
 			} else {
 				uptimeSecs = 0
 			}
+		}
+
+		if isOffline && shares == 0 {
+			return true // Skip offline zombie connections with 0 shares to prevent UI duplicates
 		}
 
 		if isOffline && !sess.OfflineAt.IsZero() {
