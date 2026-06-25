@@ -1,11 +1,11 @@
-﻿package sysinfo
+package sysinfo
 
 import (
 	"runtime"
 	"time"
 )
 
-const ProxyVersion = "v2.2.16"
+const ProxyVersion = "v2.2.20"
 
 type SystemStatus struct {
 	CPUPercent    float64 `json:"cpuPercent"`
