@@ -545,6 +545,13 @@ func (s *Session) readMinerLoop() {
 					s.MinerWorker = strings.ReplaceAll(s.MinerWorker, "(", "")
 					s.MinerWorker = strings.ReplaceAll(s.MinerWorker, ")", "")
 
+					// [Anti-Probe] Drop connections with empty wallet
+					// Probes/scanners often send empty authorization strings which pollutes the UI as "worker"
+					if s.MinerWallet == "" {
+						s.LogGeneral("[Anti-Probe] Dropping probe connection with empty wallet")
+						s.Close()
+						return
+					}
 					// Rewrite params to ensure the upstream pool receives the sanitized worker name
 					if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 						if _, ok := params[0].(string); ok {
