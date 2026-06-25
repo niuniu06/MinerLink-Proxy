@@ -1,4 +1,4 @@
-﻿package proxy
+package proxy
 
 import (
 	"crypto/tls"
@@ -408,8 +408,8 @@ func (s *Server) GetPaginatedMiners() (int, []MinerStatsData) {
 			}
 		}
 
-		if isOffline && shares == 0 {
-			return true // Skip offline zombie connections with 0 shares to prevent UI duplicates
+		if shares == 0 {
+			return true // Completely hide any connection (online or offline) until it submits at least 1 share. This makes scanners invisible.
 		}
 
 		if isOffline && !sess.OfflineAt.IsZero() {
