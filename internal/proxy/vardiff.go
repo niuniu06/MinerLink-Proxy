@@ -1,10 +1,8 @@
 package proxy
 
 import (
-	"fmt"
 	"log"
 	"math"
-	"net"
 	"time"
 )
 
@@ -40,9 +38,6 @@ func (s *Session) StartVardiffEngine() {
 }
 
 func (s *Session) evaluateVardiff() {
-	var setDiffPkt string
-	var minerConn net.Conn
-
 	func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -101,16 +96,8 @@ func (s *Session) evaluateVardiff() {
 			if newDiff <= 0 {
 				newDiff = 1
 			}
-			s.LocalDiff = newDiff
-			log.Printf("[Vardiff] Miner %s rate=%d/min. Adjusting LocalDiff %.0f -> %.0f", s.ID, sharesLastMinute, oldDiff, newDiff)
-
-			// Send new difficulty to miner
-			setDiffPkt = fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", newDiff)
-			minerConn = s.MinerConn
+			s.PendingDiff = newDiff
+			log.Printf("[Vardiff] Miner %s rate=%d/min. Queuing LocalDiff %.0f -> %.0f", s.ID, sharesLastMinute, oldDiff, newDiff)
 		}
 	}()
-
-	if setDiffPkt != "" && minerConn != nil {
-		fmt.Fprintf(minerConn, "%s", setDiffPkt)
-	}
 }

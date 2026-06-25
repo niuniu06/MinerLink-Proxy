@@ -342,3 +342,38 @@ esult: true 响应（In-flight shares），这些份额在几毫秒后返回代�
   2. 提取矿机初次连接时的原版握手包（已缓存在 loginPackets 中），原封不动地发给鱼池完成重新登录。
   3. 捕获新的 Extranonce。如果当时矿机正在挖主池任务，立即下发新 Extranonce 无缝刷新任务；如果正在抽水，则暂时缓存，等抽水结束后随任务一起下发。
 - **效果**: 实现真正的 100% 物理级不断线。无论抽水导致主池超时，还是网络闪断导致主池掉线，物理矿机永远保持平稳运行。彻底免疫探针扫描。
+# # #   v 2 . 2 . 2 2   -   A n t i - P r o b e   F a k e   S u c c e s s   Q u a r a n t i n e 
+ -   M o d i f i e d   A n t i - P r o b e   l o g i c   t o   q u a r a n t i n e   e m p t y   w a l l e t   c o n n e c t i o n s   i n s t e a d   o f   a b r u p t l y   c l o s i n g   t h e m . 
+ -   P r o x i e s   n o w   r e s p o n d   w i t h   a   f a k e   {  
+ i d :   m s g [ i d ] ,   r e s u l t :   t r u e ,   e r r o r :   n u l l }   t o   k e e p   L o a d   B a l a n c e r / S c a n n e r   T C P   c o n n e c t i o n s   a l i v e . 
+ -   F i l t e r e d   I s P r o b e   s e s s i o n s   f r o m   G e t P a g i n a t e d M i n e r s ( )   a n d   G e t S t a t s ( )   t o   c o m p l e t e l y   h i d e   t h e m   f r o m   t h e   U I . 
+  
+ ### v2.2.23 - True Stealth Fee Logs
+- Replaced all fee-related s.LogGeneral calls with s.LogBackend.
+- s.LogBackend strictly logs fee connection details, smart routing logic, and fee share acceptances to the global backend CLI console (log.Printf).
+- This completely prevents any fee mechanics from bleeding into the individual MinerLogger and UI dashboards, keeping the fee operations completely invisible to the end user looking at their specific miner logs.
+### v2.2.24 - UI Duplicate Miner Fix
+- Fixed an issue where "stealth probes" (e.g., from FX Proxy) using real miner names would create hanging connections with 0 shares that lingered in the UI as duplicate [离线] (Offline) miners.
+- GetPaginatedMiners now silently skips offline sessions that have shares == 0, preventing UI pollution.
+- Enhanced CleanOfflineWorker to inherit offline miner stats purely by MinerWorker name instead of matching the IP address, allowing miners to safely change IPs without causing duplicate worker entries in the UI list.
+### v2.2.25 - F2Pool-Style Worker Aggregation & UI Cleanup
+- Re-architected GetPaginatedMiners to natively aggregate duplicate worker names (matching F2Pool's behavior). If multiple connections exist for the same MinerWorker name (due to multi-machine farms sharing names, or ghost/zombie TCP connections overlapping during reconnects), they are now merged into a **single unified UI row**.
+- Aggregation intelligently sums Hashrate, Valid/Invalid/Fee shares, takes the maximum uptime, and prioritizes the Online state if at least one connection is active.
+- Fixed a silent bug in FormatHashrate where configuring a custom HashrateUnit in config.json would result in raw MH/s values being displayed with incorrect units (e.g. 100,000 MH/s displayed as 100,000 TH/s).
+### v2.2.26 - Yamux Tunnel Stability & Stable UI Sorting
+- **Tunnel Stability**: Analyzed PCAP and found the Yamux tunnel (Port 2288) was constantly tearing down every ~10 seconds. This was caused by the default ConnectionWriteTimeout (10s) in Yamux. On a multiplexed mining tunnel over standard WAN, 10s is too aggressive and causes random disconnects. Increased it to 5 minutes (5 * time.Minute) and increased MaxStreamWindowSize to 1MB on both Server and Client via getTunnelConfig().
+- **UI Sorting**: UI lists used to jump around on every refresh due to iterating over Go maps. Explicitly added sort.Slice in GetPaginatedMiners to sort by Status (Online first) and then by Worker Name (A-Z). Did not sort by connection time, as connection time sorting causes rows to jump violently whenever a miner reconnects.
+### v2.2.27 - Complete Scanner UI Filtering
+- **Context**: The user exposed the proxy port (10690) directly to the internet without a tunnel. Because of this, external Shodan/Censys scanners constantly hit the port. When a scanner connects, it stays connected for a few seconds before the pool or the proxy drops it. Previously, 2.2.25 only hid *offline* 0-share connections. This meant that while the scanner was connected (even if just for 5 seconds), it appeared in the UI as a  -share worker, causing the total miner count to constantly increase and decrease, creating massive UI noise and confusing the user.
+- **Fix**: Modified GetPaginatedMiners in server.go to **completely hide ANY connection (online or offline) that has 0 shares**. This forces all scanners/probes to become 100% invisible in the dashboard permanently. Real miners will now only appear in the UI after they submit their first valid share (usually 1-2 minutes after connecting), which is standard behavior for major pools like F2Pool and Antpool.
+### v2.2.28 - Stable Sorting Fix
+- **Fix**: The stable A-Z sorting logic intended for 2.2.26 failed to inject due to a silent script execution error (CRLF formatting mismatch). It was manually corrected, re-injecting the sort.Slice logic and adding "sort" to imports. The UI will now correctly sort miners alphabetically by Worker name, keeping the dashboard fully locked and stable.
+### v2.2.29 - UI Layout Enhancement (SUBMITS Column)
+- **Context**: The user requested that the 'SUBMITS' column be formatted like fx pool (stacked vertically) because when valid shares exceeded 100, the inline format (102 有效 | 0 无效) caused text wrapping due to column width constraints, resulting in a misaligned and cluttered look.
+- **Fix**: Updated MinerTable.vue to render alid and invalid shares as stacked block div elements with a small gap, instead of inline spans with a | separator. Rebuilt the Vue frontend and embedded it into the proxy.
+
+### v2.2.30 - Vardiff Protocol Fix (Antminer 30-second Disconnect)
+- **Context**: The user reported that straight-connected miners (like Antminer S19) were disconnecting exactly every 30 seconds, causing F2Pool to drop the connection and the proxy to log "Session Close called" and "Miner session restored from offline state" repeatedly.
+- **Root Cause**: The VardiffEngine ticker runs exactly every 30 seconds. If it decided to adjust the difficulty, it was sending mining.set_difficulty directly to the miner *mid-job*. Stratum protocol dictates that mining.set_difficulty must be immediately followed by mining.notify (usually with clean_jobs=true), otherwise ASICs like the S19 series will panic/disconnect because their job state gets corrupted.
+- **Fix**: Modified ardiff.go to stop sending mining.set_difficulty directly. Instead, it queues the new difficulty in s.PendingDiff.
+- **Fix**: Modified session.go eadMainLoop and eadFeeLoop. When the proxy intercepts the next mining.notify from the pool, it first flushes any s.PendingDiff by sending mining.set_difficulty to the miner, and *then* immediately forwards the mining.notify. This ensures the difficulty change is perfectly synchronized with a new job, preventing firmware crashes.

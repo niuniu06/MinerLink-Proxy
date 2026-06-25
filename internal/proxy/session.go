@@ -131,6 +131,7 @@ type Session struct {
 	CurrentDiff    float64
 	RemoteDiff     float64
 	LocalDiff      float64
+	PendingDiff    float64
 	MainDifficulty float64
 	FeeDifficulty  float64
 	LastHashUpdate time.Time
@@ -1021,6 +1022,18 @@ reconnectLoop:
 						GlobalDispatcher.UpdateJob(s.Config.PoolAddress, line)
 						s.mu.Lock()
 						s.LatestMainJob = line
+						
+						// Flush pending difficulty if any
+						pendingDiff := s.PendingDiff
+						if pendingDiff > 0 && pendingDiff != s.LocalDiff {
+							s.LocalDiff = pendingDiff
+							s.PendingDiff = 0
+							if s.MinerConn != nil {
+								setDiffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", pendingDiff)
+								safeFprintf(s.MinerConn, 5*time.Second, "%s", setDiffPkt)
+							}
+						}
+						
 						s.mu.Unlock()
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if jobID, ok := params[0].(string); ok {
@@ -1735,6 +1748,18 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 					} else if method == "mining.notify" {
 						s.mu.Lock()
 						s.LatestFeeJob = line
+						
+						// Flush pending difficulty if any
+						pendingDiff := s.PendingDiff
+						if pendingDiff > 0 && pendingDiff != s.LocalDiff {
+							s.LocalDiff = pendingDiff
+							s.PendingDiff = 0
+							if s.MinerConn != nil {
+								setDiffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", pendingDiff)
+								safeFprintf(s.MinerConn, 5*time.Second, "%s", setDiffPkt)
+							}
+						}
+						
 						s.mu.Unlock()
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if jobID, ok := params[0].(string); ok {
