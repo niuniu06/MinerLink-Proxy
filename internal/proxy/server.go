@@ -6,9 +6,10 @@ import (
 	"io"
 	"log"
 	"net"
+	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
-	"strconv"
 	"time"
 
 	"github.com/hashicorp/yamux"
@@ -482,6 +483,13 @@ func (s *Server) GetPaginatedMiners() (int, []MinerStatsData) {
 		}
 		miners = append(miners, *data)
 	}
+
+	sort.Slice(miners, func(i, j int) bool {
+		if miners[i].IsOffline != miners[j].IsOffline {
+			return !miners[i].IsOffline // Online first
+		}
+		return miners[i].Worker < miners[j].Worker
+	})
 
 	return len(miners), miners
 }
