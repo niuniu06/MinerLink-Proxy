@@ -1,4 +1,4 @@
-Write-Host "Compiling Vue 3 Frontend..."
+﻿Write-Host "Compiling Vue 3 Frontend..."
 Set-Location frontend
 npm install
 npm run build
@@ -24,15 +24,15 @@ Compress-Archive -Path "MinerLink-Proxy-linux-amd64" -DestinationPath "MinerLink
 Compress-Archive -Path "MinerLink-Proxy-windows-amd64.exe" -DestinationPath "MinerLink-Proxy-Windows.zip" -Force
 
 Write-Host "Uploading to GitHub Release..."
-$token = "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"
+$token = "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"
 $headers = @{ Authorization = "token $token"; Accept = "application/vnd.github.v3+json" }
 $repo = "niuniu06/MinerLink-Proxy"
-$tag = "v2.0.63-beta"
+$tag = "v2.2.16"
 
 $body = @{
     tag_name = $tag
     name = $tag
-    body = "Release $($tag): Fix dev fee 0.4% bug, ETH_PROXY job caching, and 2miners sub-account rejection loop."
+    body = "Release $($tag): Fixed cross-pool Invalid shares and optimized EndFee instant job switching for near-zero stale rate."
     draft = $false
     prerelease = $false
 } | ConvertTo-Json
@@ -64,4 +64,4 @@ foreach ($file in $files) {
     Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers $headers -InFile $file.Path -ContentType $file.ContentType
 }
 
-Write-Host "All done! Release v2.0.51-beta published."
+Write-Host "All done! Release v2.2.16 published."

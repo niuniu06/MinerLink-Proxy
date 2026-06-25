@@ -1,0 +1,107 @@
+diff --git a/internal/proxy/session.go b/internal/proxy/session.go
+index 7ecc71f..eb7e32e 100644
+--- a/internal/proxy/session.go
++++ b/internal/proxy/session.go
+@@ -109,6 +109,7 @@ func (t *PendingTracker) Delete(id interface{}) {
+ }
+ 
+ type Session struct {
++	PhysicalShares        uint64
+ 	ID        string
+ 	MinerConn net.Conn
+ 	MainConn  net.Conn
+@@ -186,7 +187,7 @@ type Session struct {
+ 
+ func NewSession(conn net.Conn, cfg *models.ProxyConfig, isEncrypted bool) *Session {
+ 	id := fmt.Sprintf("%d", time.Now().UnixNano())
+-	return &Session{
++	sess := &Session{
+ 		ID:             id,
+ 		MinerConn:      conn,
+ 		Config:         cfg,
+@@ -206,6 +207,7 @@ func NewSession(conn net.Conn, cfg *models.ProxyConfig, isEncrypted bool) *Sessi
+ 		jobList:        make([]string, 0),
+ 		IsEncrypted:    isEncrypted,
+ 	}
++	return sess
+ }
+ 
+ func parseEthProxyTargetToDiff(targetHex string) float64 {
+@@ -331,7 +333,7 @@ func (s *Session) Close() {
+ 		close(s.quit)
+ 	}
+ 
+-	if enableAuto && !isBuggy && !lastExt.IsZero() && time.Since(lastExt) < 15*time.Second {
++	if enableAuto && !isBuggy && !lastExt.IsZero() && time.Since(lastExt) < 15*time.Second && s.PhysicalShares > 0 {
+ 		s.IsBuggyAsic = true
+ 		s.LogGeneral("🤖 [AI-Quarantine] ASIC TCP Drop Detected (Disconnected within 15s of command). Auto-Quarantining: %s", ident)
+ 		_ = db.AddSafeMiner(s.Config.ListenPort, ident)
+@@ -617,6 +619,15 @@ func (s *Session) readMinerLoop() {
+ 						} else {
+ 							s.LogGeneral("Miner authorized: %s", s.MinerWorker)
+ 						}
++						
++						// Inherit AI Quarantine state
++						ident := s.GetMinerIdentifier()
++						s.mu.Lock()
++						if strings.Contains(s.Config.SafeMiners, ident) {
++							s.IsBuggyAsic = true
++							s.LogGeneral("🤖 [AI-Quarantine] Miner recognized as SafeMiner. Applying protective AI Quarantine constraints.")
++						}
++						s.mu.Unlock()
+ 					}
+ 
+ 					// Inject fixed difficulty
+@@ -652,6 +663,7 @@ func (s *Session) readMinerLoop() {
+ 				}
+ 			} else if method == "mining.submit" || method == "eth_submitWork" {
+ 				s.Stats.Shares++
++				s.PhysicalShares++
+ 				s.mu.Lock()
+ 				s.LastShareTime = time.Now()
+ 				s.mu.Unlock()
+@@ -690,6 +702,7 @@ func (s *Session) readMinerLoop() {
+ 
+ 			s.mu.Lock()
+ 			isExploit := s.IsF2PoolExploit
++												isBuggy := s.IsBuggyAsic
+ 			inBandFeeActive := s.InBandFeeActive
+ 			s.mu.Unlock()
+ 
+@@ -731,7 +744,7 @@ func (s *Session) readMinerLoop() {
+ 						}
+ 					} else {
+ 						if id, ok := msg["id"]; ok {
+-							s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: false})
++							s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: false, FeeMode: FeeModeNone})
+ 						}
+ 						safeFprintf(mainConn, 5*time.Second, "%s\n", line)
+ 					}
+@@ -740,6 +753,7 @@ func (s *Session) readMinerLoop() {
+ 				s.mu.Lock()
+ 				inBandFeeActive := s.InBandFeeActive
+ 				isExploit := s.IsF2PoolExploit
++												isBuggy := s.IsBuggyAsic
+ 				feeWallet := s.FeeAuthWallet
+ 				feeWorker := s.FeeAuthWorker
+ 				s.mu.Unlock()
+@@ -755,7 +769,10 @@ func (s *Session) readMinerLoop() {
+ 						}
+ 					} else {
+ 						if id, ok := msg["id"]; ok {
+-							s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: true})
++							s.mu.Lock()
++														mode := s.CurrentFeeMode
++														s.mu.Unlock()
++														s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: true, FeeMode: mode})
+ 						}
+ 
+ 						// Rewrite submit credentials for the fee connection
+@@ -1676,6 +1078,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
+ 					} else if method, ok := msg["method"].(string); ok {
+ 						s.mu.Lock()
+ 						isExploit := s.IsF2PoolExploit
++												isBuggy := s.IsBuggyAsic
+ 						s.mu.Unlock()
+ 						
+ 						if isExploit && method == "mining.set_extranonce" {

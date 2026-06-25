@@ -192,6 +192,10 @@
                       <span class="sh-fee">{{ getStatsForPort(cfg.listenPort).totalFeeShares }}</span>
                     </td>
                     <td class="actions-cell" style="text-align: right" @click.stop>
+                      <div class="toggle-btn" :class="{'toggle-on': cfg.enabled, 'toggle-off': !cfg.enabled}" @click="togglePortStatus(cfg)">
+                        <span class="toggle-text">{{ cfg.enabled ? 'ON' : 'OFF' }}</span>
+                        <div class="toggle-circle"></div>
+                      </div>
                       <button class="tbl-btn" @click="toggleExpand(cfg.listenPort)">
                         {{ expandedPort === cfg.listenPort ? '收起' : '矿机' }}
                       </button>
@@ -359,6 +363,34 @@ const toggleExpand = (port) => {
     expandedPort.value = null
   } else {
     expandedPort.value = port
+  }
+}
+
+const togglePortStatus = async (cfg) => {
+  const targetState = !cfg.enabled
+  if (!targetState) {
+    if (!confirm(`确定关闭端口 ${cfg.listenPort} 吗？\n\n关闭后，该端口下的矿机将全部断开连接。`)) {
+      return
+    }
+  }
+  
+  try {
+    const res = await fetch('/api/config/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ listenPort: cfg.listenPort, enabled: targetState })
+    })
+    if (res.ok) {
+      cfg.enabled = targetState
+      cfg.active = targetState
+      refresh()
+    } else {
+      const data = await res.json()
+      alert(data.error || '操作失败')
+    }
+  } catch (e) {
+    console.error(e)
+    alert('请求失败')
   }
 }
 
@@ -1166,5 +1198,53 @@ onUnmounted(() => {
   color: var(--accent-blue);
 }
 
+/* Port Toggle Switch */
+.toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  width: 48px;
+  height: 22px;
+  border-radius: 11px;
+  cursor: pointer;
+  margin-right: 12px;
+  vertical-align: middle;
+  transition: all 0.3s;
+  user-select: none;
+}
+.toggle-btn.toggle-on {
+  background-color: #38b46d; /* FX style green */
+}
+.toggle-btn.toggle-off {
+  background-color: #444; /* FX style grey */
+}
+.toggle-btn .toggle-text {
+  position: absolute;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 22px;
+}
+.toggle-btn.toggle-on .toggle-text {
+  left: 6px;
+}
+.toggle-btn.toggle-off .toggle-text {
+  right: 6px;
+}
+.toggle-btn .toggle-circle {
+  position: absolute;
+  top: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: #fff;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.toggle-btn.toggle-on .toggle-circle {
+  left: 28px;
+}
+.toggle-btn.toggle-off .toggle-circle {
+  left: 2px;
+}
 
 </style>

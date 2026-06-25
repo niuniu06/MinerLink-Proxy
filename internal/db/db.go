@@ -36,6 +36,7 @@ func InitDB(dbPath string) {
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
+	
 
 	// Hotfix for v2.0.89 to v2.0.90 migration bug where all existing configs got Enabled=false
 	// We only run this ONCE. We track it using MigratedEnabled in GlobalConfig.

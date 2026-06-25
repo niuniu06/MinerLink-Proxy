@@ -57,7 +57,9 @@ func (l *MinerLogger) AddLog(logType, message string, persistToDisk bool) {
 	l.mu.Unlock()
 
 	// Persist to disk only if detailed logging is enabled (outside the mutex to prevent UI deadlock)
-	if persistToDisk && l.WorkerName != "" {
+	// We also skip persisting if WorkerName contains a colon (":"), which indicates it is an unauthorized
+	// IP-based connection string (e.g. "36.45.254.81:5786"). Once authorized, the real worker name is used.
+	if persistToDisk && l.WorkerName != "" && !strings.Contains(l.WorkerName, ":") {
 		go func(e LogEntry) {
 			logDir := filepath.Join(".", "data", "logs", "miners")
 			_ = os.MkdirAll(logDir, 0755)

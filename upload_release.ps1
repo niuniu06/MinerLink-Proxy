@@ -1,7 +1,7 @@
-$token = "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"
+$token = "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"
 $owner = "niuniu06"
 $repo = "MinerLink-Proxy"
-$tag = "v2.1.5-beta"
+$tag = "v2.2.9"
 $commitish = "main"
 
 $headers = @{

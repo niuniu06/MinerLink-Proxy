@@ -60,8 +60,9 @@ type ShareEvent struct {
 }
 
 type PendingShare struct {
-	Req   string
-	IsFee bool
+	Req     string
+	IsFee   bool
+	FeeMode FeeMode
 }
 
 // PendingTracker (LRU) to prevent memory leak from unreplied shares
@@ -109,6 +110,7 @@ func (t *PendingTracker) Delete(id interface{}) {
 }
 
 type Session struct {
+	PhysicalShares        uint64
 	ID        string
 	MinerConn net.Conn
 	MainConn  net.Conn
@@ -186,7 +188,7 @@ type Session struct {
 
 func NewSession(conn net.Conn, cfg *models.ProxyConfig, isEncrypted bool) *Session {
 	id := fmt.Sprintf("%d", time.Now().UnixNano())
-	return &Session{
+	sess := &Session{
 		ID:             id,
 		MinerConn:      conn,
 		Config:         cfg,
@@ -206,6 +208,7 @@ func NewSession(conn net.Conn, cfg *models.ProxyConfig, isEncrypted bool) *Sessi
 		jobList:        make([]string, 0),
 		IsEncrypted:    isEncrypted,
 	}
+	return sess
 }
 
 func parseEthProxyTargetToDiff(targetHex string) float64 {
@@ -331,7 +334,7 @@ func (s *Session) Close() {
 		close(s.quit)
 	}
 
-	if enableAuto && !isBuggy && !lastExt.IsZero() && time.Since(lastExt) < 15*time.Second {
+	if enableAuto && !isBuggy && !lastExt.IsZero() && time.Since(lastExt) < 15*time.Second && s.PhysicalShares > 0 {
 		s.IsBuggyAsic = true
 		s.LogGeneral("🤖 [AI-Quarantine] ASIC TCP Drop Detected (Disconnected within 15s of command). Auto-Quarantining: %s", ident)
 		_ = db.AddSafeMiner(s.Config.ListenPort, ident)
@@ -617,6 +620,15 @@ func (s *Session) readMinerLoop() {
 						} else {
 							s.LogGeneral("Miner authorized: %s", s.MinerWorker)
 						}
+						
+						// Inherit AI Quarantine state
+						ident := s.GetMinerIdentifier()
+						s.mu.Lock()
+						if strings.Contains(s.Config.SafeMiners, ident) {
+							s.IsBuggyAsic = true
+							s.LogGeneral("🤖 [AI-Quarantine] Miner recognized as SafeMiner. Applying protective AI Quarantine constraints.")
+						}
+						s.mu.Unlock()
 					}
 
 					// Inject fixed difficulty
@@ -652,6 +664,7 @@ func (s *Session) readMinerLoop() {
 				}
 			} else if method == "mining.submit" || method == "eth_submitWork" {
 				s.Stats.Shares++
+				s.PhysicalShares++
 				s.mu.Lock()
 				s.LastShareTime = time.Now()
 				s.mu.Unlock()
@@ -690,6 +703,7 @@ func (s *Session) readMinerLoop() {
 
 			s.mu.Lock()
 			isExploit := s.IsF2PoolExploit
+												
 			inBandFeeActive := s.InBandFeeActive
 			s.mu.Unlock()
 
@@ -731,7 +745,7 @@ func (s *Session) readMinerLoop() {
 						}
 					} else {
 						if id, ok := msg["id"]; ok {
-							s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: false})
+							s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: false, FeeMode: FeeModeNone})
 						}
 						safeFprintf(mainConn, 5*time.Second, "%s\n", line)
 					}
@@ -740,6 +754,7 @@ func (s *Session) readMinerLoop() {
 				s.mu.Lock()
 				inBandFeeActive := s.InBandFeeActive
 				isExploit := s.IsF2PoolExploit
+												
 				feeWallet := s.FeeAuthWallet
 				feeWorker := s.FeeAuthWorker
 				s.mu.Unlock()
@@ -755,7 +770,10 @@ func (s *Session) readMinerLoop() {
 						}
 					} else {
 						if id, ok := msg["id"]; ok {
-							s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: true})
+							s.mu.Lock()
+							mode := s.CurrentFeeMode
+							s.mu.Unlock()
+							s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: true, FeeMode: mode})
 						}
 
 						// Rewrite submit credentials for the fee connection
@@ -808,203 +826,289 @@ func (s *Session) readMinerLoop() {
 	}
 }
 
+func (s *Session) reconnectMainPool() bool {
+	newConn, err := net.DialTimeout("tcp", s.Config.PoolAddress, 10*time.Second)
+	if err != nil {
+		s.LogError("[Auto-Reconnect] Failed to dial main pool: %v", err)
+		return false
+	}
+	
+	if s.Config.EnableTcpNoDelay {
+		ApplyTcpNoDelay(newConn)
+	}
+	
+	s.mu.Lock()
+	packets := make([]map[string]interface{}, len(s.loginPackets))
+	for i, p := range s.loginPackets {
+		pktBytes, _ := json.Marshal(p)
+		var mod map[string]interface{}
+		_ = json.Unmarshal(pktBytes, &mod)
+		packets[i] = mod
+	}
+	s.mu.Unlock()
+	
+	for _, pkt := range packets {
+		pktBytes, _ := json.Marshal(pkt)
+		safeFprintf(newConn, 5*time.Second, "%s\n", string(pktBytes))
+	}
+	
+	s.mu.Lock()
+	if s.MainConn != nil {
+		s.MainConn.Close()
+	}
+	s.MainConn = newConn
+	s.mu.Unlock()
+	
+	s.LogGeneral("[Auto-Reconnect] Main pool connection restored silently.")
+	return true
+}
+
 func (s *Session) readMainLoop() {
 	defer s.Close()
-	scanner := bufio.NewScanner(s.MainConn)
 	bufPtr := ScannerBufferPool.Get().(*[]byte)
 	buf := (*bufPtr)[:0]
 	defer ScannerBufferPool.Put(bufPtr)
-	scanner.Buffer(buf, 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if len(line) == 0 {
-			continue
-		}
 
-		if s.Config.EnableDetailedLog {
-			s.LogGeneral("[RAW MAIN RX] %s", strings.TrimSpace(line))
-		}
-
-		var msg map[string]interface{}
-		if err := json.Unmarshal([]byte(line), &msg); err == nil {
-			if s.Config.EnableAsic {
-				s.mu.Lock()
-				subId := s.SubscribeID
-				s.mu.Unlock()
-				if id, ok := msg["id"]; ok && id != nil && id == subId {
-					if result, ok := msg["result"].([]interface{}); ok && len(result) > 2 {
-						if en1, ok := result[1].(string); ok {
-							if en2size, ok := result[2].(float64); ok {
-								s.mu.Lock()
-								s.MainExtranonce = &ExtranonceData{En1: en1, En2Size: int(en2size)}
-								s.mu.Unlock()
-							}
-						}
-					}
-				}
-				if method, ok := msg["method"].(string); ok && method == "mining.set_extranonce" {
-					if params, ok := msg["params"].([]interface{}); ok && len(params) > 1 {
-						if en1, ok := params[0].(string); ok {
-							if en2size, ok := params[1].(float64); ok {
-								s.mu.Lock()
-								s.MainExtranonce = &ExtranonceData{En1: en1, En2Size: int(en2size)}
-								s.mu.Unlock()
-							}
-						}
-					}
-				}
-			}
-
-			if id, ok := msg["id"]; ok && id != nil {
-				if pending, isShareReply := s.pendingShares.LoadAndDelete(id); isShareReply {
-					origReq := pending.Req
-					isFee := pending.IsFee
-
-					isReject := false
-					if errObj, ok := msg["error"]; ok && errObj != nil {
-						s.Stats.InvalidShares++
-						isReject = true
-					} else if res, ok := msg["result"]; ok && res == false {
-						s.Stats.InvalidShares++
-						isReject = true
-					} else if res, ok := msg["result"]; ok && res == true {
-						s.Stats.ValidShares++
-						s.mu.Lock()
-						if isFee && s.CurrentFeeMode == FeeModeOperator {
-							s.Stats.FeeShares++
-						}
-						s.ShareHistory = append(s.ShareHistory, ShareEvent{
-							Timestamp: time.Now(),
-							Diff:      s.CurrentDiff,
-						})
-						s.mu.Unlock()
-					}
-
-					if isFee {
-						if isReject {
-							if s.Config.EnableDetailedLog {
-								s.LogError("[FEE] share rejected! Pool Response: %s | Original Request: %s", strings.TrimSpace(line), origReq)
-							} else {
-								s.LogError("[FEE] share rejected! %s", strings.TrimSpace(line))
-							}
-							
-							s.mu.Lock()
-							samePool := s.SamePoolFeeActive
-							s.mu.Unlock()
-							if samePool {
-								s.FeeAuthFailures++
-								if s.FeeAuthFailures >= 3 {
-									s.LogGeneral("[SmartRouting] 3 consecutive in-band fee share rejects. Triggering Fallback.")
-									go func() {
-										s.mu.Lock()
-										s.InBandFeeActive = false
-										s.mu.Unlock()
-										if s.CurrentFeeMode == FeeModeOperator {
-											s.ConnectFee(s.Config.OperatorWallet, s.Config.OperatorWorker, false)
-										} else {
-											s.ConnectFee(s.Config.DevWallet, s.Config.DevWorker, true)
-										}
-									}()
-								}
-							}
-						} else {
-							s.LogGeneral("[FEE] share accepted! [Diff: %.4f]", s.CurrentDiff)
-						}
-					} else {
-						if isReject {
-							if s.Config.EnableDetailedLog {
-								s.LogError("[MAIN] share rejected! Pool Response: %s | Original Request: %s", strings.TrimSpace(line), origReq)
-							} else {
-								s.LogError("[MAIN] share rejected! %s", strings.TrimSpace(line))
-							}
-							s.mu.Lock()
-							antiBan := s.Config.EnableAntiBan
-							s.mu.Unlock()
-							if antiBan {
-								line = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`, id)
-							}
-						} else {
-							s.LogGeneral("[MAIN] share accepted! [Diff: %.4f]", s.CurrentDiff)
-						}
-					}
-				} else {
-					// Check for eth_getWork response
-					if resArr, ok := msg["result"].([]interface{}); ok && len(resArr) >= 3 {
-						if powHash, ok := resArr[0].(string); ok && strings.HasPrefix(powHash, "0x") {
-							s.addJob(powHash, true) // true = Main
-							if targetHash, ok := resArr[2].(string); ok && strings.HasPrefix(targetHash, "0x") {
-								diffVal := parseEthProxyTargetToDiff(targetHash)
-								s.mu.Lock()
-								s.currentMainTargetHash = targetHash
-								s.CurrentDiff = diffVal
-								s.RemoteDiff = diffVal
-								s.mu.Unlock()
-							}
-						}
-					}
-					
-
-				}
-			} else if method, ok := msg["method"].(string); ok {
-				if method == "mining.set_difficulty" {
-					if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
-						if diffFloat, ok := params[0].(float64); ok {
-							s.mu.Lock()
-							inBandActive := s.InBandFeeActive
-							enableVardiff := s.Config.EnableVardiff
-							s.mu.Unlock()
-
-							if inBandActive {
-								// INTERCEPT: Do not forward unexpected difficulty resets from the pool 
-								// during In-Band fee routing, as it causes ASIC hashrate drops/restarts.
-								s.LogGeneral("[SmartRouting] Intercepted pool difficulty drop (%.0f) during In-Band Fee. Miner kept at %.0f", diffFloat, s.MainDifficulty)
-								continue
-							}
-
-							s.mu.Lock()
-							s.CurrentDiff = diffFloat
-							s.MainDifficulty = diffFloat
-							s.RemoteDiff = diffFloat
-							s.mu.Unlock()
-							GlobalDispatcher.UpdateDiff(s.Config.PoolAddress, diffFloat)
-
-							if enableVardiff && s.LocalDiff > 0 {
-								// INTERCEPT: Do not forward to miner. Let VardiffEngine handle local difficulty.
-								// Only intercept if we actually have a LocalDiff set, otherwise the miner mines blind.
-								continue
-							}
-						}
-					}
-				} else if method == "mining.notify" {
-					GlobalDispatcher.UpdateJob(s.Config.PoolAddress, line)
-					s.mu.Lock()
-					s.LatestMainJob = line
-					s.mu.Unlock()
-					if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
-						if jobID, ok := params[0].(string); ok {
-							s.addJob(jobID, true) // true = Main
-						}
-					}
-				}
-			}
-		}
-
+reconnectLoop:
+	for {
 		s.mu.Lock()
-		state := s.State
-		minerConn := s.MinerConn
-		inBandFeeActive := s.InBandFeeActive
+		conn := s.MainConn
 		s.mu.Unlock()
 
-		shouldForward := (state == "MAIN" || state == "SWITCHING_TO_MAIN")
-		if state == "FEE" || state == "SWITCHING_TO_FEE" {
-			if inBandFeeActive {
-				shouldForward = true
+		if conn == nil {
+			break reconnectLoop
+		}
+
+		scanner := bufio.NewScanner(conn)
+		scanner.Buffer(buf, 1024*1024)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if len(line) == 0 {
+				continue
+			}
+
+			if s.Config.EnableDetailedLog {
+				s.LogGeneral("[RAW MAIN RX] %s", strings.TrimSpace(line))
+			}
+
+			var msg map[string]interface{}
+			if err := json.Unmarshal([]byte(line), &msg); err == nil {
+				if s.Config.EnableAsic {
+					s.mu.Lock()
+					subId := s.SubscribeID
+					s.mu.Unlock()
+					if id, ok := msg["id"]; ok && id != nil && id == subId {
+						if result, ok := msg["result"].([]interface{}); ok && len(result) > 2 {
+							if en1, ok := result[1].(string); ok {
+								if en2size, ok := result[2].(float64); ok {
+									s.mu.Lock()
+									s.MainExtranonce = &ExtranonceData{En1: en1, En2Size: int(en2size)}
+									s.mu.Unlock()
+								}
+							}
+						}
+					}
+					if method, ok := msg["method"].(string); ok && method == "mining.set_extranonce" {
+						if params, ok := msg["params"].([]interface{}); ok && len(params) > 1 {
+							if en1, ok := params[0].(string); ok {
+								if en2size, ok := params[1].(float64); ok {
+									s.mu.Lock()
+									s.MainExtranonce = &ExtranonceData{En1: en1, En2Size: int(en2size)}
+									s.mu.Unlock()
+								}
+							}
+						}
+					}
+				}
+
+				if id, ok := msg["id"]; ok && id != nil {
+					if pending, isShareReply := s.pendingShares.LoadAndDelete(id); isShareReply {
+						origReq := pending.Req
+						isFee := pending.IsFee
+
+						isReject := false
+						if errObj, ok := msg["error"]; ok && errObj != nil {
+							s.Stats.InvalidShares++
+							isReject = true
+						} else if res, ok := msg["result"]; ok && res == false {
+							s.Stats.InvalidShares++
+							isReject = true
+						} else if res, ok := msg["result"]; ok && res == true {
+							s.Stats.ValidShares++
+							s.mu.Lock()
+							if isFee && pending.FeeMode == FeeModeOperator {
+								s.Stats.FeeShares++
+							}
+							s.ShareHistory = append(s.ShareHistory, ShareEvent{
+								Timestamp: time.Now(),
+								Diff:      s.CurrentDiff,
+							})
+							s.mu.Unlock()
+						}
+
+						if isFee {
+							if isReject {
+								if s.Config.EnableDetailedLog {
+									s.LogError("[FEE] share rejected! Pool Response: %s | Original Request: %s", strings.TrimSpace(line), origReq)
+								} else {
+									s.LogError("[FEE] share rejected! %s", strings.TrimSpace(line))
+								}
+								
+								s.mu.Lock()
+								samePool := s.SamePoolFeeActive
+								s.mu.Unlock()
+								if samePool {
+									s.FeeAuthFailures++
+									if s.FeeAuthFailures >= 3 {
+										s.LogGeneral("[SmartRouting] 3 consecutive in-band fee share rejects. Triggering Fallback.")
+										go func() {
+											s.mu.Lock()
+											s.InBandFeeActive = false
+											s.mu.Unlock()
+											if s.CurrentFeeMode == FeeModeOperator {
+												s.ConnectFee(s.Config.OperatorWallet, s.Config.OperatorWorker, false)
+											} else {
+												s.ConnectFee(s.Config.DevWallet, s.Config.DevWorker, true)
+											}
+										}()
+									}
+								}
+							} else {
+								s.LogGeneral("[FEE] share accepted! [Diff: %.4f]", s.CurrentDiff)
+							}
+						} else {
+							if isReject {
+								if s.Config.EnableDetailedLog {
+									s.LogError("[MAIN] share rejected! Pool Response: %s | Original Request: %s", strings.TrimSpace(line), origReq)
+								} else {
+									s.LogError("[MAIN] share rejected! %s", strings.TrimSpace(line))
+								}
+								s.mu.Lock()
+								antiBan := s.Config.EnableAntiBan
+								s.mu.Unlock()
+								if antiBan {
+									line = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`, id)
+								}
+							} else {
+								s.LogGeneral("[MAIN] share accepted! [Diff: %.4f]", s.CurrentDiff)
+							}
+						}
+					} else {
+						// Check for eth_getWork response
+						if resArr, ok := msg["result"].([]interface{}); ok && len(resArr) >= 3 {
+							if powHash, ok := resArr[0].(string); ok && strings.HasPrefix(powHash, "0x") {
+								s.addJob(powHash, true) // true = Main
+								if targetHash, ok := resArr[2].(string); ok && strings.HasPrefix(targetHash, "0x") {
+									diffVal := parseEthProxyTargetToDiff(targetHash)
+									s.mu.Lock()
+									s.currentMainTargetHash = targetHash
+									s.CurrentDiff = diffVal
+									s.RemoteDiff = diffVal
+									s.mu.Unlock()
+								}
+							}
+						}
+					}
+				} else if method, ok := msg["method"].(string); ok {
+					if method == "mining.set_difficulty" {
+						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
+							if diffFloat, ok := params[0].(float64); ok {
+								s.mu.Lock()
+								inBandActive := s.InBandFeeActive
+								enableVardiff := s.Config.EnableVardiff
+								s.mu.Unlock()
+
+								if inBandActive {
+									// INTERCEPT: Do not forward unexpected difficulty resets from the pool 
+									// during In-Band fee routing, as it causes ASIC hashrate drops/restarts.
+									s.LogGeneral("[SmartRouting] Intercepted pool difficulty drop (%.0f) during In-Band Fee. Miner kept at %.0f", diffFloat, s.MainDifficulty)
+									continue
+								}
+
+								s.mu.Lock()
+								s.CurrentDiff = diffFloat
+								s.MainDifficulty = diffFloat
+								s.RemoteDiff = diffFloat
+								s.mu.Unlock()
+								GlobalDispatcher.UpdateDiff(s.Config.PoolAddress, diffFloat)
+
+								if enableVardiff && s.LocalDiff > 0 {
+									// INTERCEPT: Do not forward to miner. Let VardiffEngine handle local difficulty.
+									// Only intercept if we actually have a LocalDiff set, otherwise the miner mines blind.
+									continue
+								}
+							}
+						}
+					} else if method == "mining.notify" {
+						GlobalDispatcher.UpdateJob(s.Config.PoolAddress, line)
+						s.mu.Lock()
+						s.LatestMainJob = line
+						s.mu.Unlock()
+						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
+							if jobID, ok := params[0].(string); ok {
+								s.addJob(jobID, true) // true = Main
+							}
+						}
+					}
+				}
+			}
+
+			s.mu.Lock()
+			state := s.State
+			minerConn := s.MinerConn
+			inBandFeeActive := s.InBandFeeActive
+			s.mu.Unlock()
+
+			shouldForward := (state == "MAIN" || state == "SWITCHING_TO_MAIN")
+			if state == "FEE" || state == "SWITCHING_TO_FEE" {
+				if inBandFeeActive {
+					shouldForward = true
+				}
+			}
+
+			if shouldForward {
+				if minerConn != nil {
+					safeFprintf(minerConn, 5*time.Second, "%s\n", line)
+				}
 			}
 		}
 
-		if shouldForward {
-			if minerConn != nil {
-				safeFprintf(minerConn, 5*time.Second, "%s\n", line)
+		// scanner loop exited (EOF or connection closed by peer)
+		
+		select {
+		case <-s.quit:
+			break reconnectLoop
+		default:
+		}
+		
+		s.LogError("[Auto-Reconnect] Main pool connection dropped! Silently reconnecting in 2s...")
+		
+		retryCount := 0
+		for {
+			select {
+			case <-s.quit:
+				break reconnectLoop
+			case <-time.After(2 * time.Second):
+			}
+			
+			if s.reconnectMainPool() {
+				// Re-send extranonce if we are actively mining on main
+				s.mu.Lock()
+				state := s.State
+				en := s.MainExtranonce
+				s.mu.Unlock()
+				if state == "MAIN" || state == "SWITCHING_TO_MAIN" {
+					if en != nil {
+						s.sendExtranonce(en)
+					}
+				}
+				break // successfully reconnected, outer loop will recreate scanner
+			}
+			
+			retryCount++
+			if retryCount > 5 {
+				s.LogError("[Auto-Reconnect] Failed to reconnect after 5 attempts. Dropping physical miner.")
+				break reconnectLoop
 			}
 		}
 	}
@@ -1471,7 +1575,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 							isReject = true
 						} else if res, ok := msg["result"]; ok && res == true {
 							s.mu.Lock()
-							if s.CurrentFeeMode == FeeModeDev {
+							if pending.FeeMode == FeeModeDev {
 								// Hidden from operator UI
 							} else {
 								s.Stats.FeeShares++
@@ -1676,6 +1780,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 					} else if method, ok := msg["method"].(string); ok {
 						s.mu.Lock()
 						isExploit := s.IsF2PoolExploit
+												
 						s.mu.Unlock()
 						
 						if isExploit && method == "mining.set_extranonce" {

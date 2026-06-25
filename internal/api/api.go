@@ -104,6 +104,7 @@ func (s *APIServer) Start(port int) error {
 
 		api.GET("/global", s.getGlobalConfig)
 		api.POST("/config/save", s.saveGlobalConfig)
+		api.POST("/config/toggle", s.togglePortConfig)
 		api.GET("/logs/tail", s.getLogs)
 		api.DELETE("/logs/clear", s.clearLogs)
 		
@@ -572,7 +573,7 @@ func isPortInUse(port int) bool {
 	addr := fmt.Sprintf(":%d", port)
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
-		return true // Port is in use
+		return true // Port is in use or inaccessible
 	}
 	l.Close()
 	return false
@@ -623,3 +624,35 @@ func (s *APIServer) doUpgrade(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Upgrade started successfully"})
 }
+
+func (s *APIServer) togglePortConfig(c *gin.Context) {
+	var req struct {
+		ListenPort int  `json:"listenPort"`
+		Enabled    bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := db.DB.Model(&models.ProxyConfig{}).Where("listen_port = ?", req.ListenPort).Update("enabled", req.Enabled).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.Enabled {
+		if err := s.ProxyManager.RestartProxy(req.ListenPort); err != nil {
+			errStr := err.Error()
+			if strings.Contains(errStr, "address already in use") {
+				errStr = "该端口已被其他程序占用 (Address already in use)"
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "端口启动失败：" + errStr})
+			return
+		}
+	} else {
+		s.ProxyManager.StopProxy(req.ListenPort)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
