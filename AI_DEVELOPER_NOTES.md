@@ -380,3 +380,11 @@ esult: true 响应（In-flight shares），这些份额在几毫秒后返回代�
 
 ### v2.2.31 - UI Miner Table Format Update
 - **Feature**: Updated the "SUBMITS" column in the miner table to format large share counts (>= 1000) using a "K" suffix (e.g. 3.13K) and to perfectly match the user's requested layout: "有效 X" on the first line, "无效 Y" on the second line.
+
+### v2.2.32 - Duplicate Stratum Login Response Fix (Miner Auto-Reconnect Drops)
+- **Context**: The user reported multiple miners dropping connection and restarting randomly. Analysis of pcap showed the physical miners sending a TCP RST to the proxy right after receiving a duplicate set of login responses.
+- **Root Cause**: During Proxy Auto-Reconnect to the upstream pool (or during SmartRouting), the proxy dials the new pool and resends the miner's initial mining.subscribe and mining.authorize packets (s.loginPackets). The new pool replies to these with new JSON-RPC responses. The proxy was blindly forwarding these duplicate login responses back to the physical miner. The physical miner, receiving {"id":1, "result":...} long after it had already authenticated, interpreted it as a protocol violation and immediately reset the connection. Additionally, a bug existed where multiple mining.subscribe packets could be appended to s.loginPackets if the miner sent them repeatedly (e.g. from probes).
+- **Fix**: 
+  - Added a filter in eadMinerLoop to prevent redundant mining.subscribe packets from being stored in s.loginPackets.
+  - Added ForwardedResponseIDs tracking map to the Session struct.
+  - In eadMainLoop, before forwarding any response back to the miner, we check if the response's id matches any request in s.loginPackets. If it does, we check if we've already forwarded a response for this ID. If so, we silently drop the duplicate response. This ensures the physical miner only receives exactly one set of login responses, completely resolving the proxy auto-reconnect crash bug.

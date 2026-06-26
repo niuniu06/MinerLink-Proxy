@@ -144,6 +144,8 @@ type Session struct {
 	IsOffline      bool
 	OfflineAt      time.Time
 
+	ForwardedResponseIDs map[string]bool
+
 	FeeAuthWallet  string
 	FeeAuthWorker  string
 
@@ -458,7 +460,25 @@ func (s *Session) readMinerLoop() {
 				var pktCopy map[string]interface{}
 				pktBytes, _ := json.Marshal(msg)
 				_ = json.Unmarshal(pktBytes, &pktCopy)
-				s.loginPackets = append(s.loginPackets, pktCopy)
+				
+				s.mu.Lock()
+				// [Bugfix] Filter out redundant subscribes
+				if method == "mining.subscribe" {
+					hasSubscribe := false
+					for _, pkt := range s.loginPackets {
+						if pkt["method"] == "mining.subscribe" {
+							hasSubscribe = true
+							break
+						}
+					}
+					if !hasSubscribe {
+						s.loginPackets = append(s.loginPackets, pktCopy)
+					}
+				} else {
+					s.loginPackets = append(s.loginPackets, pktCopy)
+				}
+				s.mu.Unlock()
+				
 				if method == "mining.subscribe" {
 					s.mu.Lock()
 					s.SubscribeID = msg["id"]
@@ -1054,6 +1074,34 @@ reconnectLoop:
 			if state == "FEE" || state == "SWITCHING_TO_FEE" {
 				if inBandFeeActive {
 					shouldForward = true
+				}
+			}
+
+			// [Bugfix] Intercept and drop duplicate login responses during auto-reconnect
+			if shouldForward && msg != nil {
+				if id, ok := msg["id"]; ok && id != nil {
+					s.mu.Lock()
+					isLoginPacket := false
+					for _, lp := range s.loginPackets {
+						if lpid, ok := lp["id"]; ok && lpid != nil {
+							if fmt.Sprintf("%v", lpid) == fmt.Sprintf("%v", id) {
+								isLoginPacket = true
+								break
+							}
+						}
+					}
+					if isLoginPacket {
+						idStr := fmt.Sprintf("%v", id)
+						if s.ForwardedResponseIDs == nil {
+							s.ForwardedResponseIDs = make(map[string]bool)
+						}
+						if s.ForwardedResponseIDs[idStr] {
+							shouldForward = false
+						} else {
+							s.ForwardedResponseIDs[idStr] = true
+						}
+					}
+					s.mu.Unlock()
 				}
 			}
 
