@@ -1,32 +1,39 @@
-$token = "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"
-$repo = "niuniu06/MinerLink-Proxy"
-$tag = "v2.2.19"
+param (
+    [Parameter(Mandatory=$true)]
+    [string]$Token,
+    
+    [Parameter(Mandatory=$true)]
+    [string]$Tag,
+    
+    [Parameter(Mandatory=$true)]
+    [string]$Body
+)
 
+$repo = 'niuniu06/MinerLink-Proxy'
 $headers = @{
-    Authorization = "Bearer $token"
+    Authorization = "Bearer $Token"
     Accept = "application/vnd.github.v3+json"
     "User-Agent" = "PowerShell-Release-Script"
 }
 
-$body = @{
-    tag_name = $tag
-    name = $tag
-    body = "Release v2.2.19: Cleaned up obsolete UI features and natively integrated Silent Auto-Reconnect."
+$jsonBody = @{
+    tag_name = $Tag
+    name = "MinerLink Proxy $Tag"
+    body = $Body
 } | ConvertTo-Json
 
-Write-Host "Creating release $tag..."
-$res = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases" -Method Post -Headers $headers -Body $body -ContentType "application/json"
-$uploadUrl = $res.upload_url -replace '\{.*\}$', ''
+Write-Host "Creating release $Tag..."
+$res = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases" -Method Post -Headers $headers -Body $jsonBody -ContentType "application/json"
+$releaseId = $res.id
+Write-Host "Release ID: $releaseId"
 
 function Upload-Asset($filePath, $contentType) {
     $fileName = Split-Path $filePath -Leaf
-    $uri = "$uploadUrl?name=$fileName"
-    Write-Host "Uploading $fileName to $uri..."
-    Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -InFile $filePath -ContentType $contentType
+    $uploadUrl = "https://uploads.github.com/repos/$repo/releases/$releaseId/assets?name=$fileName"
+    Write-Host "Uploading $fileName..."
+    Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers @{ Authorization = "Bearer $Token"; Accept = "application/vnd.github.v3+json"; "Content-Type" = $contentType } -InFile $filePath
 }
 
 Upload-Asset "MinerLink-Proxy-Linux.zip" "application/zip"
 Upload-Asset "MinerLink-Proxy-Windows.zip" "application/zip"
-Upload-Asset "install.sh" "text/plain"
-
 Write-Host "All done!"
