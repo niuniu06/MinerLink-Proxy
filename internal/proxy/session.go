@@ -1051,10 +1051,17 @@ reconnectLoop:
 						GlobalDispatcher.UpdateJob(s.Config.PoolAddress, line)
 						s.mu.Lock()
 						s.LatestMainJob = line
+						isCleanJobs := false
+						if params, ok := msg["params"].([]interface{}); ok && len(params) > 8 {
+							if cj, ok := params[8].(bool); ok && cj {
+								isCleanJobs = true
+							}
+						}
+
 						
 						// Flush pending difficulty if any
 						pendingDiff := s.PendingDiff
-						if pendingDiff > 0 && pendingDiff != s.LocalDiff {
+						if pendingDiff > 0 && pendingDiff != s.LocalDiff && isCleanJobs {
 							s.LocalDiff = pendingDiff
 							s.PendingDiff = 0
 							if s.MinerConn != nil {
@@ -1805,10 +1812,17 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 					} else if method == "mining.notify" {
 						s.mu.Lock()
 						s.LatestFeeJob = line
+						isCleanJobs := false
+						if params, ok := msg["params"].([]interface{}); ok && len(params) > 8 {
+							if cj, ok := params[8].(bool); ok && cj {
+								isCleanJobs = true
+							}
+						}
+
 						
 						// Flush pending difficulty if any
 						pendingDiff := s.PendingDiff
-						if pendingDiff > 0 && pendingDiff != s.LocalDiff {
+						if pendingDiff > 0 && pendingDiff != s.LocalDiff && isCleanJobs {
 							s.LocalDiff = pendingDiff
 							s.PendingDiff = 0
 							if s.MinerConn != nil {
