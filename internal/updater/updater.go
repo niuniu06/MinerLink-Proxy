@@ -150,14 +150,14 @@ func StartUpgrade() error {
 	for _, asset := range release.Assets {
 		name := strings.ToLower(asset.Name)
 		if isWindows {
-			if strings.HasSuffix(name, ".exe") && !strings.Contains(name, "tunnel") {
+			if strings.Contains(name, "windows") && strings.HasSuffix(name, ".zip") && !strings.Contains(name, "tunnel") {
 				downloadURL = asset.BrowserDownloadURL
 				assetName = asset.Name
 				break
 			}
 		} else {
 			// Linux: look for linux target but exclude tunnel
-			if (strings.Contains(name, "linux") || !strings.Contains(name, ".")) && !strings.Contains(name, "tunnel") {
+			if (strings.Contains(name, "linux") && strings.HasSuffix(name, ".zip")) && !strings.Contains(name, "tunnel") {
 				downloadURL = asset.BrowserDownloadURL
 				assetName = asset.Name
 				break
