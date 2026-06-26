@@ -175,6 +175,7 @@ type Session struct {
 	SubscribeID    interface{}
 	MainExtranonce *ExtranonceData
 	FeeExtranonce  *ExtranonceData
+	MainVersionMask string
 
 	// Zero-Latency Switching
 	LatestMainJob string
@@ -912,8 +913,16 @@ reconnectLoop:
 							if en1, ok := params[0].(string); ok {
 								if en2size, ok := params[1].(float64); ok {
 									s.mu.Lock()
+									isDuplicate := false
+									if s.MainExtranonce != nil && s.MainExtranonce.En1 == en1 && s.MainExtranonce.En2Size == int(en2size) {
+										isDuplicate = true
+									}
 									s.MainExtranonce = &ExtranonceData{En1: en1, En2Size: int(en2size)}
 									s.mu.Unlock()
+									if isDuplicate {
+										// [Bugfix] Filter out redundant set_extranonce that causes Antminer to drop connection
+										continue
+									}
 								}
 							}
 						}
