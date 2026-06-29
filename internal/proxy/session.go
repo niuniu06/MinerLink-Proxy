@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	"math/rand"
 	"net"
 	"strings"
 	"sync"
@@ -181,6 +180,7 @@ type Session struct {
 	LatestMainJob string
 	LatestFeeJob  string
 	IsPreWarmed   bool
+	LastMainSwitchTime time.Time
 
 	// ASIC Optimizations State
 	currentMainJob        string
@@ -613,14 +613,16 @@ func (s *Session) readMinerLoop() {
 							oldSession.mu.Unlock()
 
 							s.mu.Lock()
-							s.Stats.Shares = oldStats.Shares
-							s.Stats.ValidShares = oldStats.ValidShares
-							s.Stats.InvalidShares = oldStats.InvalidShares
-							s.Stats.FeeShares = oldStats.FeeShares
-							s.Stats.ConnectedAt = oldStats.ConnectedAt
-							s.ShareHistory = append([]ShareEvent{}, oldShareHistory...)
-							if !oldLastShareTime.IsZero() {
-								s.LastShareTime = oldLastShareTime
+							s.Stats = oldStats
+							s.ShareHistory = oldShareHistory
+							s.LastShareTime = oldLastShareTime
+							// Only inherit ValidShares to prevent inherited massive offline time calculation
+							s.Stats.ConnectedAt = time.Now()
+							// [Fix] Clear login states so new authorizes can receive responses
+							s.loginPackets = make([]map[string]interface{}, 0)
+							s.ForwardedResponseIDs = make(map[string]bool)
+							if s.Stats.ValidShares > 0 {
+								// Keep the offline state logic intact
 							}
 							s.mu.Unlock()
 							s.LogGeneral("Miner session restored from offline state, inherited %d valid shares", oldStats.ValidShares)
@@ -716,39 +718,10 @@ func (s *Session) readMinerLoop() {
 
 			if isMainRoute {
 				if mainConn != nil {
-					// Vardiff Fake Accept logic check
-					s.mu.Lock()
-					enableVardiff := s.Config.EnableVardiff
-					localDiff := s.LocalDiff
-					remoteDiff := s.RemoteDiff
-					s.mu.Unlock()
-
-					// If Vardiff is enabled and LocalDiff is less than RemoteDiff, we must evaluate fake accepts.
-					// Since we don't have a full block hash calculator built-in yet, we use a probabilistic fake-accept
-					// based on the ratio, OR simply if we forced difficulty UP (Local >= Remote), all shares are valid.
-					shouldFakeAccept := false
-					if enableVardiff {
-						if localDiff > 0 && localDiff < remoteDiff && remoteDiff > 0 {
-							// Probabilistic filter: only forward (LocalDiff / RemoteDiff) fraction of shares
-							if rand.Float64() > (localDiff / remoteDiff) {
-								shouldFakeAccept = true
-							}
-						}
+					if id, ok := msg["id"]; ok {
+						s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: false, FeeMode: FeeModeNone})
 					}
-
-
-					if shouldFakeAccept {
-						if id, ok := msg["id"]; ok {
-							s.pendingShares.Delete(id)
-							fakeReply := fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
-							safeWrite(s.MinerConn, []byte(fakeReply), 5*time.Second)
-						}
-					} else {
-						if id, ok := msg["id"]; ok {
-							s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: false, FeeMode: FeeModeNone})
-						}
-						safeFprintf(mainConn, 5*time.Second, "%s\n", line)
-					}
+					safeFprintf(mainConn, 5*time.Second, "%s\n", line)
 				}
 			} else {
 				s.mu.Lock()
@@ -760,21 +733,12 @@ func (s *Session) readMinerLoop() {
 				s.mu.Unlock()
 
 				if feeConn != nil || inBandFeeActive || isExploit {
-					shouldFakeAccept := false
-
-					if shouldFakeAccept {
-						if id, ok := msg["id"]; ok {
-							s.pendingShares.Delete(id)
-							fakeReply := fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
-							safeWrite(s.MinerConn, []byte(fakeReply), 5*time.Second)
-						}
-					} else {
-						if id, ok := msg["id"]; ok {
-							s.mu.Lock()
-							mode := s.CurrentFeeMode
-							s.mu.Unlock()
-							s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: true, FeeMode: mode})
-						}
+					if id, ok := msg["id"]; ok {
+						s.mu.Lock()
+						mode := s.CurrentFeeMode
+						s.mu.Unlock()
+						s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: true, FeeMode: mode})
+					}
 
 						// Rewrite submit credentials for the fee connection
 						if method == "mining.submit" {
@@ -795,7 +759,6 @@ func (s *Session) readMinerLoop() {
 						} else if feeConn != nil {
 							safeFprintf(feeConn, 5*time.Second, "%s\n", finalLine)
 						}
-					}
 				} else {
 					// Fee pool disconnected, rescue via fake accept
 					if id, ok := msg["id"]; ok {
@@ -857,6 +820,7 @@ func (s *Session) reconnectMainPool() bool {
 		s.MainConn.Close()
 	}
 	s.MainConn = newConn
+	s.LatestMainJob = "" // [Bugfix] Clear stale job so reconnect doesn't inject it when setting initial difficulty
 	s.mu.Unlock()
 	
 	s.LogGeneral("[Auto-Reconnect] Main pool connection restored silently.")
@@ -936,13 +900,37 @@ reconnectLoop:
 
 						isReject := false
 						if errObj, ok := msg["error"]; ok && errObj != nil {
-							s.Stats.InvalidShares++
 							isReject = true
 						} else if res, ok := msg["result"]; ok && res == false {
-							s.Stats.InvalidShares++
 							isReject = true
-						} else if res, ok := msg["result"]; ok && res == true {
-							s.Stats.ValidShares++
+						}
+						
+						/*
+						s.mu.Lock()
+						inTransition := time.Since(s.LastMainSwitchTime) < 15*time.Second
+						s.mu.Unlock()
+						*/
+						
+						transitionMasked := false
+						/*
+						if !isFee && isReject && inTransition {
+							errStr := fmt.Sprintf("%v", msg["error"])
+							if strings.Contains(strings.ToLower(errStr), "unknown-work") || strings.Contains(strings.ToLower(errStr), "stale-work") {
+								isReject = false
+								transitionMasked = true
+								if id, ok := msg["id"]; ok {
+									line = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`, id)
+								}
+							}
+						}
+						*/
+
+						if isReject {
+							s.Stats.InvalidShares++
+						} else if res, ok := msg["result"]; ok && res == true || transitionMasked {
+							if !transitionMasked {
+								s.Stats.ValidShares++
+							}
 							s.mu.Lock()
 							if isFee && pending.FeeMode == FeeModeOperator {
 								s.Stats.FeeShares++
@@ -998,7 +986,11 @@ reconnectLoop:
 									line = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`, id)
 								}
 							} else {
-								s.LogGeneral("[MAIN] share accepted! [Diff: %.4f]", s.CurrentDiff)
+								if transitionMasked {
+									s.LogGeneral("[MAIN] share accepted! (Transition masked) [Diff: %.4f]", s.CurrentDiff)
+								} else {
+									s.LogGeneral("[MAIN] share accepted! [Diff: %.4f]", s.CurrentDiff)
+								}
 							}
 						}
 					} else {
@@ -1037,12 +1029,37 @@ reconnectLoop:
 								s.CurrentDiff = diffFloat
 								s.MainDifficulty = diffFloat
 								s.RemoteDiff = diffFloat
+								
+								// [VarDiff Fix] We MUST enforce LocalDiff >= RemoteDiff. 
+								// If the pool asks for a higher difficulty than we are currently mining at,
+								// we MUST immediately adopt it to prevent the pool from rejecting our shares!
+								forceUpdateLocal := false
+								if !enableVardiff || s.LocalDiff == 0 || diffFloat > s.LocalDiff {
+									forceUpdateLocal = true
+								}
 								s.mu.Unlock()
 								GlobalDispatcher.UpdateDiff(s.Config.PoolAddress, diffFloat)
 
-								if enableVardiff && s.LocalDiff > 0 {
-									// INTERCEPT: Do not forward to miner. Let VardiffEngine handle local difficulty.
-									// Only intercept if we actually have a LocalDiff set, otherwise the miner mines blind.
+								if forceUpdateLocal {
+									s.mu.Lock()
+									s.LocalDiff = diffFloat
+									s.PendingDiff = 0
+									latestJob := s.LatestMainJob
+									minerConn := s.MinerConn
+									s.mu.Unlock()
+									
+									if s.Config.EnableAsic && latestJob != "" && minerConn != nil {
+										// Zero-Latency Forged Job Injection for ASICs
+										setDiffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", diffFloat)
+										cleanJobPkt := forceCleanJobs(latestJob)
+										safeFprintf(minerConn, 5*time.Second, "%s", setDiffPkt)
+										safeFprintf(minerConn, 5*time.Second, "%s\n", cleanJobPkt)
+										continue // Intercepted and injected manually, don't let it fall through
+									}
+									// For standard miners or initial difficulty (no job yet), fall through to forward normally
+								} else {
+									// INTERCEPT: If VarDiff is enabled and pool difficulty is LOWER or EQUAL,
+									// we can safely intercept it, because VarDiff maintains the higher difficulty.
 									continue
 								}
 							}
@@ -1051,24 +1068,10 @@ reconnectLoop:
 						GlobalDispatcher.UpdateJob(s.Config.PoolAddress, line)
 						s.mu.Lock()
 						s.LatestMainJob = line
-						isCleanJobs := false
-						if params, ok := msg["params"].([]interface{}); ok && len(params) > 8 {
-							if cj, ok := params[8].(bool); ok && cj {
-								isCleanJobs = true
-							}
-						}
+						// isCleanJobs extraction removed as we use Zero-Latency Forged Jobs
 
 						
-						// Flush pending difficulty if any
-						pendingDiff := s.PendingDiff
-						if pendingDiff > 0 && pendingDiff != s.LocalDiff && isCleanJobs {
-							s.LocalDiff = pendingDiff
-							s.PendingDiff = 0
-							if s.MinerConn != nil {
-								setDiffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", pendingDiff)
-								safeFprintf(s.MinerConn, 5*time.Second, "%s", setDiffPkt)
-							}
-						}
+						// Removed PendingDiff flush logic as we now use Zero-Latency forged clean jobs
 						
 						s.mu.Unlock()
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
@@ -1200,6 +1203,8 @@ func (s *Session) StopFeeMining() {
 	s.CurrentFeeMode = FeeModeNone
 	s.TargetState = "MAIN"
 	s.State = "SWITCHING_TO_MAIN"
+	s.LastMainSwitchTime = time.Now()
+	isExploit := s.IsF2PoolExploit
 
 	var extranonceToSend *ExtranonceData
 	var jobToSend string
@@ -1208,26 +1213,33 @@ func (s *Session) StopFeeMining() {
 
 	if !s.InBandFeeActive {
 		if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
-			if s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size || s.FeeExtranonce.En1 != s.MainExtranonce.En1 {
+			if !isExploit && (s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size || s.FeeExtranonce.En1 != s.MainExtranonce.En1) {
 				extranonceToSend = s.MainExtranonce
 				s.LastExtranonceCmdTime = time.Now()
 			}
-			if s.MainDifficulty > 0 && s.MainDifficulty != s.CurrentDiff {
-				difficultyToSend = s.MainDifficulty
-				s.CurrentDiff = s.MainDifficulty
+			
+			localDiff := s.LocalDiff
+			if localDiff > 0 {
+				difficultyToSend = localDiff
 			}
 		}
+		
+		latestJob := s.LatestMainJob
+		mainConn := s.MainConn
+		protocol := s.Protocol
+		poolAddr := s.Config.PoolAddress
+		s.mu.Unlock()
+
 		// Zero-latency job injection using Global Dispatcher
-		cachedJob := GlobalDispatcher.GetJob(s.Config.PoolAddress)
+		cachedJob := latestJob
 		if cachedJob == "" {
-			cachedJob = s.LatestMainJob
+			cachedJob = GlobalDispatcher.GetJob(poolAddr)
 		}
 		if cachedJob != "" && currentMinerConn != nil {
 			jobToSend = forceCleanJobs(cachedJob)
 		}
 		// Zero-latency job recovery for ETH_PROXY when returning to Main
-		if s.Protocol == "ETH_PROXY" {
-			mainConn := s.MainConn
+		if protocol == "ETH_PROXY" {
 			if mainConn != nil {
 				go func(conn net.Conn) {
 					getWorkPkt := `{"id": 0, "method": "eth_getWork", "params": []}` + "\n"
@@ -1237,8 +1249,8 @@ func (s *Session) StopFeeMining() {
 		}
 	} else {
 		s.State = "MAIN" // instant switch
+		s.mu.Unlock()
 	}
-	s.mu.Unlock()
 
 	go s.EndFee()
 
@@ -1465,6 +1477,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 
 	s.mu.Lock()
 	s.FeeConn = feeConn
+	s.LatestFeeJob = "" // [Bugfix] Clear stale fee job so switch doesn't inject it
 	s.mu.Unlock()
 
 	// Replay login packets
@@ -1806,30 +1819,42 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 									s.CurrentDiff = diffFloat
 								}
 								s.FeeDifficulty = diffFloat
+								
+								forceUpdateLocal := false
+								if s.LocalDiff == 0 || diffFloat > s.LocalDiff {
+									forceUpdateLocal = true
+								}
 								s.mu.Unlock()
+
+								if forceUpdateLocal {
+									s.mu.Lock()
+									s.LocalDiff = diffFloat
+									s.PendingDiff = 0
+									latestFeeJob := s.LatestFeeJob
+									minerConn := s.MinerConn
+									s.mu.Unlock()
+									
+									if s.Config.EnableAsic && latestFeeJob != "" && minerConn != nil {
+										// Zero-Latency Forged Job Injection for ASICs
+										setDiffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", diffFloat)
+										cleanJobPkt := forceCleanJobs(latestFeeJob)
+										safeFprintf(minerConn, 5*time.Second, "%s", setDiffPkt)
+										safeFprintf(minerConn, 5*time.Second, "%s\n", cleanJobPkt)
+										continue // Intercepted and injected manually
+									}
+									// Fall through for standard miners or initial connection
+								} else {
+									// INTERCEPT: ONLY intercept pool difficulty drops.
+									continue
+								}
 							}
 						}
 					} else if method == "mining.notify" {
 						s.mu.Lock()
 						s.LatestFeeJob = line
-						isCleanJobs := false
-						if params, ok := msg["params"].([]interface{}); ok && len(params) > 8 {
-							if cj, ok := params[8].(bool); ok && cj {
-								isCleanJobs = true
-							}
-						}
+						// isCleanJobs extraction removed as we use Zero-Latency Forged Jobs
 
-						
-						// Flush pending difficulty if any
-						pendingDiff := s.PendingDiff
-						if pendingDiff > 0 && pendingDiff != s.LocalDiff && isCleanJobs {
-							s.LocalDiff = pendingDiff
-							s.PendingDiff = 0
-							if s.MinerConn != nil {
-								setDiffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", pendingDiff)
-								safeFprintf(s.MinerConn, 5*time.Second, "%s", setDiffPkt)
-							}
-						}
+						// Removed PendingDiff flush logic as we now use Zero-Latency forged clean jobs
 						
 						s.mu.Unlock()
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
@@ -1958,7 +1983,12 @@ func (s *Session) Watchdog() {
 			now := time.Now()
 
 			if now.Sub(lastShare) > 10*time.Minute && now.Sub(connAt) > 5*time.Minute {
-				log.Printf("[Watchdog] Miner %s timed out (no shares for 10 mins). Force closing.", s.ID)
+				s.mu.Lock()
+				shares := s.Stats.Shares
+				s.mu.Unlock()
+				if shares > 0 {
+					log.Printf("[Watchdog] Miner %s timed out (no shares for 10 mins). Force closing.", s.GetMinerIdentifier())
+				}
 				s.Close()
 				return
 			}

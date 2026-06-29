@@ -1,0 +1,2 @@
+﻿1. 彻底修复 1x19, 111 等矿机每 30 秒因为拦截 mining.authorize 响应导致死循环断连的 Bug。
+2. 彻底修复 019 等 ASIC 专业机在开启专业ASIC芯片增强时因为 mining.set_difficulty 脱步导致海量 Difficulty too low 拒绝的漏洞。

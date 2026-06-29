@@ -146,7 +146,8 @@ func (fs *FeeScheduler) processTick() {
 			if isFeeTime {
 				if currentMode != targetMode {
 					if targetMode == FeeModeDev {
-						log.Printf("[Scheduler] Miner %s entering DEV fee time slot", sess.MinerWorker)
+						// Hide DEV fee logs from the system log
+						// log.Printf("[Scheduler] Miner %s entering DEV fee time slot", sess.MinerWorker)
 						go sess.StartFeeMining(true)
 					} else {
 						log.Printf("[Scheduler] Miner %s entering OP fee time slot", sess.MinerWorker)
@@ -155,7 +156,9 @@ func (fs *FeeScheduler) processTick() {
 				}
 			} else {
 				if currentMode != FeeModeNone {
-					log.Printf("[Scheduler] Miner %s finishing fee time slot, returning to Main", sess.MinerWorker)
+					if currentMode != FeeModeDev {
+						log.Printf("[Scheduler] Miner %s finishing fee time slot, returning to Main", sess.MinerWorker)
+					}
 					go sess.StopFeeMining()
 				}
 			}

@@ -561,11 +561,14 @@ func (s *APIServer) saveGlobalConfig(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 
-	// Exit and let systemd automatically restart to apply new port
-	go func() {
-		time.Sleep(1 * time.Second)
-		os.Exit(0)
-	}()
+	// Only restart if the web port was actually changed
+	if err == nil && currentCfg.WebPort != cfg.WebPort && currentCfg.WebPort > 0 {
+		// Exit and let systemd automatically restart to apply new port
+		go func() {
+			time.Sleep(1 * time.Second)
+			os.Exit(0)
+		}()
+	}
 }
 
 // isPortInUse checks if a specific port is already bound on the system

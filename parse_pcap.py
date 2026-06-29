@@ -1,13 +1,14 @@
-import sys
-try:
-    from scapy.all import rdpcap, TCP, IP, Raw
-    pcap = rdpcap('C:/Users/ba876/Desktop/proxy_capture.pcap')
-    for pkt in pcap:
-        if pkt.haslayer(TCP) and pkt.haslayer(Raw):
-            payload = pkt[Raw].load.decode('utf-8', 'ignore')
-            if 'mining.set_difficulty' in payload:
-                print(f"[{pkt.time}] Found set_diff: {payload.strip()}")
-        if pkt.haslayer(TCP) and (pkt[TCP].flags & 0x01 or pkt[TCP].flags & 0x04): # FIN or RST
-            print(f"[{pkt.time}] FIN/RST src={pkt[IP].src}:{pkt[TCP].sport} dst={pkt[IP].dst}:{pkt[TCP].dport}")
-except Exception as e:
-    print(f"Error: {e}")
+import re
+
+with open(r'C:\Users\ba876\Desktop\proxy_capture.pcap', 'rb') as f:
+    data = f.read()
+
+matches = list(re.finditer(b'\{.*?\}', data))
+start_idx = 3600
+end_idx = min(len(matches), start_idx + 25)
+
+for i in range(start_idx, end_idx):
+    try:
+        print(f"{i}: {matches[i].group(0).decode('utf-8')[:200]}")
+    except:
+        pass

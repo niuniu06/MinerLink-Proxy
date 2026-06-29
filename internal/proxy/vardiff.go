@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"fmt"
 	"log"
 	"math"
 	"time"
@@ -96,8 +97,46 @@ func (s *Session) evaluateVardiff() {
 			if newDiff <= 0 {
 				newDiff = 1
 			}
-			s.PendingDiff = newDiff
+
+			// [CRITICAL FIX]: Never allow LocalDiff to drop below RemoteDiff (Pool Difficulty).
+			// Since we do not locally compute the SHA256d hash of the shares, 
+			// if LocalDiff < RemoteDiff, the proxy will forward low-difficulty shares to the pool,
+			// causing the pool to instantly reject them with "high-hash" errors and potentially ban the proxy IP.
+			s.mu.Lock()
+			remoteDiff := s.RemoteDiff
+			s.mu.Unlock()
+			if remoteDiff > 0 && newDiff < remoteDiff {
+				newDiff = remoteDiff
+			}
+
+			if newDiff == oldDiff {
+				return
+			}
+
+			s.mu.Lock()
+			s.LocalDiff = newDiff
+			s.PendingDiff = 0
+			
+			latestJob := ""
+			if s.State == "MAIN" || s.State == "SWITCHING_TO_MAIN" {
+				latestJob = s.LatestMainJob
+			} else {
+				latestJob = s.LatestFeeJob
+			}
+			minerConn := s.MinerConn
+			s.mu.Unlock()
+			
 			log.Printf("[Vardiff] Miner %s rate=%d/min. Queuing LocalDiff %.0f -> %.0f", s.ID, sharesLastMinute, oldDiff, newDiff)
+			if minerConn != nil {
+				setDiffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", newDiff)
+				if s.Config.EnableAsic && latestJob != "" {
+					cleanJobPkt := forceCleanJobs(latestJob)
+					safeFprintf(minerConn, 5*time.Second, "%s", setDiffPkt)
+					safeFprintf(minerConn, 5*time.Second, "%s\n", cleanJobPkt)
+				} else {
+					safeFprintf(minerConn, 5*time.Second, "%s", setDiffPkt)
+				}
+			}
 		}
 	}()
 }
