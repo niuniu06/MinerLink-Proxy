@@ -374,20 +374,16 @@ func (s *Session) GetHashrateMHs() float64 {
 		multiplier = 1.0
 	}
 
-	// Calculate rolling window hashrate (10 minutes)
+	// Calculate rolling window hashrate (3 minutes)
 	now := time.Now()
-	// Reverted to 10 minutes to save CPU under massive concurrency (10,000+ miners)
-	updateInterval := 10 * time.Minute
+	// Update every 10 seconds for real-time UI feedback
+	updateInterval := 10 * time.Second
 	uptimeSecs := now.Sub(s.Stats.ConnectedAt).Seconds()
-
-	if uptimeSecs < 600 {
-		updateInterval = 1 * time.Minute
-	}
 
 	if now.Sub(s.LastHashUpdate) >= updateInterval || s.DisplayHash == 0 {
 		s.mu.Lock()
-		// Filter last 10 minutes
-		cutoff := now.Add(-10 * time.Minute)
+		// Filter last 3 minutes (180 seconds)
+		cutoff := now.Add(-3 * time.Minute)
 		filtered := make([]ShareEvent, 0)
 		var diffSum float64 = 0
 
@@ -400,8 +396,18 @@ func (s *Session) GetHashrateMHs() float64 {
 		s.ShareHistory = filtered
 
 		window := uptimeSecs
-		if window > 600 {
-			window = 600
+		// To prevent DAG generation time from dragging down the initial hashrate,
+		// we shrink the window to the actual hashing time if we have shares.
+		if len(filtered) > 0 {
+			actualHashingTime := now.Sub(filtered[0].Timestamp).Seconds()
+			// Add 10 seconds buffer to prevent wild spikes on the first few shares
+			if actualHashingTime+10 < window {
+				window = actualHashingTime + 10
+			}
+		}
+
+		if window > 180 {
+			window = 180
 		}
 		if window <= 0 {
 			window = 1
