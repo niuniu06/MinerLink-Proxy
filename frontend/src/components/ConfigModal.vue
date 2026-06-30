@@ -20,7 +20,6 @@
               <option value="BCH">BCH</option>
               <option value="KAS">KAS (Kaspa)</option>
               <option value="LTC">LTC (莱特币)</option>
-              <option value="DOGE">DOGE (狗狗币)</option>
               <option value="ETC">ETC (以太经典)</option>
               <option value="ETHW">ETHW</option>
               <option value="DASH">DASH</option>
@@ -69,6 +68,13 @@
           </button>
           
           <div v-if="showAdvanced" class="advanced-content">
+            <label class="switch-row" v-show="false">
+              <input type="checkbox" v-model="form.enableStaleDrop" />
+              <div class="switch-info">
+                <div class="switch-title">🚀 开启过期份额主动拦截 (Stale Share Drop)</div>
+                <div class="switch-desc">本地直接丢弃矿机换块延迟产生的 Stale Share 并伪造 Accept，实现矿池端账面完美 0 拒绝</div>
+              </div>
+            </label>
 
             <label class="switch-row">
               <input type="checkbox" v-model="form.enableEthTargetRewrite" />
@@ -78,7 +84,7 @@
               </div>
             </label>
 
-            <label class="switch-row" v-show="true">
+            <label class="switch-row" v-show="false">
               <input type="checkbox" v-model="form.enableTcpNoDelay" />
               <div class="switch-info">
                 <div class="switch-title">⚡ 强制底层极速网络推送 (TCP NoDelay)</div>
@@ -86,7 +92,27 @@
               </div>
             </label>
 
+            <label class="switch-row" v-show="false">
+              <input type="checkbox" v-model="form.enableAutoQuarantine" />
+              <div class="switch-info">
+                <div class="switch-title">🤖 开启 AI 智能保算力引擎 (Auto-Quarantine)</div>
+                <div class="switch-desc">全自动捕获切换死机的老旧矿机，自动拉黑赦免，宁丢抽水绝不毁算力</div>
+              </div>
+            </label>
 
+            <div class="input-group" v-show="false" style="margin-top: 15px;">
+              <label>保算力例外名单 (Safe Miners)</label>
+              <textarea v-model="form.safeMiners" placeholder="格式: 钱包地址.矿工名 (例如 1A1zP1...x.1x115) 多个用英文逗号隔开。自动拦截引擎捕获的病机也会自动追加到这里。" rows="3" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #333; background: #1a1a1a; color: #fff; font-family: monospace;"></textarea>
+            </div>
+
+            <label class="switch-row" v-show="false">
+              <input type="checkbox" v-model="form.enableSmoothFee" />
+              <div class="switch-info">
+                <div class="switch-title">平滑无感抽水引擎</div>
+                <div class="switch-desc">打破整块抽水，微秒级分散，彻底消除算力波谷掉线</div>
+              </div>
+            </label>
+            
             <label class="switch-row">
               <input type="checkbox" v-model="form.enableAsic" />
               <div class="switch-info">
@@ -95,7 +121,7 @@
               </div>
             </label>
 
-            <label class="switch-row" v-show="true">
+            <label class="switch-row" v-show="false">
               <input type="checkbox" v-model="form.enableAntiBan" />
               <div class="switch-info">
                 <div class="switch-title">开启完美防封禁 (0拒绝)</div>
@@ -111,6 +137,13 @@
               </div>
             </label>
 
+            <label class="switch-row">
+              <input type="checkbox" v-model="form.isViaBtcOptimize" />
+              <div class="switch-info">
+                <div class="switch-title">开启微比特 (ViaBTC) 深度优化</div>
+                <div class="switch-desc">开启后强行过滤重叠期废旧份额并向矿机伪造 Accept，实现 0 损耗、0 报错</div>
+              </div>
+            </label>
 
             <label class="switch-row">
               <input type="checkbox" v-model="form.enableVardiff" />
@@ -213,9 +246,11 @@ const form = ref({
   devFeePercent: 2.0,
   operatorWallet: '',
   operatorFeePercent: '',
+  enableSmoothFee: true,
   enableAsic: false,
   enableAntiBan: true,
   enableDetailedLog: false,
+  isViaBtcOptimize: false,
   mainFixedDifficulty: '',
   feeFixedDifficulty: '',
   hashrateMultiplier: 1.0,
@@ -224,8 +259,11 @@ const form = ref({
   feePoolAddress: '',
   enableVardiff: false,
   targetShareRate: '',
+  enableStaleDrop: true,
   enableEthTargetRewrite: false,
-  enableTcpNoDelay: true
+  enableTcpNoDelay: true,
+  enableAutoQuarantine: true,
+  safeMiners: ''
 })
 
 onMounted(() => {
@@ -240,9 +278,11 @@ onMounted(() => {
       devFeePercent: props.initialData.devFeePercent || 0,
       operatorWallet: props.initialData.operatorWallet || '',
       operatorFeePercent: props.initialData.operatorFeePercent || 0,
+      enableSmoothFee: !!props.initialData.enableSmoothFee,
       enableAsic: !!props.initialData.enableAsic,
       enableAntiBan: !!props.initialData.enableAntiBan,
       enableDetailedLog: !!props.initialData.enableDetailedLog,
+      isViaBtcOptimize: !!props.initialData.isViaBtcOptimize,
       mainFixedDifficulty: props.initialData.mainFixedDifficulty || '',
       feeFixedDifficulty: props.initialData.feeFixedDifficulty || '',
       hashrateMultiplier: props.initialData.hashrateMultiplier || 1.0,
@@ -251,8 +291,11 @@ onMounted(() => {
       feePoolAddress: props.initialData.feePoolAddress || '',
       enableVardiff: !!props.initialData.enableVardiff,
       targetShareRate: props.initialData.targetShareRate || '',
+      enableStaleDrop: !!props.initialData.enableStaleDrop,
       enableEthTargetRewrite: !!props.initialData.enableEthTargetRewrite,
-      enableTcpNoDelay: !!props.initialData.enableTcpNoDelay
+      enableTcpNoDelay: !!props.initialData.enableTcpNoDelay,
+      enableAutoQuarantine: !!props.initialData.enableAutoQuarantine,
+      safeMiners: props.initialData.safeMiners || ''
     }
   }
 })
@@ -273,9 +316,11 @@ const save = async () => {
         devFeePercent: Number(form.value.devFeePercent),
         operatorWallet: form.value.operatorWallet,
         operatorFeePercent: Number(form.value.operatorFeePercent || 0),
+        enableSmoothFee: form.value.enableSmoothFee,
         enableAsic: form.value.enableAsic,
         enableAntiBan: form.value.enableAntiBan,
         enableDetailedLog: form.value.enableDetailedLog,
+        isViaBtcOptimize: form.value.isViaBtcOptimize,
         mainFixedDifficulty: form.value.mainFixedDifficulty,
         feeFixedDifficulty: form.value.feeFixedDifficulty,
         hashrateMultiplier: Number(form.value.hashrateMultiplier),
@@ -283,8 +328,11 @@ const save = async () => {
         feeCycleMinutes: Number(form.value.feeCycleMinutes || 100),
         enableVardiff: form.value.enableVardiff,
         targetShareRate: Number(form.value.targetShareRate || 2),
+        enableStaleDrop: form.value.enableStaleDrop,
         enableEthTargetRewrite: form.value.enableEthTargetRewrite,
-        enableTcpNoDelay: form.value.enableTcpNoDelay
+        enableTcpNoDelay: form.value.enableTcpNoDelay,
+        enableAutoQuarantine: form.value.enableAutoQuarantine,
+        safeMiners: form.value.safeMiners
       })
     })
     if (res.ok) {

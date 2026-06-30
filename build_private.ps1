@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 Write-Host "Building Private MinerLink-Proxy v2.0.66-beta..."
-git checkout 3d8a98c -- frontend/src/components/ConfigModal.vue
+Copy-Item -Path frontend/src/components/ConfigModal_private.vue -Destination frontend/src/components/ConfigModal.vue -Force
 node -e "const fs=require('fs'); fs.writeFileSync('frontend/index.html', fs.readFileSync('frontend/index.html', 'utf8').replace(/<title>.*<\/title>/, '<title>MinerLink-Proxy</title>'));"
 node -e "const fs=require('fs'); let c=fs.readFileSync('frontend/src/components/ConfigModal.vue', 'utf8'); c=c.replace(/<option value=\x22DOGE\x22>.*<\/option>\r?\n?\s*/g, ''); fs.writeFileSync('frontend/src/components/ConfigModal.vue', c);"
 
@@ -28,4 +28,4 @@ Compress-Archive -Path MinerLink-Proxy-windows-amd64.exe -DestinationPath MinerL
 Write-Host "Build complete! Uploading via python script..."
 git checkout HEAD -- frontend/src/components/ConfigModal.vue frontend/index.html
 
-python upload_private.py
+# python upload_private.py
