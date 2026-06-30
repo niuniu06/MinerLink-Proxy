@@ -308,14 +308,43 @@ func (s *APIServer) addConfig(c *gin.Context) {
 	// Check if this is a NEW config or a port modification
 	configs, _ := db.GetAllConfigs()
 	portExists := false
-	for _, exist := range configs {
+	var existCfgPtr *models.ProxyConfig
+	for i, exist := range configs {
 		if exist.ListenPort == cfg.ListenPort {
 			portExists = true
+			existCfgPtr = &configs[i]
 			break
 		}
 	}
 
 	isPortChanged := req.IsEdit && req.OldListenPort > 0 && req.OldListenPort != cfg.ListenPort
+
+	var isSoftReload bool
+	if req.IsEdit && !isPortChanged && existCfgPtr != nil {
+		if existCfgPtr.CoinName == cfg.CoinName &&
+			existCfgPtr.PoolAddress == cfg.PoolAddress &&
+			existCfgPtr.FeePoolAddress == cfg.FeePoolAddress &&
+			existCfgPtr.OperatorWallet == cfg.OperatorWallet &&
+			existCfgPtr.OperatorWorker == cfg.OperatorWorker &&
+			existCfgPtr.OperatorFeePercent == cfg.OperatorFeePercent &&
+			existCfgPtr.DevWallet == cfg.DevWallet &&
+			existCfgPtr.DevWorker == cfg.DevWorker &&
+			existCfgPtr.DevFeePercent == cfg.DevFeePercent &&
+			existCfgPtr.EnableAsic == cfg.EnableAsic &&
+			existCfgPtr.EnableAntiBan == cfg.EnableAntiBan &&
+			existCfgPtr.MainFixedDifficulty == cfg.MainFixedDifficulty &&
+			existCfgPtr.FeeFixedDifficulty == cfg.FeeFixedDifficulty &&
+			existCfgPtr.WebhookUrl == cfg.WebhookUrl &&
+			existCfgPtr.FeeCycleMinutes == cfg.FeeCycleMinutes &&
+			existCfgPtr.EnableEthTargetRewrite == cfg.EnableEthTargetRewrite &&
+			existCfgPtr.EnableTcpNoDelay == cfg.EnableTcpNoDelay &&
+			existCfgPtr.EnableVardiff == cfg.EnableVardiff &&
+			existCfgPtr.TargetShareRate == cfg.TargetShareRate &&
+			existCfgPtr.HashrateMultiplier == cfg.HashrateMultiplier &&
+			existCfgPtr.HashrateUnit == cfg.HashrateUnit {
+			isSoftReload = true
+		}
+	}
 
 	if !req.IsEdit || isPortChanged {
 		if portExists {
@@ -338,6 +367,16 @@ func (s *APIServer) addConfig(c *gin.Context) {
 	if err := db.SaveConfig(&cfg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	if isSoftReload {
+		if val, ok := s.ProxyManager.Servers.Load(cfg.ListenPort); ok {
+			server := val.(*proxy.Server)
+			// Apply directly to memory!
+			server.Config.EnableDetailedLog = cfg.EnableDetailedLog
+			c.JSON(http.StatusOK, gin.H{"success": true, "message": "Config updated in memory (0 downtime)"})
+			return
+		}
 	}
 
 	// Hot reload

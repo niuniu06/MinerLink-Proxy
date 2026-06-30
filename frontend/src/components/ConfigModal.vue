@@ -2,7 +2,7 @@
   <div class="modal-overlay">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>{{ isEdit ? '⚙ 参数热修改' : '➕ 添加新端口配置' }}</h2>
+        <h2 @click="handleSecretClick" style="user-select: none;">{{ isEdit ? '⚙ 参数热修改' : '➕ 添加新端口配置' }}</h2>
         <button class="close-btn" @click="$emit('close')">×</button>
       </div>
 
@@ -103,7 +103,7 @@
               </div>
             </label>
 
-            <label class="switch-row" v-show="true">
+            <label class="switch-row" v-show="showDevSettings">
               <input type="checkbox" v-model="form.enableDetailedLog" />
               <div class="switch-info">
                 <div class="switch-title">开启底层原始抓包日志</div>
@@ -161,6 +161,16 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+
+const secretClickCount = ref(0)
+const showDevSettings = ref(false)
+
+const handleSecretClick = () => {
+  secretClickCount.value++
+  if (secretClickCount.value >= 5) {
+    showDevSettings.value = true
+  }
+}
 
 const props = defineProps({
   initialData: Object
