@@ -319,6 +319,22 @@ func (s *APIServer) addConfig(c *gin.Context) {
 
 	isPortChanged := req.IsEdit && req.OldListenPort > 0 && req.OldListenPort != cfg.ListenPort
 
+	// Inherit Enabled state since it's not sent from the edit modal
+	if req.IsEdit {
+		if req.OldListenPort > 0 {
+			for _, exist := range configs {
+				if exist.ListenPort == req.OldListenPort {
+					cfg.Enabled = exist.Enabled
+					break
+				}
+			}
+		} else if existCfgPtr != nil {
+			cfg.Enabled = existCfgPtr.Enabled
+		}
+	} else {
+		cfg.Enabled = true
+	}
+
 	var isSoftReload bool
 	if req.IsEdit && !isPortChanged && existCfgPtr != nil {
 		if existCfgPtr.CoinName == cfg.CoinName &&
