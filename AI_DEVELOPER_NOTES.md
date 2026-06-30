@@ -537,3 +537,9 @@ ewDiff 并且有变化，**立即**通过 mining.set_difficulty 向矿机下发�
 - **分析**：当矿池主动断开连接（如闲置超时）或进入抽水切换池时，代理会触发重连或切换池。但 LatestMainJob 和 LatestFeeJob 并未被清空。当新池刚连接成功下发 mining.set_difficulty 时，代理会错误地**使用上个池子过期的 Job** 伪造出一个刷新任务发送给 ASIC。ASIC 立即开始计算这个过期的老任务，导致随后提交的所有 Share 被新池全盘拒绝。连续拒绝后，ASIC 的内部保护机制（Watchdog）触发，主动断开了 TCP 连接并重启。
 - **修复**：在 session.go 的 econnectMainPool 和 ConnectFee 中，只要更换了连接，必须立刻清空 s.LatestMainJob = "" 和 s.LatestFeeJob = ""。
 - **次要修复**：由于大量类似于端口扫描的探针连接（0 shares）在建立连接后不发送任何数据，导致 scanner.Scan() 挂起 10 分钟后被 Proxy 的 Watchdog 强杀，从而刷屏了大量的 [Watchdog] Miner XXX timed out 日志。现已修改为只打印 shares > 0 的矿机超时日志，保持日志整洁。
+
+## 2026-07-01: 解除 F2Pool 抽水切池对 BTC/LTC 的限制 (v2.2.52)
+- **问题**：在之前的版本逻辑中，存在一个保守且错误的预设：认为 F2Pool (鱼池) 强制校验 BTC 等算力币的 Extranonce1 参数。因此，代码中硬性规定在切池时，排除了对 BTC, LTC, BCH 等币种使用 IsF2PoolExploit（即“拦截鱼池 set_extranonce”漏洞）。
+- **后果**：由于未开启漏洞，针对 BTC 和 LTC 抽水切鱼池时，Proxy 会老老实实将鱼池下发的 mining.set_extranonce 发给矿机。这会直接导致物理矿机强制清空算力缓存，甚至重启芯片，造成 10~15 秒的严重算力断层或掉线！
+- **修复**：通过对 fx 第三方代理的 BTC 真实抓包 (fx_okminer_f2pool.txt) 解析，证实 F2Pool 对任何币种（包括 BTC/LTC）都**不校验 Extranonce**。矿机强行使用主池的 Extranonce1 提交依然可以被 100% Accept。
+- **改动**：移除了 internal/proxy/session.go 中针对 expectedCoin 的黑名单限制。现在只要目标池包含 2pool，不论任何币种，全部默认开启 isF2Pool = true。这使得 BTC/LTC 抽水切鱼池也能真正实现“零延迟、零算力折损”，矿机端不再收到 set_extranonce 而重启。

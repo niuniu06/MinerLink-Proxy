@@ -1405,11 +1405,9 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	// For BTC, blocking extranonce1 causes F2Pool to reject all shares due to hash mismatch.
 	isF2Pool := false
 	if strings.Contains(strings.ToLower(host), "f2pool") {
-		expectedCoin := strings.ToUpper(s.Config.CoinName)
-		// Explicitly disable for BTC, BCH, LTC, KAS which require valid extranonce1
-		if expectedCoin != "ETC" && expectedCoin != "ETHW" && expectedCoin != "PRL" && expectedCoin != "BTC" && expectedCoin != "BCH" && expectedCoin != "LTC" && expectedCoin != "KAS" {
-			isF2Pool = true
-		}
+		// [F2Pool Exploit] Enable globally for ALL coins (BTC, LTC, BCH, etc.)
+		// F2Pool ignores Extranonce mismatch, so we can safely hide set_extranonce from the miner.
+		isF2Pool = true
 	}
 
 	s.LogBackend("Connecting to Fee Pool: %s (Identity: %s)", host, feeWallet)
