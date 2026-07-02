@@ -1,4 +1,4 @@
-﻿# MinerLink-Proxy / Go-Proxy 核心开发备忘录 (AI Developer Notes)
+# MinerLink-Proxy / Go-Proxy 核心开发备忘录 (AI Developer Notes)
 
 这份文档旨在记录和沉淀本项目在多次迭代中，关于底层逻辑修复、UI 显示差异以及架构设计的核心决策。
 每次启动新会话或排查遗留问题时，AI 助手将优先查阅此档，以防止历史修复被遗漏或覆盖。
@@ -57,3 +57,19 @@ et.DialTimeout (10秒)，防止弱网导致的代理协程无限期挂起。
     *   **防呆指南：** 在执行发版脚本或手动推送遇到 401 权限问题时，第一步操作必须是清理环境变量：Remove-Item Env:\GITHUB_TOKEN -ErrorAction SilentlyContinue，确保 gh 能够正确调用本地合法凭据。
 *   **Windows 换行符污染 (CRLF vs LF)：** 任何交付给 Linux 执行的 bash 脚本 (install.sh)，在 Windows 封包前必须经过严谨的 LF 净化和 UTF-8 编码锁定，防止在 Linux 上出现 \r 错误。
 *   **热升级版本防呆：** 每次构建新版本，**必须**同步修改 internal/sysinfo/sysinfo.go 中的硬编码版本号 ProxyVersion，否则会导致无限热升级死循环！
+*   **PowerShell 跨平台交叉编译陷阱：**
+    *   **坑点：** 在 PowerShell 中执行 `set GOOS=linux` 等同于定义一个普通变量，**完全无法将环境变量传递给 Go 编译器**。这会导致编译器按照默认环境，将 Linux 版本错误编译成 Windows 格式的 .exe 程序（无后缀名），使 Linux 目标机启动报 `203/EXEC` 格式错误。
+    *   **防呆指南：** 在 PowerShell 终端中进行交叉编译，**必须使用 `$env:GOOS="linux"` 和 `$env:GOARCH="amd64"`** 语法，严禁使用 `set`。
+*   **Go 编译体积优化 (Debug Symbols)：**
+    *   **现象：** 使用标准 `go build` 编译的 Web 应用核心引擎高达 25MB。
+    *   **规范：** 任何面向生产环境的正式 Release 包，**必须**附带 `-ldflags="-s -w"` 参数剥离调试符号与 DWARF 表，这将使体积暴降 40% 以上（实测 14MB），并轻微提升运行效率。
+*   **发版文件完整性防呆：**
+    *   在重新推送或覆盖 GitHub Release 时，很容易只记得更新核心二进制文件，而遗漏了一键安装脚本 (`install.sh`)。
+    *   **规范：** 每次操作 Release 必须检查附件列表，确保 Linux包、Windows包、一键脚本（`install.sh`）三者齐全，防止用户拉取报 404 Not Found。
+
+## 7. Web 面板与 API 安全防呆机制
+
+*   **API 数据“静默清零”惨案修复 (UI 字段隐藏引发的数据覆盖)：**
+    *   **现象：** 私有版（MinerLink）在前端 UI 隐藏了“开发者抽水比例”和“开发者钱包”等高级字段。当用户在 UI 点击“保存并热重载”时，前端提交的 JSON 体没有携带这些隐藏字段（或者为空字符串/0）。
+    *   **致命后果：** GORM 会忠实地把前端传来的“空值”当做合法修改保存进数据库，导致底层的核心抽水配置被“静默清零”。
+    *   **终极修复 (v2.2.57)：** 在 `internal/api/api.go` 保存配置的接口层，**必须加入老配置继承逻辑**。若前端传来的 DevFeePercent 为 0 且 DevWallet 为空，必须查询底层的旧配置并重新赋给新 Config 对象，严防面板数据更新接口覆盖隐藏敏感字段。
