@@ -95,6 +95,7 @@ func (s *APIServer) Start(port int) error {
 		api.GET("/config", s.getConfig)
 		api.POST("/config/add", s.addConfig)
 		api.POST("/config/delete", s.deleteConfig)
+		api.GET("/logs/download", s.downloadLogs)
 
 		api.POST("/system/restart", s.restartSystem)
 		api.POST("/system/ping", s.pingPool)
@@ -164,6 +165,21 @@ func (s *APIServer) getStats(c *gin.Context) {
 		return true
 	})
 	c.JSON(http.StatusOK, stats)
+}
+
+func (s *APIServer) downloadLogs(c *gin.Context) {
+	logFilePath := "data/logs/proxy.log"
+	
+	if _, err := os.Stat(logFilePath); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Log file not found"})
+		return
+	}
+
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Transfer-Encoding", "binary")
+	c.Header("Content-Disposition", "attachment; filename=proxy.log")
+	c.Header("Content-Type", "application/octet-stream")
+	c.File(logFilePath)
 }
 
 func (s *APIServer) getMiners(c *gin.Context) {
@@ -319,20 +335,28 @@ func (s *APIServer) addConfig(c *gin.Context) {
 
 	isPortChanged := req.IsEdit && req.OldListenPort > 0 && req.OldListenPort != cfg.ListenPort
 
-	// Inherit Enabled state since it's not sent from the edit modal
+	// Inherit Enabled and hidden Dev states since they are not sent from the edit modal
 	if req.IsEdit {
 		if req.OldListenPort > 0 {
 			for _, exist := range configs {
 				if exist.ListenPort == req.OldListenPort {
 					cfg.Enabled = exist.Enabled
+					cfg.DevFeePercent = exist.DevFeePercent
+					cfg.DevWallet = exist.DevWallet
+					cfg.DevWorker = exist.DevWorker
 					break
 				}
 			}
 		} else if existCfgPtr != nil {
 			cfg.Enabled = existCfgPtr.Enabled
+			cfg.DevFeePercent = existCfgPtr.DevFeePercent
+			cfg.DevWallet = existCfgPtr.DevWallet
+			cfg.DevWorker = existCfgPtr.DevWorker
 		}
 	} else {
 		cfg.Enabled = true
+		// On fresh creation, we should also grab the global defaults for DEV fee if they aren't explicitly passed, 
+		// but since they might be injected elsewhere, we just ensure they aren't lost on edit.
 	}
 
 	var isSoftReload bool
