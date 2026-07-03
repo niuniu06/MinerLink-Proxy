@@ -75,14 +75,10 @@ const clearLogs = async () => {
 
 onMounted(() => {
   fetchLogs()
-  // Poll every 3 seconds
-  pollInterval = setInterval(fetchLogs, 3000)
 })
 
 onUnmounted(() => {
-  if (pollInterval) {
-    clearInterval(pollInterval)
-  }
+  // No interval to clear
 })
 </script>
 
