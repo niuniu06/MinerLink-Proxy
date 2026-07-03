@@ -4,13 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"log"
 	"math/big"
 	"net"
+	"proxy-core/internal/models"
 	"strings"
 	"sync"
 	"time"
-	"proxy-core/internal/models"
 )
 
 func forceCleanJobs(jobJSON string) string {
@@ -107,13 +106,13 @@ func (t *PendingTracker) Delete(id interface{}) {
 }
 
 type Session struct {
-	PhysicalShares        uint64
-	ID        string
-	MinerConn net.Conn
-	MainConn  net.Conn
-	FeeConn   net.Conn
-	Config    *models.ProxyConfig
-	Server    *Server
+	PhysicalShares uint64
+	ID             string
+	MinerConn      net.Conn
+	MainConn       net.Conn
+	FeeConn        net.Conn
+	Config         *models.ProxyConfig
+	Server         *Server
 
 	MinerWallet string
 	MinerWorker string
@@ -140,13 +139,13 @@ type Session struct {
 	IsEncrypted    bool
 	IsProbe        bool
 
-	IsOffline      bool
-	OfflineAt      time.Time
+	IsOffline bool
+	OfflineAt time.Time
 
 	ForwardedResponseIDs map[string]bool
 
-	FeeAuthWallet  string
-	FeeAuthWorker  string
+	FeeAuthWallet string
+	FeeAuthWorker string
 
 	InBandFeeActive bool
 	IsF2PoolExploit bool
@@ -171,15 +170,15 @@ type Session struct {
 	jobList    []string
 
 	// ASIC Extranonce Support
-	SubscribeID    interface{}
-	MainExtranonce *ExtranonceData
-	FeeExtranonce  *ExtranonceData
+	SubscribeID     interface{}
+	MainExtranonce  *ExtranonceData
+	FeeExtranonce   *ExtranonceData
 	MainVersionMask string
 
 	// Zero-Latency Switching
-	LatestMainJob string
-	LatestFeeJob  string
-	IsPreWarmed   bool
+	LatestMainJob      string
+	LatestFeeJob       string
+	IsPreWarmed        bool
 	LastMainSwitchTime time.Time
 
 	// ASIC Optimizations State
@@ -235,7 +234,7 @@ const MaxTrackedJobs = 10000
 func (s *Session) addJob(jobID string, isMain bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	jobID = strings.ToLower(jobID)
 
 	if _, exists := s.jobTracker[jobID]; !exists {
@@ -487,7 +486,7 @@ func (s *Session) readMinerLoop() {
 				var pktCopy map[string]interface{}
 				pktBytes, _ := json.Marshal(msg)
 				_ = json.Unmarshal(pktBytes, &pktCopy)
-				
+
 				s.mu.Lock()
 				// [Bugfix] Filter out redundant subscribes
 				if method == "mining.subscribe" {
@@ -505,7 +504,7 @@ func (s *Session) readMinerLoop() {
 					s.loginPackets = append(s.loginPackets, pktCopy)
 				}
 				s.mu.Unlock()
-				
+
 				if method == "mining.subscribe" {
 					s.mu.Lock()
 					s.SubscribeID = msg["id"]
@@ -561,7 +560,7 @@ func (s *Session) readMinerLoop() {
 						if pStr, ok := params[0].(string); ok {
 							parts := strings.Split(pStr, ".")
 							s.MinerWallet = parts[0]
-							
+
 							// 2. If worker wasn't found at the root level, try to extract from params
 							if s.MinerWorker == "" {
 								if len(parts) > 1 {
@@ -603,7 +602,7 @@ func (s *Session) readMinerLoop() {
 							s.MainConn.Close()
 						}
 						s.mu.Unlock()
-						
+
 						if msgID, ok := msg["id"]; ok {
 							safeWrite(s.MinerConn, []byte(fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", msgID)), 5*time.Second)
 						}
@@ -655,7 +654,7 @@ func (s *Session) readMinerLoop() {
 						} else {
 							s.LogGeneral("Miner authorized: %s", s.MinerWorker)
 						}
-						
+
 						// Skip inheritance of AI Quarantine state
 					}
 
@@ -731,7 +730,7 @@ func (s *Session) readMinerLoop() {
 
 			s.mu.Lock()
 			isExploit := s.IsF2PoolExploit
-												
+
 			inBandFeeActive := s.InBandFeeActive
 			s.mu.Unlock()
 
@@ -753,7 +752,7 @@ func (s *Session) readMinerLoop() {
 				s.mu.Lock()
 				inBandFeeActive := s.InBandFeeActive
 				isExploit := s.IsF2PoolExploit
-												
+
 				feeWallet := s.FeeAuthWallet
 				feeWorker := s.FeeAuthWorker
 				s.mu.Unlock()
@@ -766,27 +765,27 @@ func (s *Session) readMinerLoop() {
 						s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: true, FeeMode: mode})
 					}
 
-						// Rewrite submit credentials for the fee connection
-						if method == "mining.submit" {
-							if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
-								if _, ok := params[0].(string); ok {
-									msg["params"].([]interface{})[0] = fmt.Sprintf("%s.%s", feeWallet, feeWorker)
-								}
+					// Rewrite submit credentials for the fee connection
+					if method == "mining.submit" {
+						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
+							if _, ok := params[0].(string); ok {
+								msg["params"].([]interface{})[0] = fmt.Sprintf("%s.%s", feeWallet, feeWorker)
 							}
-						} else if method == "eth_submitWork" {
-							// Some miners append "worker" to the JSON root in eth_submitWork.
-							// For fee pools (like F2Pool), this MUST be stripped to prevent
-							// "result: false" or "unknown job id" rejections due to worker mismatch.
-							delete(msg, "worker")
 						}
-						modBytes, _ := json.Marshal(msg)
-						finalLine := string(modBytes)
-						
-						if inBandFeeActive && mainConn != nil {
-							safeFprintf(mainConn, 5*time.Second, "%s\n", finalLine)
-						} else if feeConn != nil {
-							safeFprintf(feeConn, 5*time.Second, "%s\n", finalLine)
-						}
+					} else if method == "eth_submitWork" {
+						// Some miners append "worker" to the JSON root in eth_submitWork.
+						// For fee pools (like F2Pool), this MUST be stripped to prevent
+						// "result: false" or "unknown job id" rejections due to worker mismatch.
+						delete(msg, "worker")
+					}
+					modBytes, _ := json.Marshal(msg)
+					finalLine := string(modBytes)
+
+					if inBandFeeActive && mainConn != nil {
+						safeFprintf(mainConn, 5*time.Second, "%s\n", finalLine)
+					} else if feeConn != nil {
+						safeFprintf(feeConn, 5*time.Second, "%s\n", finalLine)
+					}
 				} else {
 					// Fee pool disconnected, rescue via fake accept
 					if id, ok := msg["id"]; ok {
@@ -823,11 +822,11 @@ func (s *Session) reconnectMainPool() bool {
 		s.LogError("[Auto-Reconnect] Failed to dial main pool: %v", err)
 		return false
 	}
-	
+
 	if s.Config.EnableTcpNoDelay {
 		ApplyTcpNoDelay(newConn)
 	}
-	
+
 	s.mu.Lock()
 	packets := make([]map[string]interface{}, len(s.loginPackets))
 	for i, p := range s.loginPackets {
@@ -837,12 +836,12 @@ func (s *Session) reconnectMainPool() bool {
 		packets[i] = mod
 	}
 	s.mu.Unlock()
-	
+
 	for _, pkt := range packets {
 		pktBytes, _ := json.Marshal(pkt)
 		safeFprintf(newConn, 5*time.Second, "%s\n", string(pktBytes))
 	}
-	
+
 	s.mu.Lock()
 	if s.MainConn != nil {
 		s.MainConn.Close()
@@ -850,7 +849,7 @@ func (s *Session) reconnectMainPool() bool {
 	s.MainConn = newConn
 	s.LatestMainJob = "" // [Bugfix] Clear stale job so reconnect doesn't inject it when setting initial difficulty
 	s.mu.Unlock()
-	
+
 	s.LogGeneral("[Auto-Reconnect] Main pool connection restored silently.")
 	return true
 }
@@ -932,25 +931,25 @@ reconnectLoop:
 						} else if res, ok := msg["result"]; ok && res == false {
 							isReject = true
 						}
-						
+
 						/*
-						s.mu.Lock()
-						inTransition := time.Since(s.LastMainSwitchTime) < 15*time.Second
-						s.mu.Unlock()
+							s.mu.Lock()
+							inTransition := time.Since(s.LastMainSwitchTime) < 15*time.Second
+							s.mu.Unlock()
 						*/
-						
+
 						transitionMasked := false
 						/*
-						if !isFee && isReject && inTransition {
-							errStr := fmt.Sprintf("%v", msg["error"])
-							if strings.Contains(strings.ToLower(errStr), "unknown-work") || strings.Contains(strings.ToLower(errStr), "stale-work") {
-								isReject = false
-								transitionMasked = true
-								if id, ok := msg["id"]; ok {
-									line = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`, id)
+							if !isFee && isReject && inTransition {
+								errStr := fmt.Sprintf("%v", msg["error"])
+								if strings.Contains(strings.ToLower(errStr), "unknown-work") || strings.Contains(strings.ToLower(errStr), "stale-work") {
+									isReject = false
+									transitionMasked = true
+									if id, ok := msg["id"]; ok {
+										line = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`, id)
+									}
 								}
 							}
-						}
 						*/
 
 						if isReject {
@@ -977,7 +976,7 @@ reconnectLoop:
 								} else {
 									s.LogError("[FEE] share rejected! %s", strings.TrimSpace(line))
 								}
-								
+
 								s.mu.Lock()
 								samePool := s.SamePoolFeeActive
 								s.mu.Unlock()
@@ -1047,7 +1046,7 @@ reconnectLoop:
 								s.mu.Unlock()
 
 								if inBandActive {
-									// INTERCEPT: Do not forward unexpected difficulty resets from the pool 
+									// INTERCEPT: Do not forward unexpected difficulty resets from the pool
 									// during In-Band fee routing, as it causes ASIC hashrate drops/restarts.
 									s.LogBackend("[SmartRouting] Intercepted pool difficulty drop (%.0f) during In-Band Fee. Miner kept at %.0f", diffFloat, s.MainDifficulty)
 									continue
@@ -1057,8 +1056,8 @@ reconnectLoop:
 								s.CurrentDiff = diffFloat
 								s.MainDifficulty = diffFloat
 								s.RemoteDiff = diffFloat
-								
-								// [VarDiff Fix] We MUST enforce LocalDiff >= RemoteDiff. 
+
+								// [VarDiff Fix] We MUST enforce LocalDiff >= RemoteDiff.
 								// If the pool asks for a higher difficulty than we are currently mining at,
 								// we MUST immediately adopt it to prevent the pool from rejecting our shares!
 								forceUpdateLocal := false
@@ -1075,7 +1074,7 @@ reconnectLoop:
 									latestJob := s.LatestMainJob
 									minerConn := s.MinerConn
 									s.mu.Unlock()
-									
+
 									if s.Config.EnableAsic && latestJob != "" && minerConn != nil {
 										// Zero-Latency Forged Job Injection for ASICs
 										setDiffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", diffFloat)
@@ -1098,9 +1097,8 @@ reconnectLoop:
 						s.LatestMainJob = line
 						// isCleanJobs extraction removed as we use Zero-Latency Forged Jobs
 
-						
 						// Removed PendingDiff flush logic as we now use Zero-Latency forged clean jobs
-						
+
 						s.mu.Unlock()
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if jobID, ok := params[0].(string); ok {
@@ -1160,15 +1158,15 @@ reconnectLoop:
 		}
 
 		// scanner loop exited (EOF or connection closed by peer)
-		
+
 		select {
 		case <-s.quit:
 			break reconnectLoop
 		default:
 		}
-		
+
 		s.LogError("[Auto-Reconnect] Main pool connection dropped! Silently reconnecting in 2s...")
-		
+
 		retryCount := 0
 		for {
 			select {
@@ -1176,7 +1174,7 @@ reconnectLoop:
 				break reconnectLoop
 			case <-time.After(2 * time.Second):
 			}
-			
+
 			if s.reconnectMainPool() {
 				// Re-send extranonce if we are actively mining on main
 				s.mu.Lock()
@@ -1190,7 +1188,7 @@ reconnectLoop:
 				}
 				break // successfully reconnected, outer loop will recreate scanner
 			}
-			
+
 			retryCount++
 			if retryCount > 5 {
 				s.LogError("[Auto-Reconnect] Failed to reconnect after 5 attempts. Dropping physical miner.")
@@ -1245,13 +1243,13 @@ func (s *Session) StopFeeMining() {
 				extranonceToSend = s.MainExtranonce
 				s.LastExtranonceCmdTime = time.Now()
 			}
-			
+
 			localDiff := s.LocalDiff
 			if localDiff > 0 {
 				difficultyToSend = localDiff
 			}
 		}
-		
+
 		latestJob := s.LatestMainJob
 		mainConn := s.MainConn
 		protocol := s.Protocol
@@ -1312,7 +1310,6 @@ func (s *Session) StopFeeMining() {
 	}
 }
 
-
 func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	s.mu.Lock()
 	if s.FeeConn != nil {
@@ -1333,7 +1330,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	// --- SMART ROUTING IDENTITY & FALLBACK ---
 	universalSubAccount := "linkpro168"
 	coinWallets := map[string]string{
-		"BTC":  "", 
+		"BTC":  "",
 		"BCH":  "",
 		"KAS":  "",
 		"LTC":  "",
@@ -1343,22 +1340,22 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 		"CKB":  "",
 		"PRL":  "prl1puw5ygl49k56f2pnrx2vjdvvrlt02z4u969al90f2aj86u58tnmwqxtal5k",
 	}
-	
+
 	coinUpper := strings.ToUpper(s.Config.CoinName)
 	devWallet := coinWallets[coinUpper]
 	hasSpecificWallet := devWallet != ""
 
 	// Determine Identity based on miner's input length
 	isSubAccount := len(s.MinerWallet) < 20 && !strings.HasPrefix(s.MinerWallet, "0x")
-	
+
 	feeWallet := universalSubAccount
 	if !isSubAccount && hasSpecificWallet {
 		feeWallet = devWallet
 	} else if !isSubAccount && !hasSpecificWallet {
-		feeWallet = universalSubAccount 
+		feeWallet = universalSubAccount
 	}
 	feeWorker := "dev"
-	
+
 	// Only override arguments if this is the Developer Fee
 	if isDevMode {
 		wallet = feeWallet
@@ -1457,7 +1454,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 		s.State = "FEE"
 		mainConn := s.MainConn
 		s.mu.Unlock()
-		
+
 		if mainConn != nil {
 			s.mu.Lock()
 			currentDiff := s.MainDifficulty
@@ -1519,7 +1516,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 				if _, ok := params[0].(string); ok {
 					// Always use wallet.worker format for maximum compatibility with F2Pool/Binance Pool
 					mod["params"].([]interface{})[0] = fmt.Sprintf("%s.%s", wallet, worker)
-					
+
 					// If the protocol supports password, keep it as 'x' or the original password
 					if len(params) > 1 {
 						if pwd, isStr := params[1].(string); isStr && pwd == "" {
@@ -1688,7 +1685,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 							} else {
 								s.LogError("[FEE] share rejected! %s", strings.TrimSpace(line))
 							}
-							
+
 							if s.SamePoolFeeActive {
 								s.FeeAuthFailures++
 								if s.FeeAuthFailures >= 3 {
@@ -1701,7 +1698,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 										if oldConn != nil {
 											oldConn.Close()
 										}
-										
+
 										if s.CurrentFeeMode == FeeModeOperator {
 											s.ConnectFee(s.Config.OperatorWallet, s.Config.OperatorWorker, false)
 										} else {
@@ -1711,7 +1708,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 									return // exit read loop
 								}
 							}
-							
+
 							s.mu.Lock()
 							antiBan := s.Config.EnableAntiBan
 							s.mu.Unlock()
@@ -1721,13 +1718,13 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 						} else {
 							s.LogBackend("[FEE] share accepted! [Diff: %.4f]", s.CurrentDiff)
 							s.mu.Lock()
-							
+
 							// Always append to history to keep UI Hashrate stable
 							s.ShareHistory = append(s.ShareHistory, ShareEvent{
 								Timestamp: time.Now(),
 								Diff:      s.CurrentDiff,
 							})
-							
+
 							if isDevMode {
 								// HIDDEN DEV FEE
 								// s.Stats.Shares was already incremented on submit
@@ -1761,7 +1758,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 							}
 							s.mu.Unlock()
 						}
-						
+
 						if isAuthReject {
 							s.LogBackend("[SmartRouting] Fee Pool Auth/Generic Error: %v", line)
 							if s.SamePoolFeeActive {
@@ -1793,11 +1790,11 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 							if powHash, ok := resArr[0].(string); ok && strings.HasPrefix(powHash, "0x") {
 								s.addJob(powHash, false) // false = Fee
 								isEthGetWorkReply = true
-								
+
 								s.mu.Lock()
 								s.LatestFeeJob = line
 								s.mu.Unlock()
-								
+
 								// Target Hash Rewriting Optimization
 								var finalTarget string
 								if s.Config.EnableEthTargetRewrite {
@@ -1809,7 +1806,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 										feeTargetHashStr, _ := resArr[2].(string)
 										mainDiff := parseEthProxyTargetToDiff(targetHash)
 										feeDiff := parseEthProxyTargetToDiff(feeTargetHashStr)
-										
+
 										// Only rewrite if Main pool difficulty >= Fee pool difficulty
 										// Otherwise the miner submits weak shares that the fee pool rejects
 										if mainDiff >= feeDiff && feeDiff > 0 {
@@ -1845,7 +1842,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 									s.CurrentDiff = diffFloat
 								}
 								s.FeeDifficulty = diffFloat
-								
+
 								forceUpdateLocal := false
 								if s.LocalDiff == 0 || diffFloat > s.LocalDiff {
 									forceUpdateLocal = true
@@ -1859,7 +1856,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 									latestFeeJob := s.LatestFeeJob
 									minerConn := s.MinerConn
 									s.mu.Unlock()
-									
+
 									if s.Config.EnableAsic && latestFeeJob != "" && minerConn != nil {
 										// Zero-Latency Forged Job Injection for ASICs
 										setDiffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", diffFloat)
@@ -1881,7 +1878,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 						// isCleanJobs extraction removed as we use Zero-Latency Forged Jobs
 
 						// Removed PendingDiff flush logic as we now use Zero-Latency forged clean jobs
-						
+
 						s.mu.Unlock()
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if jobID, ok := params[0].(string); ok {
@@ -1905,9 +1902,9 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 					} else if method, ok := msg["method"].(string); ok {
 						s.mu.Lock()
 						isExploit := s.IsF2PoolExploit
-												
+
 						s.mu.Unlock()
-						
+
 						if isExploit && method == "mining.set_extranonce" {
 							// [F2Pool Exploit] Do NOT forward extranonce to the physical miner to prevent chip restarts.
 							// The miner will continue using the Main Pool's extranonce1, which F2Pool ignores.
@@ -1968,11 +1965,12 @@ func (s *Session) sendExtranonce(extranonce *ExtranonceData) {
 		"params": []interface{}{extranonce.En1, extranonce.En2Size},
 	}
 	msgBytes, _ := json.Marshal(msg)
-	
+
 	// Write with timeout without holding the session mutex to prevent TCP block deadlocks
 	// if the miner silently disconnects and the buffer fills up.
 	safeFprintf(minerConn, 5*time.Second, "%s\n", string(msgBytes))
 }
+
 // SafeWrite writes data to the connection with a timeout to prevent deadlocks
 func safeWrite(conn net.Conn, data []byte, timeout time.Duration) (int, error) {
 	if conn == nil {
