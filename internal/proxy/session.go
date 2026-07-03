@@ -287,7 +287,9 @@ func (s *Session) LogBackend(format string, v ...interface{}) {
 
 	msg := fmt.Sprintf(format, v...)
 	if s.Config.EnableDetailedLog {
-		log.Printf("[BACKEND-FEE] [%s] %s", s.getWorkerKey(), msg)
+		if s.Server != nil {
+			s.Server.GetLogger(s.getWorkerKey()).AddLog(LogTypeGeneral, "[BACKEND-FEE] "+msg, true)
+		}
 	}
 }
 
