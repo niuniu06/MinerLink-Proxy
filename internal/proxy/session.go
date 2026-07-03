@@ -308,10 +308,10 @@ func (s *Session) LogError(format string, v ...interface{}) {
 }
 
 func (s *Session) Start() {
-	encTag := ""
-	if s.IsEncrypted {
-		encTag = "[隧道加密🛡️] "
-	}
+	// encTag := ""
+	// if s.IsEncrypted {
+	// 	encTag = "[隧道加密🛡️] "
+	// }
 	// s.LogGeneral("%sConnected from %s", encTag, s.MinerConn.RemoteAddr().String())
 
 	// Connect to main pool
