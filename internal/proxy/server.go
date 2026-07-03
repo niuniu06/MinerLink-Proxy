@@ -8,6 +8,7 @@ import (
 	"net"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -75,13 +76,28 @@ func (s *Server) GetLogger(worker string) *MinerLogger {
 
 func (s *Server) Start() error {
 	addr := fmt.Sprintf(":%d", s.Config.ListenPort)
-	l, err := net.Listen("tcp", addr)
+	
+	var l net.Listener
+	var err error
+	
+	// Retry loop for Windows TIME_WAIT during Hot Reload
+	for i := 0; i < 15; i++ {
+		l, err = net.Listen("tcp", addr)
+		if err == nil {
+			break
+		}
+		if !strings.Contains(err.Error(), "address already in use") && !strings.Contains(err.Error(), "bind") {
+			return err
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	
 	if err != nil {
 		return err
 	}
 
 	s.Listener = l
-	log.Printf("Proxy server started on port %d for %s", s.Config.ListenPort, s.Config.CoinName)
+	log.Printf("[INFO] [%s][stratum+tcp] 添加一个代理矿池，端口 :%d", strings.ToUpper(s.Config.CoinName), s.Config.ListenPort)
 
 	go s.acceptLoop()
 	go s.logPruneLoop()
@@ -126,7 +142,7 @@ func (s *Server) acceptLoop() {
 			case <-s.Quit:
 				return
 			default:
-				log.Printf("Accept error on port %d: %v", s.Config.ListenPort, err)
+				// removed accept error log
 				continue
 			}
 		}
@@ -169,12 +185,12 @@ func (s *Server) handleNewConnection(conn net.Conn, tlsConfig *tls.Config) {
 	}
 
 	if string(buf) == "ZSDT" && tlsConfig != nil {
-		log.Printf("Incoming ZSDT Tunnel connection from %v on port %d", conn.RemoteAddr(), s.Config.ListenPort)
+		// removed incoming tunnel log, s.Config.ListenPort)
 		tlsConn := tls.Server(conn, tlsConfig)
 		
 		// Perform handshake early to catch errors
 		if err := tlsConn.Handshake(); err != nil {
-			log.Printf("Tunnel TLS handshake failed: %v", err)
+			// removed TLS error log
 			conn.Close()
 			return
 		}
@@ -184,7 +200,7 @@ func (s *Server) handleNewConnection(conn net.Conn, tlsConfig *tls.Config) {
 		}
 		yamuxSession, err := yamux.Server(tlsConn, getTunnelConfig())
 		if err != nil {
-			log.Printf("Tunnel Yamux server failed: %v", err)
+			// removed Yamux error log
 			conn.Close()
 			return
 		}
@@ -195,7 +211,7 @@ func (s *Server) handleNewConnection(conn net.Conn, tlsConfig *tls.Config) {
 			for {
 				stream, err := yamuxSession.AcceptStream()
 				if err != nil {
-					log.Printf("Tunnel session closed for %v: %v", conn.RemoteAddr(), err)
+					// removed session closed log, err)
 					return
 				}
 				
@@ -301,16 +317,19 @@ func (s *Server) ReapOfflineSessions() {
 
 func (s *Server) Stop() {
 	close(s.Quit)
-	s.FeeScheduler.Stop()
+	if s.FeeScheduler != nil {
+		s.FeeScheduler.Stop()
+	}
 	if s.Listener != nil {
 		s.Listener.Close()
 	}
+	log.Printf("[INFO] [%s][stratum+tcp] 删除一个代理矿池，端口 :%d", strings.ToUpper(s.Config.CoinName), s.Config.ListenPort)
+	log.Printf("[INFO] [TCP] 关闭代理, 端口 :%d, 币种: %s", s.Config.ListenPort, strings.ToUpper(s.Config.CoinName))
 	s.Sessions.Range(func(key, value interface{}) bool {
 		sess := value.(*Session)
 		sess.Close()
 		return true
 	})
-	log.Printf("Proxy server on port %d stopped", s.Config.ListenPort)
 }
 
 func (s *Server) GetStats() map[string]interface{} {

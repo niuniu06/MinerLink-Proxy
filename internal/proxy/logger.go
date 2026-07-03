@@ -70,6 +70,11 @@ func (l *MinerLogger) AddLog(logType, message string, persistToDisk bool) {
 			safeName = strings.ReplaceAll(safeName, "\\", "_")
 			
 			logPath := filepath.Join(logDir, safeName+".log")
+			if stat, err := os.Stat(logPath); err == nil {
+				if stat.Size() > 1024*1024*1024 { // 1GB
+					_ = os.Rename(logPath, logPath+".old")
+				}
+			}
 			if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
 				_, _ = f.WriteString(fmt.Sprintf("[%s] [%s] %s\n", e.Timestamp.Format("2006-01-02 15:04:05"), logType, e.Message))
 				f.Close()

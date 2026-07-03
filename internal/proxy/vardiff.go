@@ -126,7 +126,7 @@ func (s *Session) evaluateVardiff() {
 			minerConn := s.MinerConn
 			s.mu.Unlock()
 			
-			log.Printf("[Vardiff] Miner %s rate=%d/min. Queuing LocalDiff %.0f -> %.0f", s.ID, sharesLastMinute, oldDiff, newDiff)
+			// removed vardiff log
 			if minerConn != nil {
 				setDiffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", newDiff)
 				if s.Config.EnableAsic && latestJob != "" {

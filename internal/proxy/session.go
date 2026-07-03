@@ -308,11 +308,11 @@ func (s *Session) LogError(format string, v ...interface{}) {
 }
 
 func (s *Session) Start() {
-	// encTag := ""
-	// if s.IsEncrypted {
-	// 	encTag = "[隧道加密🛡️] "
-	// }
-	// s.LogGeneral("%sConnected from %s", encTag, s.MinerConn.RemoteAddr().String())
+	encTag := ""
+	if s.IsEncrypted {
+		encTag = "[隧道加密🛡️] "
+	}
+	s.LogGeneral("%sConnected from %s", encTag, s.MinerConn.RemoteAddr().String())
 
 	// Connect to main pool
 	var err error
@@ -1013,9 +1013,9 @@ reconnectLoop:
 								}
 							} else {
 								if transitionMasked {
-									// s.LogGeneral("[MAIN] share accepted! (Transition masked) [Diff: %.4f]", s.CurrentDiff)
+									s.LogGeneral("[MAIN] share accepted! (Transition masked) [Diff: %.4f]", s.CurrentDiff)
 								} else {
-									// s.LogGeneral("[MAIN] share accepted! [Diff: %.4f]", s.CurrentDiff)
+									s.LogGeneral("[MAIN] share accepted! [Diff: %.4f]", s.CurrentDiff)
 								}
 							}
 						}
@@ -2011,7 +2011,7 @@ func (s *Session) Watchdog() {
 				shares := s.Stats.Shares
 				s.mu.Unlock()
 				if shares > 0 {
-					log.Printf("[Watchdog] Miner %s timed out (no shares for 10 mins). Force closing.", s.GetMinerIdentifier())
+					// removed watchdog log. Force closing.", s.GetMinerIdentifier())
 				}
 				s.Close()
 				return

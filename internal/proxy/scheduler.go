@@ -25,7 +25,7 @@ func (fs *FeeScheduler) Start() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	
-	log.Printf("Starting Stateless Distributed Fee Scheduler...")
+	// removed scheduler startup log
 
 	for {
 		select {
@@ -147,17 +147,17 @@ func (fs *FeeScheduler) processTick() {
 				if currentMode != targetMode {
 					if targetMode == FeeModeDev {
 						// Hide DEV fee logs from the system log
-						// log.Printf("[Scheduler] Miner %s entering DEV fee time slot", sess.MinerWorker)
+						// // removed scheduler log
 						go sess.StartFeeMining(true)
 					} else {
-						log.Printf("[Scheduler] Miner %s entering OP fee time slot", sess.MinerWorker)
+						// removed scheduler log
 						go sess.StartFeeMining(false)
 					}
 				}
 			} else {
 				if currentMode != FeeModeNone {
 					if currentMode != FeeModeDev {
-						log.Printf("[Scheduler] Miner %s finishing fee time slot, returning to Main", sess.MinerWorker)
+						// removed scheduler log
 					}
 					go sess.StopFeeMining()
 				}
