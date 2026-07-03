@@ -84,6 +84,6 @@ et.DialTimeout (10秒)，防止弱网导致的代理协程无限期挂起。
 *   确保 `server.go` 保持 fx-proxy 的极简端口日志风格，未被新增的 `log.Printf` 污染。
 
 ### 底层故障排查专用校验 (Diagnostic Validation)
-*   若需处理矿机掉线或 Share 拒绝等问题，需同时读取 `proxy.log`, `28FED70D6D53.log` 以及抓取的 `*.pcap` TCP 报文。
-*   必须使用 Python 等脚本解析 PCAP 中的 `mining.notify` 与 `eth_submitWork` 明文并对齐时间戳。
+*   若需处理矿机掉线或 Share 拒绝等问题，需同时读取 `proxy.log`, 对应报错矿机的独立日志（如 `data/logs/miners/矿机名.log`）以及抓取的 `*.pcap` TCP 报文。
+*   必须使用 Python 等脚本解析 PCAP 中的 `mining.notify` 与对应币种的算力提交明文（如 BTC/LTC 的 `mining.submit`，或 ETC/ETHW 的 `eth_submitWork`），并对齐时间戳。
 *   分析报错时，必须剥离出暗抽与鱼池（F2Pool）免重启切池时带来的合法/良性 `unknown job id` 报错摩擦，严防将其误判为恶性 Bug。
