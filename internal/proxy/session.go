@@ -312,7 +312,7 @@ func (s *Session) Start() {
 	if s.IsEncrypted {
 		encTag = "[隧道加密🛡️] "
 	}
-	s.LogGeneral("%sConnected from %s", encTag, s.MinerConn.RemoteAddr().String())
+	// s.LogGeneral("%sConnected from %s", encTag, s.MinerConn.RemoteAddr().String())
 
 	// Connect to main pool
 	var err error
@@ -1013,9 +1013,9 @@ reconnectLoop:
 								}
 							} else {
 								if transitionMasked {
-									s.LogGeneral("[MAIN] share accepted! (Transition masked) [Diff: %.4f]", s.CurrentDiff)
+									// s.LogGeneral("[MAIN] share accepted! (Transition masked) [Diff: %.4f]", s.CurrentDiff)
 								} else {
-									s.LogGeneral("[MAIN] share accepted! [Diff: %.4f]", s.CurrentDiff)
+									// s.LogGeneral("[MAIN] share accepted! [Diff: %.4f]", s.CurrentDiff)
 								}
 							}
 						}
