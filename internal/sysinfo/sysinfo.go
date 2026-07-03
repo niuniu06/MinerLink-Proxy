@@ -3,9 +3,12 @@ package sysinfo
 import (
 	"runtime"
 	"time"
+
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
 )
 
-const ProxyVersion = "v2.2.57"
+const ProxyVersion = "v2.2.58"
 
 type SystemStatus struct {
 	CPUPercent    float64 `json:"cpuPercent"`
