@@ -86,10 +86,29 @@ et.DialTimeout (10秒)，防止弱网导致的代理协程无限期挂起。
 ### 底层故障排查专用校验 (Diagnostic Validation)
 *   若需处理矿机掉线或 Share 拒绝等问题，需同时读取 `proxy.log`, 对应报错矿机的独立日志（如 `data/logs/miners/矿机名.log`）以及抓取的 `*.pcap` TCP 报文。
 *   必须使用 Python 等脚本解析 PCAP 中的 `mining.notify` 与对应币种的算力提交明文（如 BTC/LTC 的 `mining.submit`，或 ETC/ETHW 的 `eth_submitWork`），并对齐时间戳。
-*   分析报错时，必须剥离出暗抽与鱼池（F2Pool）免重启切池时带来的合法/良性 `unknown job id` 报错摩擦，严防将其误判为恶性 Bug。
+*   分析报错时，必须剥离出暗抽与鱼池（F2Pool）免重启切池时带来的合法/良性 `unknown job id` 报错摩擦，严防将其误判为恶性 Bug。
+
+## 9. v2.2.62 1分钟闪断与面板登出惨案 (The 1-Minute Panic)
+*   **现象：** v2.2.62 发布后，用户反馈矿机每隔1分钟闪断，同时 Web 面板刚登录一会就强制登出（退回登录页）。
+*   **真相：** 之前引入的“数据与 TCP 会话解绑 (WorkerStatsManager)”是一个含有致命缺陷的实验性功能。AI 在 `ReapOfflineSessions` 中调用了 `WorkerManager.ReapOldWorkers()`，但由于 `WorkerManager` 未被正确初始化（`Server` 结构体中的 `WorkerManager` 未正确注入，或者被跨协程读取导致空指针），导致发生 `nil pointer dereference`，引发致命的运行时 `panic`。
+*   **连锁反应：** 代理内核崩溃后被守护进程自动重启，由于 API 的 JWT Secret 是每次进程启动时随机生成的 (`init()` 中的 `rand.Read`)，内核重启导致所有的 Token 全部失效，前端轮询 API 收到 HTTP 401 后强制用户退出。
+*   **终极修复 (v2.2.63)：** 彻底回退了极度不稳定的 WorkerStatsManager 架构，恢复至 v2.2.61 的稳定底层逻辑，并递增发布版本至 v2.2.63。严禁在未经沙盒与真机压测验证的情况下，在核心收发及心跳垃圾回收 (GC) 链路中注入未被严谨实例化的全局状态管理单例。
+ 
+ # #   1 0 .   e_cR`l  ( F 2 P o o l   E x p l o i t )   `l|Q['`N  1 0 0 %   b~`Hh
+ *       * * sa* *   S_(u7b;Nw`ln:N^  F 2 P o o l   |Q[w`lY  P o o l i n 	b4l`ln:N  F 2 P o o l   ew:gQs'Yϑ  1 0 0 %   I n v a l i d   S h a r e s  g~Vc6eN0R	gHeNRc~0
+ *       * * wv* *   ǏS  C o n n e c t F e e   N$Revh  F e e P o o l   /f&TS+T   2 p o o l   egQ[/f&T _/T  I s F 2 P o o l E x p l o i t sSNS  s e t _ e x t r a n o n c e   T  n o t i f y vcY(u;N`lv  j o b _ i d   cNN	06qF 2 P o o l   TzSƋ+R  F 2 P o o l bvQWYXNtY  O K M i n e r 	NSv  j o b _ i d Y  B 9 m R R l 9 k S 	0Yg;N`l/f  P o o l i n j o b _ i d   Y  2 2 2 1 0 8 1 	F 2 P o o l   6e0R&^	g  j o b _ i d   v  s h a r e   eOvcb~  ( J o b   n o t   f o u n d ) [b4lNhQeHe0
+ *       * * 2FTOY  ( v 2 . 2 . 6 4 ) * *   O9e  I s F 2 P o o l E x p l o i t   SagN0NNBl  f e e   p o o l   /f  F 2 P o o l * * ؏_{  m a i n   p o o l   _NS+T  f 2 p o o l   b  o k m i n e r * * 0NTSO|w`lR_{V   I n B a n d F e e A c t i v e   =   t r u e   Sck8^v  m i n i n g . n o t i f y   R`l;(ugwv^ߏbcS  1 0 0 %   vb4l	gHes0 
+ ## 10. 跨池抽水与鱼池漏洞 (F2Pool Exploit) 的致命认知防呆
 
-## 9. v2.2.62 1分钟闪断与面板登出惨案 (The 1-Minute Panic)
-*   **现象：** v2.2.62 发布后，用户反馈矿机每隔1分钟闪断，同时 Web 面板刚登录一会就强制登出（退回登录页）。
-*   **真相：** 之前引入的“数据与 TCP 会话解绑 (WorkerStatsManager)”是一个含有致命缺陷的实验性功能。AI 在 `ReapOfflineSessions` 中调用了 `WorkerManager.ReapOldWorkers()`，但由于 `WorkerManager` 未被正确初始化（`Server` 结构体中的 `WorkerManager` 未正确注入，或者被跨协程读取导致空指针），导致发生 `nil pointer dereference`，引发致命的运行时 `panic`。
-*   **连锁反应：** 代理内核崩溃后被守护进程自动重启，由于 API 的 JWT Secret 是每次进程启动时随机生成的 (`init()` 中的 `rand.Read`)，内核重启导致所有的 Token 全部失效，前端轮询 API 收到 HTTP 401 后强制用户退出。
-*   **终极修复 (v2.2.63)：** 彻底回退了极度不稳定的 WorkerStatsManager 架构，恢复至 v2.2.61 的稳定底层逻辑，并递增发布版本至 v2.2.63。严禁在未经沙盒与真机压测验证的情况下，在核心收发及心跳垃圾回收 (GC) 链路中注入未被严谨实例化的全局状态管理单例。
+*   **跨池绝对禁止漏洞模式：** 
+    对于 BTC/LTC 等 Stratum 协议，鱼池漏洞 (不校验 Extranonce) **仅且只在** 主矿池与抽水矿池**同为 F2Pool** 时才有效。如果是跨池抽水（例如：主矿池是 币印/OKMiner，抽水目标是 F2Pool），必须**强制关闭** IsF2PoolExploit。一旦错误开启，代理会拒发 set_extranonce 骗矿机，并将非 F2Pool 的外部 Job ID 强行塞给 F2Pool，导致 100% 的 [21, "Job not found"] 无效份额并触发 S21 等机器断线保护！对于跨池，必须老老实实走“标准硬切池”（下发 set_extranonce 和新的 mining.notify，矿机会有极短暂的算力波动，但份额 100% 接受）。
+*   **ETC/ETH_PROXY 协议的零容忍：** 
+    在 ETH_PROXY (ETC, ETHW) 协议下，**根本不存在所谓的鱼池漏洞**！因为该协议的任务 ID 就是 powHash（区块头），不同矿池的区块头截然不同，无法混用。
+    **防呆规范：** 若 Protocol == "ETH_PROXY"，绝对禁止开启 IsF2PoolExploit = true！如果强行开启，会导致 session.go 中的路由拦截器 (isMainRoute = false) 失控，在切池的瞬间，错误地将矿机刚算出的主矿池延迟份额 (Stale Share) 强制丢给抽水矿池，产生不必要的 Invalid Share。
+
+## 10. ��س�ˮ�����©�� (F2Pool Exploit) ��������֪���� (v2.2.64 �����޸�)
+*   **��ؾ��Խ�ֹ©��ģʽ��** 
+    ���� BTC/LTC �� Stratum Э�飬���©�� (��У�� Extranonce) **����ֻ��** ��������ˮ��� **ͬΪ F2Pool** ʱ����Ч������ǿ�س�ˮ�����磺������� ��ӡ/OKMiner����ˮĿ���� F2Pool�������� **ǿ�ƹر�** IsF2PoolExploit��
+    һ����������������ܾ��·� set_extranonce ƭ����������� F2Pool ������ Job ID ǿ������ F2Pool������ 100% ���ܾ� [21, "Job not found"] ������ S21 �Ȼ������߱��������ڿ�أ������ߡ���׼Ӳ�гء����·� set_extranonce ���µ� mining.notify��������м����ݵ��������������ݶ� 100% ���ܣ���
+*   **ETC/ETH_PROXY Э��������̣�** 
+    �� ETH_PROXY (ETC, ETHW) Э���£�**������������ν�����©��**����Ϊ��Э������� ID ���� powHash������ͷ������ͬ��ص�����ͷ��Ȼ��ͬ���޷����á����Խ�ֹ���� IsF2PoolExploit = true��

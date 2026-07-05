@@ -1426,9 +1426,12 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	// NOTE: This exploit ONLY works for protocols that don't rely on strict extranonce1 reconstruction (like ETH).
 	// For BTC, blocking extranonce1 causes F2Pool to reject all shares due to hash mismatch.
 	isF2Pool := false
-	if strings.Contains(strings.ToLower(host), "f2pool") {
-		// [F2Pool Exploit] Enable globally for ALL coins (BTC, LTC, BCH, etc.)
-		// F2Pool ignores Extranonce mismatch, so we can safely hide set_extranonce from the miner.
+	mainPoolHost := strings.ToLower(s.Config.PoolAddress)
+	feePoolHost := strings.ToLower(host)
+
+	// [F2Pool Exploit] ONLY IF both the Main Pool and the Fee Pool are F2Pool.
+	// We can safely use a separate F2Pool connection and blindly submit main pool jobs.
+	if strings.Contains(feePoolHost, "f2pool") && strings.Contains(mainPoolHost, "f2pool") {
 		isF2Pool = true
 	}
 
