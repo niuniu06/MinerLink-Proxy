@@ -888,7 +888,7 @@ reconnectLoop:
 					s.mu.Lock()
 					subId := s.SubscribeID
 					s.mu.Unlock()
-					if id, ok := msg["id"]; ok && id != nil && id == subId {
+					if id, ok := msg["id"]; ok && id != nil && fmt.Sprintf("%v", id) == fmt.Sprintf("%v", subId) {
 						if result, ok := msg["result"].([]interface{}); ok && len(result) > 2 {
 							if en1, ok := result[1].(string); ok {
 								if en2size, ok := result[2].(float64); ok {
@@ -1601,7 +1601,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 					s.mu.Lock()
 					subId := s.SubscribeID
 					s.mu.Unlock()
-					if id, ok := msg["id"]; ok && id != nil && id == subId {
+					if id, ok := msg["id"]; ok && id != nil && fmt.Sprintf("%v", id) == fmt.Sprintf("%v", subId) {
 						if result, ok := msg["result"].([]interface{}); ok && len(result) > 2 {
 							if en1, ok := result[1].(string); ok {
 								if en2size, ok := result[2].(float64); ok {
@@ -1922,6 +1922,18 @@ func (s *Session) EndFee() {
 	if s.State == "FEE" || s.State == "SWITCHING_TO_FEE" {
 		s.State = "SWITCHING_TO_MAIN"
 		s.TargetState = "MAIN"
+
+		// Explicitly restore Main Pool's Extranonce state to the physical ASIC to prevent 100% invalid shares and hardware drop
+		if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" && !s.IsF2PoolExploit {
+			mainEn := s.MainExtranonce
+			feeEn := s.FeeExtranonce
+			if mainEn != nil && feeEn != nil {
+				if mainEn.En1 != feeEn.En1 || mainEn.En2Size != feeEn.En2Size {
+					s.sendExtranonce(mainEn)
+					s.LastExtranonceCmdTime = time.Now()
+				}
+			}
+		}
 	}
 
 	s.InBandFeeActive = false

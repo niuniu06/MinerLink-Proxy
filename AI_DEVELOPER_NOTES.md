@@ -112,3 +112,11 @@ et.DialTimeout (10秒)，防止弱网导致的代理协程无限期挂起。
     һ����������������ܾ��·� set_extranonce ƭ����������� F2Pool ������ Job ID ǿ������ F2Pool������ 100% ���ܾ� [21, "Job not found"] ������ S21 �Ȼ������߱��������ڿ�أ������ߡ���׼Ӳ�гء����·� set_extranonce ���µ� mining.notify��������м����ݵ��������������ݶ� 100% ���ܣ���
 *   **ETC/ETH_PROXY Э��������̣�** 
     �� ETH_PROXY (ETC, ETHW) Э���£�**������������ν�����©��**����Ϊ��Э������� ID ���� powHash������ͷ������ͬ��ص�����ͷ��Ȼ��ͬ���޷����á����Խ�ֹ���� IsF2PoolExploit = true��
+
+## 11. 跨池切换掉线与无效的终极解决 (v2.2.65 补充)
+*   **致命的 EndFee 状态恢复遗漏：**
+    在处理跨池抽水时（如主池 Poolin，抽水池 F2Pool），代理必须通过 mining.set_extranonce 下发鱼池的短 Extranonce 给 ASIC 矿机。但历史版本在 EndFee 抽水结束时，**仅仅切换了代理内部状态，却忘记向物理矿机重新下发主矿池的长 Extranonce**。这导致矿机带着鱼池的 1 byte 随机数格式强行去算主池 4 bytes 的任务，造成 Coinbase 长度错位、100% 份额无效（Invalid），并最终导致 S21 等高算力矿机死机、0算力挂起长达 60-120 秒直至 TCP 掉线。
+    **铁律：** EndFee 必须无条件调用 s.sendExtranonce(s.MainExtranonce)。
+*   **JSON 浮点数强类型陷阱 (Subscribe 拦截失败)：**
+    由于 Stratum 协议解析使用 json.Unmarshal 转化为 map[string]interface{}，矿机的 id 有时被解析为 int，有时为 loat64。在 eadFeeLoop 拦截鱼池的 mining.subscribe 回复时，如果使用 id == subId，会因为类型不同（int(4) != float64(4)）导致静默匹配失败，从而彻底漏发初始的 set_extranonce。必须强制使用 mt.Sprintf(%v, id) == fmt.Sprintf(%v, subId) 进行字符串化宽容比对。
+
