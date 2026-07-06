@@ -1633,23 +1633,15 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 									s.mu.Lock()
 									en := &ExtranonceData{En1: en1, En2Size: int(en2size)}
 									s.FeeExtranonce = en
-									state := s.State
-									mainEn := s.MainExtranonce
-									isExploit := s.IsF2PoolExploit
 									s.mu.Unlock()
-									if (state == "FEE" || state == "SWITCHING_TO_FEE") && !isExploit {
-										if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
-											if mainEn == nil || mainEn.En2Size != en.En2Size || mainEn.En1 != en.En1 {
-												s.sendExtranonce(en)
-												s.mu.Lock()
-												s.LastExtranonceCmdTime = time.Now()
-												s.mu.Unlock()
-											}
-										}
-									}
+									// [Extranonce Isolation]
+									// We ONLY record FeeExtranonce internally.
+									// We NEVER send it to the physical miner to prevent chip restarts.
 								}
 							}
 						}
+						// 拦截抽水池下发的 extranonce，绝对不将其转发给矿机
+						continue
 					}
 				}
 
@@ -1836,38 +1828,15 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if diffFloat, ok := params[0].(float64); ok {
 								s.mu.Lock()
-								if !s.IsF2PoolExploit {
-									s.CurrentDiff = diffFloat
-								}
+								// [Difficulty Masking]
+								// We ONLY record FeeDifficulty for backend profit calculation.
+								// We NEVER update s.CurrentDiff, and we NEVER forward it to the physical miner.
+								// The physical miner will seamlessly stay on the Main Pool's high difficulty.
 								s.FeeDifficulty = diffFloat
-
-								forceUpdateLocal := false
-								if s.LocalDiff == 0 || diffFloat > s.LocalDiff {
-									forceUpdateLocal = true
-								}
 								s.mu.Unlock()
 
-								if forceUpdateLocal {
-									s.mu.Lock()
-									s.LocalDiff = diffFloat
-									s.PendingDiff = 0
-									latestFeeJob := s.LatestFeeJob
-									minerConn := s.MinerConn
-									s.mu.Unlock()
-
-									if s.Config.EnableAsic && latestFeeJob != "" && minerConn != nil {
-										// Zero-Latency Forged Job Injection for ASICs
-										setDiffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", diffFloat)
-										cleanJobPkt := forceCleanJobs(latestFeeJob)
-										safeFprintf(minerConn, 5*time.Second, "%s", setDiffPkt)
-										safeFprintf(minerConn, 5*time.Second, "%s\n", cleanJobPkt)
-										continue // Intercepted and injected manually
-									}
-									// Fall through for standard miners or initial connection
-								} else {
-									// INTERCEPT: ONLY intercept pool difficulty drops.
-									continue
-								}
+								// Intercept the fee pool's difficulty and do NOT forward it
+								continue
 							}
 						}
 					} else if method == "mining.notify" {
@@ -1894,19 +1863,10 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 
 			if state == "FEE" || state == "SWITCHING_TO_FEE" {
 				if minerConn != nil {
-					// Forward specific methods, share replies, and eth_getWork replies
 					if isShareReply || isEthGetWorkReply {
 						safeFprintf(minerConn, 5*time.Second, "%s\n", line)
 					} else if method, ok := msg["method"].(string); ok {
-						s.mu.Lock()
-						isExploit := s.IsF2PoolExploit
-
-						s.mu.Unlock()
-
-						if isExploit && method == "mining.set_extranonce" {
-							// [F2Pool Exploit] Do NOT forward extranonce to the physical miner to prevent chip restarts.
-							// The miner will continue using the Main Pool's extranonce1, which F2Pool ignores.
-						} else if method == "mining.notify" || method == "mining.set_difficulty" || method == "mining.set_extranonce" || method == "eth_getWork" {
+						if method == "mining.notify" || method == "eth_getWork" {
 							safeFprintf(minerConn, 5*time.Second, "%s\n", line)
 						}
 					}
@@ -1923,17 +1883,9 @@ func (s *Session) EndFee() {
 		s.State = "SWITCHING_TO_MAIN"
 		s.TargetState = "MAIN"
 
-		// Explicitly restore Main Pool's Extranonce state to the physical ASIC to prevent 100% invalid shares and hardware drop
-		if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" && !s.IsF2PoolExploit {
-			mainEn := s.MainExtranonce
-			feeEn := s.FeeExtranonce
-			if mainEn != nil && feeEn != nil {
-				if mainEn.En1 != feeEn.En1 || mainEn.En2Size != feeEn.En2Size {
-					s.sendExtranonce(mainEn)
-					s.LastExtranonceCmdTime = time.Now()
-				}
-			}
-		}
+		// To prevent ASIC chip restarts and 2-minute hashrate drops, we NEVER restore the 
+		// Main Pool's extranonce state when switching back. We rely on the physical miner 
+		// keeping its original extranonce state uninterrupted.
 	}
 
 	s.InBandFeeActive = false
