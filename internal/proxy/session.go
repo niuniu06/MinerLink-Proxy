@@ -229,6 +229,7 @@ func NewSession(conn net.Conn, cfg *models.ProxyConfig, isEncrypted bool) *Sessi
 		cycleOffset:    -1,
 		ShareHistory:   make([]ShareEvent, 0),
 		CurrentDiff:    1.0,
+		RingBuffer:     &HashrateRingBuffer{},
 		LastHashUpdate: time.Now(),
 		LastShareTime:  time.Now(),
 		jobTracker:     make(map[string]bool),
