@@ -1526,7 +1526,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 		} else if coinUpper == "CKB" {
 			host = "ckb.f2pool.com:4300"
 		} else if coinUpper == "PRL" {
-			host = "prl.f2pool.com:6543"
+			host = "pearl.f2pool.com:5500"
 		} else {
 			host = "btc-asia.f2pool.com:1315" // fallback
 		}
