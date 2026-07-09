@@ -601,7 +601,7 @@ func (s *Session) readMinerLoop() {
 
 					// --- SMART DPI COIN VALIDATION ---
 					expectedCoin := strings.ToUpper(s.Config.CoinName)
-					isEthFamily := (expectedCoin == "ETC" || expectedCoin == "ETHW" || expectedCoin == "PRL")
+					isEthFamily := (expectedCoin == "ETC" || expectedCoin == "ETHW")
 					if isEthFamily && s.Protocol != "ETH_PROXY" {
 						s.LogGeneral("[Anti-Cheat] Miner sent STRATUM protocol but port configured for %s. Dropping connection.", expectedCoin)
 						s.Close()
