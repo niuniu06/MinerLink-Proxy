@@ -402,8 +402,8 @@ func (s *Session) getAlgoBaseMHs() float64 {
 		if strings.Contains(pool, "k1pool") {
 			base = 4.294967296 * 688256.0
 		} else {
-			// alphapool and others use the standard difficulty base (Diff 1 = 4.29 GH)
-			base = 4.294967296
+			// F2Pool and standard PRL pools use Diff 1.0 = 9.007 PH (2^21 multiplier)
+			base = 4.294967296 * 2097152.0
 		}
 	} else if strings.Contains(pool, "etc") || strings.Contains(coin, "etc") || strings.Contains(pool, "eth") {
 		// Ethash/Etchash (ETC/ETHW) uses the standard 2^32 hashrate scale (1 diff = 4.29 GH)

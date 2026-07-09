@@ -422,7 +422,7 @@ func (s *Server) GetPaginatedMiners() (int, []MinerStatsData) {
 
 		uptimeSecs := int64(now.Sub(connectedAt).Seconds())
 		
-		if !isOffline && time.Since(lastShareTime) > 3*time.Minute {
+		if !isOffline && time.Since(lastShareTime) > 10*time.Minute {
 			isOffline = true
 			if !lastShareTime.IsZero() {
 				uptimeSecs = int64(lastShareTime.Sub(connectedAt).Seconds())
@@ -431,8 +431,8 @@ func (s *Server) GetPaginatedMiners() (int, []MinerStatsData) {
 			}
 		}
 
-		if shares == 0 {
-			return true // Completely hide any connection (online or offline) until it submits at least 1 share. This makes scanners invisible.
+		if shares == 0 && wallet == "" {
+			return true // Hide completely only if it hasn't authorized (prevents ghost/scanner connections)
 		}
 
 		if isOffline && !sess.OfflineAt.IsZero() {
