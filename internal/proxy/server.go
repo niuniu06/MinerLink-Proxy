@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/yamux"
+	"proxy-core/internal/db"
 	"proxy-core/internal/models"
 	"proxy-core/internal/tunnel"
 )
@@ -268,6 +269,9 @@ func (s *Server) startSession(conn net.Conn, isEncrypted bool) {
 	session.OfflineAt = time.Now()
 	session.mu.Unlock()
 	session.LogError("Miner connection dropped, marked as offline (10 minute retention started)")
+	if session.MinerWorker != "" {
+		db.RecordEvent(session.GetMinerIP(), session.MinerWorker, "OFFLINE", "Connection dropped, marked as offline")
+	}
 }
 
 func (s *Server) DeleteSession(sess *Session) {

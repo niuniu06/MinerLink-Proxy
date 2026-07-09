@@ -133,3 +133,26 @@ func startCleanupTask() {
 		}
 	}
 }
+
+// RecordEvent records a connection anomaly or critical event for a miner.
+// This executes asynchronously to prevent blocking the proxy's hot path.
+func RecordEvent(minerIP string, minerWorker string, eventType string, message string) {
+	if DB == nil {
+		return
+	}
+	
+	// Create event
+	event := models.EventLog{
+		Timestamp:   time.Now(),
+		MinerIP:     minerIP,
+		MinerWorker: minerWorker,
+		EventType:   eventType,
+		Message:     message,
+	}
+	
+	// Execute in a goroutine so it doesn't block the caller
+	go func() {
+		// Log failures silently as this is non-critical path
+		_ = DB.Create(&event).Error
+	}()
+}

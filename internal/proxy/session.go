@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"proxy-core/internal/db"
 	"proxy-core/internal/models"
 	"strings"
 	"sync"
@@ -727,8 +728,10 @@ func (s *Session) readMinerLoop() {
 							}
 							s.mu.Unlock()
 							s.LogGeneral("Miner session restored from offline state, inherited %d valid shares", oldStats.ValidShares)
+							db.RecordEvent(s.GetMinerIP(), s.MinerWorker, "ONLINE", "Miner reconnected from offline state")
 						} else {
 							s.LogGeneral("Miner authorized: %s", s.MinerWorker)
+							db.RecordEvent(s.GetMinerIP(), s.MinerWorker, "ONLINE", "Miner successfully authorized")
 						}
 
 						// Skip inheritance of AI Quarantine state
@@ -2122,6 +2125,18 @@ func (s *Session) Watchdog() {
 			}
 		}
 	}
+}
+
+func (s *Session) GetMinerIP() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.MinerConn != nil {
+		if tcpAddr, ok := s.MinerConn.RemoteAddr().(*net.TCPAddr); ok {
+			return tcpAddr.IP.String()
+		}
+		return s.MinerConn.RemoteAddr().String()
+	}
+	return "unknown"
 }
 
 func (s *Session) GetMinerIdentifier() string {
