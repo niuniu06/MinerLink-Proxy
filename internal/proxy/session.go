@@ -508,6 +508,12 @@ func (s *Session) readMinerLoop() {
 			if s.BinaryShareBytes % 6 == 0 {
 				addedShare = true
 				s.PhysicalShares++
+				s.Stats.Shares++
+				s.LastShareTime = time.Now()
+				s.ShareHistory = append(s.ShareHistory, ShareEvent{
+					Timestamp: time.Now(),
+					Diff:      diff,
+				})
 			}
 			s.mu.Unlock()
 
