@@ -780,6 +780,10 @@ func (s *Session) readMinerLoop() {
 					if jobIDStr, ok := params[1].(string); ok {
 						submitJobID = jobIDStr
 					}
+				} else if paramsMap, ok := msg["params"].(map[string]interface{}); ok {
+					if jobIDStr, ok := paramsMap["job_id"].(string); ok {
+						submitJobID = jobIDStr
+					}
 				}
 			} else {
 				if params, ok := msg["params"].([]interface{}); ok && len(params) > 1 {
@@ -1182,6 +1186,10 @@ reconnectLoop:
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if jobID, ok := params[0].(string); ok {
 								s.addJob(jobID, true) // true = Main
+							}
+						} else if paramsMap, ok := msg["params"].(map[string]interface{}); ok {
+							if jobID, ok := paramsMap["job_id"].(string); ok {
+								s.addJob(jobID, true)
 							}
 						}
 					}
@@ -1950,6 +1958,10 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if jobID, ok := params[0].(string); ok {
 								s.addJob(jobID, false) // false = Fee
+							}
+						} else if paramsMap, ok := msg["params"].(map[string]interface{}); ok {
+							if jobID, ok := paramsMap["job_id"].(string); ok {
+								s.addJob(jobID, false)
 							}
 						}
 					}
