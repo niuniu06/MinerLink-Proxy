@@ -100,6 +100,9 @@ func (s *APIServer) Start(port int) error {
 		api.POST("/system/restart", s.restartSystem)
 		api.POST("/system/ping", s.pingPool)
 		api.GET("/system/status", s.getSystemStatus)
+		api.GET("/stats/history", s.getStatsHistory)
+		api.GET("/miner/:ip/history", s.getMinerHistory)
+		api.GET("/events", s.getEvents)
 		api.GET("/system/check_update", s.checkUpdate)
 		api.POST("/system/upgrade", s.doUpgrade)
 
@@ -738,3 +741,36 @@ func (s *APIServer) togglePortConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+
+func (s *APIServer) getStatsHistory(c *gin.Context) {
+	portStr := c.Query("port")
+	var history []models.HashrateHistory
+	// Fetch last 3 days of data (5-minute intervals -> 12/hr -> 288/day -> 864/3days)
+	query := db.DB.Order("timestamp desc").Limit(864)
+	if portStr != "" {
+		port, _ := strconv.Atoi(portStr)
+		query = query.Where("port = ?", port)
+	} else {
+		query = query.Where("port = ?", 0) // or something, but we just use port now. If empty, maybe no global?
+	}
+	query.Find(&history)
+
+	// Reverse the array to chronological order for the frontend
+	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
+		history[i], history[j] = history[j], history[i]
+	}
+
+	c.JSON(http.StatusOK, history)
+}
+
+func (s *APIServer) getMinerHistory(c *gin.Context) {
+	ip := c.Param("ip")
+	history := s.ProxyManager.GetMinerHistory(ip)
+	c.JSON(http.StatusOK, history)
+}
+
+func (s *APIServer) getEvents(c *gin.Context) {
+	var events []models.EventLog
+	db.DB.Order("timestamp desc").Limit(100).Find(&events)
+	c.JSON(http.StatusOK, events)
+}

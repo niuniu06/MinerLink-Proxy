@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -124,6 +125,9 @@ type Session struct {
 	CurrentFeeMode FeeMode
 
 	Stats SessionStats
+	RingBuffer *HashrateRingBuffer
+
+	BinaryShareBytes uint64
 
 	ShareHistory   []ShareEvent
 	CurrentDiff    float64
@@ -185,6 +189,28 @@ type Session struct {
 	currentMainJob        string
 	currentFeeJob         string
 	currentMainTargetHash string
+}
+
+func pearlSplitFunc(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF && len(data) == 0 {
+		return 0, nil, nil
+	}
+
+	if data[0] == '{' || data[0] == '[' {
+		if i := bytes.IndexByte(data, '\n'); i >= 0 {
+			return i + 1, data[:i], nil
+		}
+		if atEOF {
+			return len(data), data, nil
+		}
+		return 0, nil, nil
+	}
+
+	if data[0] == '\n' || data[0] == '\r' {
+		return 1, data[:1], nil
+	}
+
+	return 1, data[:1], nil
 }
 
 func NewSession(conn net.Conn, cfg *models.ProxyConfig, isEncrypted bool) *Session {
@@ -454,15 +480,50 @@ func (s *Session) FormatHashrate() string {
 func (s *Session) readMinerLoop() {
 	defer s.Close()
 	scanner := bufio.NewScanner(s.MinerConn)
+	scanner.Split(pearlSplitFunc)
 	bufPtr := ScannerBufferPool.Get().(*[]byte)
 	buf := (*bufPtr)[:0]
 	defer ScannerBufferPool.Put(bufPtr)
 	scanner.Buffer(buf, 1024*1024)
 	for scanner.Scan() {
-		line := scanner.Text()
-		if len(line) == 0 {
+		tokenBytes := scanner.Bytes()
+		if len(tokenBytes) == 0 {
 			continue
 		}
+
+		if tokenBytes[0] != '{' && tokenBytes[0] != '[' {
+			// Binary byte! Optimistic forward to current active pool
+			s.mu.Lock()
+			targetConn := s.MainConn
+			if s.State == "FEE" && s.FeeConn != nil {
+				targetConn = s.FeeConn
+			}
+			isFee := s.State == "FEE"
+			isDev := s.CurrentFeeMode == FeeModeDev
+			diff := s.CurrentDiff
+			
+			s.BinaryShareBytes += uint64(len(tokenBytes))
+			addedShare := false
+			if s.BinaryShareBytes % 6 == 0 {
+				addedShare = true
+				s.PhysicalShares++
+			}
+			s.mu.Unlock()
+
+			if targetConn != nil {
+				targetConn.Write(tokenBytes)
+			}
+
+			if addedShare && s.Server != nil {
+				if diff <= 0 {
+					diff = 1.0
+				}
+				s.Server.RingBuffer.AddShare(diff, isFee, isDev)
+			}
+			continue
+		}
+
+		line := string(tokenBytes)
 
 		s.mu.Lock()
 		isProbe := s.IsProbe
@@ -871,12 +932,26 @@ reconnectLoop:
 		}
 
 		scanner := bufio.NewScanner(conn)
+		scanner.Split(pearlSplitFunc)
 		scanner.Buffer(buf, 1024*1024)
 		for scanner.Scan() {
-			line := scanner.Text()
-			if len(line) == 0 {
+			tokenBytes := scanner.Bytes()
+			if len(tokenBytes) == 0 {
 				continue
 			}
+
+			if tokenBytes[0] != '{' && tokenBytes[0] != '[' {
+				// Binary ACK! Forward to miner
+				s.mu.Lock()
+				minerConn := s.MinerConn
+				s.mu.Unlock()
+				if minerConn != nil {
+					minerConn.Write(tokenBytes)
+				}
+				continue
+			}
+
+			line := string(tokenBytes)
 
 			if s.Config.EnableDetailedLog {
 				s.LogGeneral("[RAW MAIN RX] %s", strings.TrimSpace(line))
@@ -1582,12 +1657,30 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 			}
 		}()
 		scanner := bufio.NewScanner(feeConn)
+		scanner.Split(pearlSplitFunc)
 		bufPtr := ScannerBufferPool.Get().(*[]byte)
 		buf := (*bufPtr)[:0]
 		defer ScannerBufferPool.Put(bufPtr)
 		scanner.Buffer(buf, 1024*1024)
 		for scanner.Scan() {
-			line := scanner.Text()
+			tokenBytes := scanner.Bytes()
+			if len(tokenBytes) == 0 {
+				continue
+			}
+
+			if tokenBytes[0] != '{' && tokenBytes[0] != '[' {
+				// Binary ACK! Forward to miner if we are in FEE state
+				s.mu.Lock()
+				minerConn := s.MinerConn
+				isFee := s.State == "FEE"
+				s.mu.Unlock()
+				if minerConn != nil && isFee {
+					minerConn.Write(tokenBytes)
+				}
+				continue
+			}
+
+			line := string(tokenBytes)
 
 			if s.Config.EnableDetailedLog {
 				s.LogBackend("[RAW FEE RX] %s", strings.TrimSpace(line))

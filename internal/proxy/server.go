@@ -49,15 +49,18 @@ type Server struct {
 	Quit                    chan struct{}
 	ActiveConnections       int32
 	FeeScheduler            *FeeScheduler
+	RingBuffer              *HashrateRingBuffer
 }
 
 func NewServer(cfg *models.ProxyConfig) *Server {
 	s := &Server{
-		Config: cfg,
-		Quit:   make(chan struct{}),
+		Config:     cfg,
+		Quit:       make(chan struct{}),
+		RingBuffer: &HashrateRingBuffer{},
 	}
 	s.FeeScheduler = NewFeeScheduler(s)
 	go s.ReapOfflineSessions()
+	go s.runRingBufferTicker()
 	return s
 }
 
@@ -548,4 +551,41 @@ func getTunnelConfig() *yamux.Config {
 	cfg.ConnectionWriteTimeout = 5 * time.Minute // Prevent aggressive dropping on slow connections
 	cfg.MaxStreamWindowSize = 1024 * 1024        // 1MB window instead of 256KB
 	return cfg
+}
+func (s *Server) runRingBufferTicker() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	var ticks int
+	for {
+		select {
+		case <-ticker.C:
+			ticks++
+			s.RingBuffer.Tick()
+
+			var totalMultiplier float64
+			var algoCount float64
+
+			s.Sessions.Range(func(key, value interface{}) bool {
+				sess := value.(*Session)
+				sess.RingBuffer.Tick()
+				if totalMultiplier == 0 {
+					totalMultiplier = sess.getAlgoBaseMHs()
+				}
+				algoCount++
+				return true
+			})
+
+			// Flush port history every 5 minutes
+			if ticks%5 == 0 {
+				if totalMultiplier == 0 {
+					// Fallback if no sessions
+					totalMultiplier = 1.0 
+				}
+				s.RingBuffer.FlushToDB(s.Config.ListenPort, s.Config.CoinName, 5, totalMultiplier)
+			}
+
+		case <-s.Quit:
+			return
+		}
+	}
 }

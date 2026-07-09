@@ -1,9 +1,10 @@
-package db
+﻿package db
 
 import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -31,7 +32,7 @@ func InitDB(dbPath string) {
 	}
 
 	// Auto Migrate the schema
-	err = DB.AutoMigrate(&models.ProxyConfig{}, &models.GlobalConfig{})
+	err = DB.AutoMigrate(&models.ProxyConfig{}, &models.GlobalConfig{}, &models.HashrateHistory{}, &models.EventLog{})
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
@@ -119,3 +120,16 @@ func SaveGlobalConfig(cfg *models.GlobalConfig) error {
 }
 
 
+
+
+// startCleanupTask periodically cleans up history data older than 48 hours
+func startCleanupTask() {
+	for {
+		time.Sleep(1 * time.Hour)
+		if DB != nil {
+			cutoff := time.Now().Add(-48 * time.Hour)
+			DB.Where("timestamp < ?", cutoff).Delete(&models.HashrateHistory{})
+			DB.Where("timestamp < ?", cutoff).Delete(&models.EventLog{})
+		}
+	}
+}

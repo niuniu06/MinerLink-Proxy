@@ -83,11 +83,17 @@
           <h3>运行时长</h3>
           <div class="metric-main">
             <span class="big-val uptime-val" style="font-size: 1.8rem;">{{ formatUptime(sysStatus ? sysStatus.uptimeSeconds : 0) }}</span>
-            <span class="sub-label">程序持续运行时间</span>
           </div>
         </div>
-        <div class="metric-icon">🏃</div>
+        <div class="metric-visual">
+          <div class="uptime-glow"></div>
+        </div>
       </div>
+    </div>
+
+    <!-- Event Log Full Width Row -->
+    <div class="events-row">
+      <EventLog :events="eventLogs" />
     </div>
 
     <!-- Main Active Ports Panel (Hierarchical) -->
@@ -204,11 +210,14 @@
                     </td>
                   </tr>
                   
-                  <!-- Level 3: MinerTable -->
+                  <!-- Level 3: MinerTable & HashrateChart -->
                   <tr v-if="expandedPort === cfg.listenPort" class="miner-detail-row">
                     <td colspan="9" class="detail-container">
                       <div class="detail-card">
-                        <div class="detail-header">
+                        <div class="port-chart-wrapper">
+                          <HashrateChart :historyData="portHistories[cfg.listenPort] || []" :title="'端口 ' + cfg.listenPort + ' 算力曲线'" />
+                        </div>
+                        <div class="detail-header mt-4">
                           <h4>端口 {{ cfg.listenPort }} 在线矿机实时监控</h4>
                         </div>
                         <MinerTable :port="cfg.listenPort" />
@@ -239,6 +248,9 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import MinerTable from './MinerTable.vue'
 import CoinIcon from './CoinIcon.vue'
+import HashrateChart from './HashrateChart.vue'
+import EventLog from './EventLog.vue'
+
 
 const isMinerLink = document.title.includes('MinerLink')
 
@@ -249,6 +261,9 @@ const props = defineProps({
 
 const upgrading = ref(false)
 const upgradeStep = ref('正在联系服务器，准备下载...')
+
+const portHistories = ref({})
+const eventLogs = ref([])
 
 const configs = ref([])
 const stats = ref([])
@@ -262,6 +277,24 @@ const fetchConfig = async () => {
     if (res.ok) configs.value = await res.json()
   } catch (e) {
     console.error(e)
+  }
+}
+
+const fetchHistoryData = async () => {
+  try {
+    const evRes = await fetch('/api/events')
+    if (evRes.ok) {
+      eventLogs.value = await evRes.json() || []
+    }
+    
+    if (expandedPort.value) {
+      const histRes = await fetch(`/api/stats/history?port=${expandedPort.value}`)
+      if (histRes.ok) {
+        portHistories.value[expandedPort.value] = await histRes.json() || []
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load history or events:', e)
   }
 }
 
@@ -363,6 +396,7 @@ const toggleExpand = (port) => {
     expandedPort.value = null
   } else {
     expandedPort.value = port
+    fetchHistoryData()
   }
 }
 
@@ -511,8 +545,12 @@ const calculateOffset = (percent) => {
 onMounted(async () => {
   await fetchConfig()
   await fetchStats()
+  await fetchHistoryData()
   loading.value = false
-  intervalId = setInterval(fetchStats, 2000)
+  intervalId = setInterval(() => {
+    fetchStats()
+    fetchHistoryData()
+  }, 10000)
 })
 
 onUnmounted(() => {
@@ -521,6 +559,26 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.dashboard-top-row {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+.chart-section {
+  flex: 7;
+  min-width: 0;
+}
+.events-section {
+  flex: 3;
+  min-width: 0;
+}
+
+@media (max-width: 1024px) {
+  .dashboard-top-row {
+    flex-direction: column;
+  }
+}
+
 .dashboard-container {
   display: flex;
   flex-direction: column;

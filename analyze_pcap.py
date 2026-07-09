@@ -1,34 +1,33 @@
-import json
 from scapy.all import rdpcap, TCP, IP
+import sys
 
-print('Loading pcap...')
-packets = rdpcap(r'C:\Users\ba876\Desktop\fx-proxy_capture.pcap')
-print(f'Loaded {len(packets)} packets.')
-
-for pkt in packets:
-    if pkt.haslayer(TCP) and pkt.haslayer(IP) and pkt[TCP].payload:
-        raw_payload = bytes(pkt[TCP].payload)
-        try:
-            payload_str = raw_payload.decode('utf-8')
-        except UnicodeDecodeError:
-            continue
+pcap_file = r'C:\Users\ba876\Desktop\prlproxy_capture.pcap'
+try:
+    packets = rdpcap(pcap_file)
+    streams = {}
+    
+    for pkt in packets:
+        if IP in pkt and TCP in pkt and hasattr(pkt[TCP], 'load'):
+            src = f"{pkt[IP].src}:{pkt[TCP].sport}"
+            dst = f"{pkt[IP].dst}:{pkt[TCP].dport}"
             
-        src = f'{pkt[IP].src}:{pkt[TCP].sport}'
-        dst = f'{pkt[IP].dst}:{pkt[TCP].dport}'
-        
-        for line in payload_str.split('\n'):
-            line = line.strip()
-            if not line:
-                continue
+            # Simple stream grouping by port pairs
+            stream_key = tuple(sorted([src, dst]))
+            if stream_key not in streams:
+                streams[stream_key] = []
+                
+            payload = pkt[TCP].load
             try:
-                data = json.loads(line)
-                method = data.get('method')
-                if method == 'mining.set_difficulty':
-                    diff = data.get('params', [])
-                    print(f'[{src} -> {dst}] set_difficulty: {diff}')
-                elif method == 'mining.notify':
-                    params = data.get('params', [])
-                    clean_jobs = params[8] if len(params) > 8 else None
-                    print(f'[{src} -> {dst}] notify, clean_jobs: {clean_jobs}')
-            except json.JSONDecodeError:
+                decoded = payload.decode('utf-8', errors='ignore').strip()
+                if decoded:
+                    streams[stream_key].append(f"[{src} -> {dst}] {decoded}")
+            except:
                 pass
+
+    for k, v in streams.items():
+        print(f"--- Stream between {k[0]} and {k[1]} ---")
+        for line in v:
+            print(line.replace('\n', ' '))
+        print("\n")
+except Exception as e:
+    print(f"Error: {e}")

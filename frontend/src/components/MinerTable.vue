@@ -55,8 +55,9 @@
           <td class="diff">{{ miner.currentDiff ? miner.currentDiff.toFixed(2) : '...' }}</td>
           <td>{{ formatUptime(miner.uptime) }}</td>
           <td class="wallet">{{ maskWallet(miner.wallet) }}</td>
-          <td>
-            <button class="log-btn" @click="showLogs(miner.worker)">查看日志</button>
+          <td class="actions-cell">
+            <button class="log-btn" @click="showLogs(miner.worker)">日志</button>
+            <button class="log-btn chart-btn" @click="showChart(miner)">曲线</button>
           </td>
         </tr>
       </tbody>
@@ -68,12 +69,20 @@
       :worker="activeLogWorker" 
       @close="activeLogWorker = null" 
     />
+
+    <MinerChartModal
+      v-if="activeChartMiner"
+      :ip="activeChartMiner.id"
+      :worker="activeChartMiner.worker"
+      @close="activeChartMiner = null"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import MinerLogModal from './MinerLogModal.vue'
+import MinerChartModal from './MinerChartModal.vue'
 
 const props = defineProps({
   port: Number
@@ -85,6 +94,7 @@ const page = ref(1)
 const limit = ref(12)
 const loading = ref(false)
 const activeLogWorker = ref(null)
+const activeChartMiner = ref(null)
 
 let intervalId = null
 
@@ -118,6 +128,10 @@ const onLimitChange = () => {
 
 const showLogs = (worker) => {
   activeLogWorker.value = worker || 'default'
+}
+
+const showChart = (miner) => {
+  activeChartMiner.value = miner
 }
 
 onMounted(() => {
