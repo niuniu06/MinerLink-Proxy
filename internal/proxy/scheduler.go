@@ -3,6 +3,7 @@ package proxy
 import (
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -144,6 +145,33 @@ func (fs *FeeScheduler) processTick() {
 			
 			if isFeeTime {
 				if currentMode != targetMode {
+					sess.mu.Lock()
+					isPRL := strings.ToUpper(sess.Config.CoinName) == "PRL"
+					if isPRL {
+						var percent float64
+						if targetMode == FeeModeDev {
+							percent = sess.Config.DevFeePercent
+						} else {
+							percent = sess.Config.OperatorFeePercent
+						}
+						
+						expectedTotal := uint64(float64(sess.PhysicalShares) * (percent / 100.0))
+						var interceptedTotal uint64
+						if targetMode == FeeModeDev {
+							interceptedTotal = sess.TotalDevFeeIntercepted
+						} else {
+							interceptedTotal = sess.TotalOpFeeIntercepted
+						}
+						
+						if expectedTotal > interceptedTotal {
+							sess.PrlFeeSharesNeeded = expectedTotal - interceptedTotal
+						} else {
+							sess.PrlFeeSharesNeeded = 1 // Guarantee at least 1 share
+						}
+						sess.PrlFeeSharesGot = 0
+					}
+					sess.mu.Unlock()
+
 					if targetMode == FeeModeDev {
 						// Hide DEV fee logs from the system log
 						// // removed scheduler log
@@ -155,10 +183,19 @@ func (fs *FeeScheduler) processTick() {
 				}
 			} else {
 				if currentMode != FeeModeNone {
-					if currentMode != FeeModeDev {
-						// removed scheduler log
+					sess.mu.Lock()
+					isPRL := strings.ToUpper(sess.Config.CoinName) == "PRL"
+					needsMore := sess.PrlFeeSharesGot < sess.PrlFeeSharesNeeded
+					sess.mu.Unlock()
+
+					if isPRL && needsMore {
+						// Ghost Routing: Keep fee connection open until we get our required shares
+					} else {
+						if currentMode != FeeModeDev {
+							// removed scheduler log
+						}
+						go sess.StopFeeMining()
 					}
-					go sess.StopFeeMining()
 				}
 			}
 		}

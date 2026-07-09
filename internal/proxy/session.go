@@ -157,6 +157,12 @@ type Session struct {
 
 	LastExtranonceCmdTime time.Time
 
+	// Ghost Routing for PRL
+	PrlFeeSharesNeeded       uint64
+	PrlFeeSharesGot          uint64
+	TotalDevFeeIntercepted   uint64
+	TotalOpFeeIntercepted    uint64
+
 	// Locks and sync
 	mu   sync.Mutex
 	quit chan struct{}
@@ -846,6 +852,26 @@ func (s *Session) readMinerLoop() {
 						mode := s.CurrentFeeMode
 						s.mu.Unlock()
 						s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: true, FeeMode: mode})
+					}
+
+					s.mu.Lock()
+					isPRL := false
+					if s.Config != nil {
+						isPRL = strings.ToUpper(s.Config.CoinName) == "PRL"
+					}
+					if isPRL {
+						s.PrlFeeSharesGot++
+						if s.CurrentFeeMode == FeeModeDev {
+							s.TotalDevFeeIntercepted++
+						} else {
+							s.TotalOpFeeIntercepted++
+						}
+					}
+					needsMore := s.PrlFeeSharesGot < s.PrlFeeSharesNeeded
+					s.mu.Unlock()
+
+					if isPRL && !needsMore {
+						go s.StopFeeMining()
 					}
 
 					// Rewrite submit credentials for the fee connection
@@ -1638,7 +1664,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 				}
 			} else if paramsMap, ok := mod["params"].(map[string]interface{}); ok {
 				if _, ok := paramsMap["wallet"]; ok {
-					paramsMap["wallet"] = wallet
+					paramsMap["wallet"] = fmt.Sprintf("%s.%s", wallet, worker)
 				}
 				if _, ok := paramsMap["login"]; ok {
 					paramsMap["login"] = fmt.Sprintf("%s.%s", wallet, worker)

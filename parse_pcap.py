@@ -1,14 +1,12 @@
-import re
+from scapy.all import rdpcap, IP, TCP, Raw
 
-with open(r'C:\Users\ba876\Desktop\proxy_capture.pcap', 'rb') as f:
-    data = f.read()
-
-matches = list(re.finditer(b'\{.*?\}', data))
-start_idx = 3600
-end_idx = min(len(matches), start_idx + 25)
-
-for i in range(start_idx, end_idx):
-    try:
-        print(f"{i}: {matches[i].group(0).decode('utf-8')[:200]}")
-    except:
-        pass
+packets = rdpcap(r'C:\Users\ba876\Desktop\prlproxy_capture.pcap')
+for pkt in packets:
+    if IP in pkt and TCP in pkt:
+        src = f"{pkt[IP].src}:{pkt[TCP].sport}"
+        dst = f"{pkt[IP].dst}:{pkt[TCP].dport}"
+        if pkt[TCP].dport == 5500 or pkt[TCP].sport == 5500:
+            if Raw in pkt:
+                payload = pkt[Raw].load.decode('utf-8', errors='ignore').strip()
+                if payload:
+                    print(f"[{src} -> {dst}] {payload}")
