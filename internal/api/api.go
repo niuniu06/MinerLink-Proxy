@@ -755,12 +755,74 @@ func (s *APIServer) getStatsHistory(c *gin.Context) {
 	}
 	query.Find(&history)
 
-	// Reverse the array to chronological order for the frontend
-	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
-		history[i], history[j] = history[j], history[i]
+	// Compute real-time summaries based on 5-minute data before aggregating
+	summary := make(map[string]models.HashrateSummary)
+	
+	calcAvg := func(points int) models.HashrateSummary {
+		var m, f float64
+		count := 0
+		for i := 0; i < len(history) && i < points; i++ {
+			m += history[i].MainHashrate
+			f += history[i].FeeHashrate
+			count++
+		}
+		if count > 0 {
+			return models.HashrateSummary{MainHashrate: m / float64(count), FeeHashrate: f / float64(count)}
+		}
+		return models.HashrateSummary{}
+	}
+	
+	summary["avg10m"] = calcAvg(2) // 2 * 5min = 10m
+	summary["avg1h"] = calcAvg(12) // 12 * 5min = 1h
+	summary["avg6h"] = calcAvg(72) // 72 * 5min = 6h
+
+	var hourlyHistory []models.HashrateHistory
+	if len(history) > 0 {
+		var currentHour time.Time
+		var sumMain, sumFee float64
+		var count int
+		
+		for _, h := range history {
+			hourBucket := h.Timestamp.Truncate(time.Hour)
+			if count == 0 {
+				currentHour = hourBucket
+			}
+			
+			if hourBucket.Equal(currentHour) {
+				sumMain += h.MainHashrate
+				sumFee += h.FeeHashrate
+				count++
+			} else {
+				hourlyHistory = append(hourlyHistory, models.HashrateHistory{
+					Timestamp:    currentHour,
+					MainHashrate: sumMain / float64(count),
+					FeeHashrate:  sumFee / float64(count),
+				})
+				
+				currentHour = hourBucket
+				sumMain = h.MainHashrate
+				sumFee = h.FeeHashrate
+				count = 1
+			}
+		}
+		if count > 0 {
+			hourlyHistory = append(hourlyHistory, models.HashrateHistory{
+				Timestamp:    currentHour,
+				MainHashrate: sumMain / float64(count),
+				FeeHashrate:  sumFee / float64(count),
+			})
+		}
 	}
 
-	c.JSON(http.StatusOK, history)
+	// Reverse the array to chronological order for the frontend
+	for i, j := 0, len(hourlyHistory)-1; i < j; i, j = i+1, j-1 {
+		hourlyHistory[i], hourlyHistory[j] = hourlyHistory[j], hourlyHistory[i]
+	}
+
+	c.JSON(http.StatusOK, models.HistoryResponse{
+		Summary: summary,
+		History: hourlyHistory,
+	})
 }
 
 func (s *APIServer) getMinerHistory(c *gin.Context) {

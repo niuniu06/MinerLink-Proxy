@@ -49,16 +49,17 @@ use([
 
 const props = defineProps({
   historyData: {
-    type: Array,
-    default: () => []
+    type: Object,
+    default: () => ({ summary: {}, history: [] })
   },
   title: {
     type: String,
-    default: '3天算力曲线'
+    default: '算力曲线'
   }
 })
 
 const formatHashrateString = (value) => {
+  if (!value) return '0.00 H/s'
   const val = value * 1e6;
   if (val >= 1e15) return (val / 1e15).toFixed(2) + ' PH/s'
   if (val >= 1e12) return (val / 1e12).toFixed(2) + ' TH/s'
@@ -68,30 +69,34 @@ const formatHashrateString = (value) => {
   return val.toFixed(2) + ' H/s'
 }
 
-const calculateAvg = (data, points) => {
-  if (!data || data.length === 0) return 0;
-  const count = Math.min(data.length, points);
-  let sum = 0;
-  for (let i = data.length - count; i < data.length; i++) {
-    sum += data[i].mainHashrate + data[i].feeHashrate;
-  }
-  return sum / count;
-}
+// Use backend provided summary data
+const avg10m = computed(() => {
+  const s = props.historyData?.summary?.avg10m;
+  if (!s) return 0;
+  return s.mainHashrate + s.feeHashrate;
+});
 
-// 5-minute intervals per data point
-const avg10m = computed(() => calculateAvg(props.historyData, 2));
-const avg1h = computed(() => calculateAvg(props.historyData, 12));
-const avg6h = computed(() => calculateAvg(props.historyData, 72));
+const avg1h = computed(() => {
+  const s = props.historyData?.summary?.avg1h;
+  if (!s) return 0;
+  return s.mainHashrate + s.feeHashrate;
+});
+
+const avg6h = computed(() => {
+  const s = props.historyData?.summary?.avg6h;
+  if (!s) return 0;
+  return s.mainHashrate + s.feeHashrate;
+});
 
 const chartOption = computed(() => {
-  const data = props.historyData;
+  const data = props.historyData?.history || [];
   const timestamps = data.map(d => {
     const dObj = new Date(d.timestamp)
+    const year = dObj.getFullYear();
     const month = (dObj.getMonth() + 1).toString().padStart(2, '0');
     const day = dObj.getDate().toString().padStart(2, '0');
     const hours = dObj.getHours().toString().padStart(2, '0');
-    const mins = dObj.getMinutes().toString().padStart(2, '0');
-    return `${month}-${day} ${hours}:${mins}`
+    return `${year}/${month}/${day} ${hours}:00`
   })
   const mainHash = data.map(d => d.mainHashrate)
   const feeHash = data.map(d => d.feeHashrate)
@@ -124,8 +129,10 @@ const chartOption = computed(() => {
       axisLabel: { 
         color: '#94a3b8',
         formatter: function (value) {
-          // split "07-09 13:00" -> "13:00" for cleaner look if needed, but keeping full is safer for 3 days
-          return value.split(' ')[1]; // Just show time like Figure 3
+          // value is "YYYY/MM/DD HH:00"
+          // Display only HH:00 on the X-axis for a cleaner look
+          const parts = value.split(' ');
+          return parts[1];
         }
       }
     },

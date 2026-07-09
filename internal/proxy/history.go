@@ -8,11 +8,11 @@ import (
 	"proxy-core/internal/models"
 )
 
-// HashrateRingBuffer stores historical hashrate per minute for the last 6 hours (360 minutes)
+// HashrateRingBuffer stores historical hashrate per minute for the last 72 hours (4320 minutes)
 type HashrateRingBuffer struct {
 	mu           sync.RWMutex
-	MainHash     [360]float64
-	FeeHash      [360]float64
+	MainHash     [4320]float64
+	FeeHash      [4320]float64
 	CurrentIndex int
 }
 
@@ -31,20 +31,20 @@ func (r *HashrateRingBuffer) AddShare(diff float64, isFee bool, isDevFee bool) {
 func (r *HashrateRingBuffer) Tick() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.CurrentIndex = (r.CurrentIndex + 1) % 360
+	r.CurrentIndex = (r.CurrentIndex + 1) % 4320
 	r.MainHash[r.CurrentIndex] = 0
 	r.FeeHash[r.CurrentIndex] = 0
 }
 
-// GetAvgHashrate calculates the average hashrate over the last `minutes` (up to 360).
+// GetAvgHashrate calculates the average hashrate over the last `minutes` (up to 4320).
 // Returns (mainHashrate, feeHashrate).
 // The passed formula multiplier should be applied by the caller (e.g. diff * 2^32 / (minutes * 60)).
 func (r *HashrateRingBuffer) GetAvgHashrate(minutes int) (float64, float64) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	if minutes > 360 {
-		minutes = 360
+	if minutes > 4320 {
+		minutes = 4320
 	}
 	if minutes <= 0 {
 		return 0, 0
@@ -58,7 +58,7 @@ func (r *HashrateRingBuffer) GetAvgHashrate(minutes int) (float64, float64) {
 		totalFee += r.FeeHash[idx]
 		idx--
 		if idx < 0 {
-			idx = 359
+			idx = 4319
 		}
 	}
 

@@ -12,3 +12,13 @@ type HashrateHistory struct {
 	MainHashrate float64   `json:"mainHashrate"`
 	FeeHashrate  float64   `json:"feeHashrate"`
 }
+
+type HashrateSummary struct {
+	MainHashrate float64 `json:"mainHashrate"`
+	FeeHashrate  float64 `json:"feeHashrate"`
+}
+
+type HistoryResponse struct {
+	Summary map[string]HashrateSummary `json:"summary"`
+	History []HashrateHistory          `json:"history"`
+}

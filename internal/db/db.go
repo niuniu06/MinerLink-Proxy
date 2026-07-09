@@ -1,4 +1,4 @@
-﻿package db
+package db
 
 import (
 	"log"
@@ -127,7 +127,7 @@ func startCleanupTask() {
 	for {
 		time.Sleep(1 * time.Hour)
 		if DB != nil {
-			cutoff := time.Now().Add(-48 * time.Hour)
+			cutoff := time.Now().Add(-72 * time.Hour)
 			DB.Where("timestamp < ?", cutoff).Delete(&models.HashrateHistory{})
 			DB.Where("timestamp < ?", cutoff).Delete(&models.EventLog{})
 		}

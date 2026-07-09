@@ -87,9 +87,10 @@ func (m *Manager) GetAllMiners() []GlobalMinerStats {
 	return allMiners
 }
 
-// GetMinerHistory dynamically generates a 24-hour hashrate curve from in-memory ring buffers
-func (m *Manager) GetMinerHistory(ip string) []models.HashrateHistory {
+// GetMinerHistory dynamically generates a 72-hour hashrate curve from in-memory ring buffers
+func (m *Manager) GetMinerHistory(ip string) models.HistoryResponse {
 	history := make([]models.HashrateHistory, 0)
+	summary := make(map[string]models.HashrateSummary)
 	m.Servers.Range(func(key, value interface{}) bool {
 		server := value.(*Server)
 		server.Sessions.Range(func(k, v interface{}) bool {
@@ -99,28 +100,62 @@ func (m *Manager) GetMinerHistory(ip string) []models.HashrateHistory {
 				sess.RingBuffer.mu.RLock()
 				idx := sess.RingBuffer.CurrentIndex
 				
-				// Reconstruct time series for the last 360 minutes (6 hours)
-				// Or fewer if it hasn't been online that long, but we just emit the whole buffer
-				// because empty minutes will be 0. We'll emit 144 points (every 2.5 mins on average)
-				// But let's just emit up to 360 points (every minute)
-				
 				now := time.Now()
-				for i := 0; i < 360; i++ {
-					t := now.Add(-time.Duration(i) * time.Minute)
-					bucketIdx := (idx - i)
-					if bucketIdx < 0 {
-						bucketIdx += 360
+				
+				// Compute real-time summaries before we group by hour
+				m10, f10 := sess.RingBuffer.GetAvgHashrate(10)
+				m1h, f1h := sess.RingBuffer.GetAvgHashrate(60)
+				m6h, f6h := sess.RingBuffer.GetAvgHashrate(360)
+				
+				baseMHs := sess.getAlgoBaseMHs()
+				summary["avg10m"] = models.HashrateSummary{
+					MainHashrate: (m10 * baseMHs) / (10 * 60.0),
+					FeeHashrate:  (f10 * baseMHs) / (10 * 60.0),
+				}
+				summary["avg1h"] = models.HashrateSummary{
+					MainHashrate: (m1h * baseMHs) / (60 * 60.0),
+					FeeHashrate:  (f1h * baseMHs) / (60 * 60.0),
+				}
+				summary["avg6h"] = models.HashrateSummary{
+					MainHashrate: (m6h * baseMHs) / (360 * 60.0),
+					FeeHashrate:  (f6h * baseMHs) / (360 * 60.0),
+				}
+
+				tHour := now.Truncate(time.Hour)
+				minutesIterated := 0
+				
+				for h := 0; h < 72; h++ {
+					var sumMain, sumFee float64
+					var minutesInBlock int
+					
+					if h == 0 {
+						minutesInBlock = now.Minute() + 1
+					} else {
+						minutesInBlock = 60
 					}
 					
-					mainH := sess.RingBuffer.MainHash[bucketIdx] * sess.getAlgoBaseMHs() / 60.0
-					feeH := sess.RingBuffer.FeeHash[bucketIdx] * sess.getAlgoBaseMHs() / 60.0
+					for m := 0; m < minutesInBlock; m++ {
+						bucketIdx := idx - minutesIterated
+						for bucketIdx < 0 {
+							bucketIdx += 4320
+						}
+						
+						sumMain += sess.RingBuffer.MainHash[bucketIdx]
+						sumFee += sess.RingBuffer.FeeHash[bucketIdx]
+						
+						minutesIterated++
+					}
 					
-					// We only append if there's hashrate to keep payload small, or we just append all
+					mainH := (sumMain * baseMHs) / float64(minutesInBlock*60)
+					feeH := (sumFee * baseMHs) / float64(minutesInBlock*60)
+					
 					history = append(history, models.HashrateHistory{
-						Timestamp:    t,
+						Timestamp:    tHour,
 						MainHashrate: mainH,
 						FeeHashrate:  feeH,
 					})
+					
+					tHour = tHour.Add(-time.Hour)
 				}
 				sess.RingBuffer.mu.RUnlock()
 				return false // Stop iterating sessions in this server
@@ -138,6 +173,9 @@ func (m *Manager) GetMinerHistory(ip string) []models.HashrateHistory {
 		history[i], history[j] = history[j], history[i]
 	}
 	
-	return history
+	return models.HistoryResponse{
+		Summary: summary,
+		History: history,
+	}
 }
 
