@@ -651,6 +651,14 @@ func (s *Session) readMinerLoop() {
 						if w, ok := paramsMap["worker"].(string); ok {
 							s.MinerWorker = w
 						}
+						
+						// Fallback: Some miners pack the worker into the wallet field (e.g. "wallet.worker")
+						// even when using map-based params, without sending a separate "worker" field.
+						if s.MinerWorker == "" && strings.Contains(s.MinerWallet, ".") {
+							parts := strings.SplitN(s.MinerWallet, ".", 2)
+							s.MinerWallet = parts[0]
+							s.MinerWorker = parts[1]
+						}
 					}
 
 					// Sanitize miner worker to avoid upstream rejection
