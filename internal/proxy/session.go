@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"math/rand"
 	"net"
 	"proxy-core/internal/db"
 	"proxy-core/internal/models"
@@ -158,8 +159,7 @@ type Session struct {
 	LastExtranonceCmdTime time.Time
 
 	// Ghost Routing for PRL
-	PrlFeeSharesNeeded       uint64
-	PrlFeeSharesGot          uint64
+	PrlShareCounter          uint64
 	TotalDevFeeIntercepted   uint64
 	TotalOpFeeIntercepted    uint64
 
@@ -239,6 +239,7 @@ func NewSession(conn net.Conn, cfg *models.ProxyConfig, isEncrypted bool) *Sessi
 		RingBuffer:     &HashrateRingBuffer{},
 		LastHashUpdate: time.Now(),
 		LastShareTime:  time.Now(),
+		PrlShareCounter: uint64(rand.Intn(50)), // Pre-randomize starting point to perfectly distribute Ghost Routing shares across miners
 		jobTracker:     make(map[string]bool),
 		jobList:        make([]string, 0),
 		IsEncrypted:    isEncrypted,
@@ -779,6 +780,33 @@ func (s *Session) readMinerLoop() {
 				s.PhysicalShares++
 				s.mu.Lock()
 				s.LastShareTime = time.Now()
+				
+				isPRL := false
+				if s.Config != nil {
+					isPRL = strings.ToUpper(s.Config.CoinName) == "PRL"
+				}
+				
+				if isPRL {
+					s.PrlShareCounter++
+					totalFee := s.Config.DevFeePercent + s.Config.OperatorFeePercent
+					if totalFee > 0 {
+						targetInterval := int(100.0 / totalFee)
+						if targetInterval <= 0 {
+							targetInterval = 50
+						}
+						
+						mod := int(s.PrlShareCounter) % targetInterval
+						if mod == targetInterval - 2 {
+							s.TargetState = "FEE"
+							isDev := s.Config.DevFeePercent > 0
+							if isDev {
+								go s.StartFeeMining(true)
+							} else {
+								go s.StartFeeMining(false)
+							}
+						}
+					}
+				}
 				s.mu.Unlock()
 			}
 		}
@@ -830,6 +858,31 @@ func (s *Session) readMinerLoop() {
 				isMainRoute = false
 			}
 
+			// Pure Smoothed Ghost Routing overrides MainRoute
+			s.mu.Lock()
+			isPRL := false
+			if s.Config != nil {
+				isPRL = strings.ToUpper(s.Config.CoinName) == "PRL"
+			}
+			prlMod := -1
+			if isPRL {
+				totalFee := s.Config.DevFeePercent + s.Config.OperatorFeePercent
+				if totalFee > 0 {
+					targetInterval := int(100.0 / totalFee)
+					if targetInterval <= 0 { targetInterval = 50 }
+					prlMod = int(s.PrlShareCounter) % targetInterval
+				}
+			}
+			s.mu.Unlock()
+
+			if isPRL {
+				if prlMod == 0 {
+					isMainRoute = false // Intercept exactly this one
+				} else {
+					isMainRoute = true // Give everything else to Main
+				}
+			}
+
 			if isMainRoute {
 				if mainConn != nil {
 					if id, ok := msg["id"]; ok {
@@ -860,17 +913,15 @@ func (s *Session) readMinerLoop() {
 						isPRL = strings.ToUpper(s.Config.CoinName) == "PRL"
 					}
 					if isPRL {
-						s.PrlFeeSharesGot++
 						if s.CurrentFeeMode == FeeModeDev {
 							s.TotalDevFeeIntercepted++
 						} else {
 							s.TotalOpFeeIntercepted++
 						}
 					}
-					needsMore := s.PrlFeeSharesGot < s.PrlFeeSharesNeeded
 					s.mu.Unlock()
 
-					if isPRL && !needsMore {
+					if isPRL {
 						go s.StopFeeMining()
 					}
 

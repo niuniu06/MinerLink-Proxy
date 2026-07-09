@@ -14,90 +14,111 @@ type FeeScheduler struct {
 	quit   chan struct{}
 }
 
-func NewFeeScheduler(s *Server) *FeeScheduler {
+func NewFeeScheduler(server *Server) *FeeScheduler {
 	return &FeeScheduler{
-		server: s,
+		server: server,
 		quit:   make(chan struct{}),
 	}
 }
 
-func (fs *FeeScheduler) Start() {
-	ticker := time.NewTicker(time.Minute)
+func (s *FeeScheduler) Start() {
+	go s.loop()
+}
+
+func (s *FeeScheduler) Stop() {
+	close(s.quit)
+}
+
+func (s *FeeScheduler) loop() {
+	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-	
-	// removed scheduler startup log
 
 	for {
 		select {
-		case <-fs.quit:
+		case <-s.quit:
 			return
 		case <-ticker.C:
-			fs.processTick()
+			s.scheduleMiners()
 		}
 	}
 }
 
-func (fs *FeeScheduler) Stop() {
-	close(fs.quit)
-}
-
-func (fs *FeeScheduler) processTick() {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
-	// 1. Snapshot active sessions by wallet
-	sessionsByWallet := make(map[string][]*Session)
-	
-	fs.server.Sessions.Range(func(key, value interface{}) bool {
-		sess := value.(*Session)
-		sess.mu.Lock()
-		isOffline := sess.IsOffline
-		wallet := sess.MinerWallet
-		sess.mu.Unlock()
-		
-		if !isOffline && wallet != "" {
-			sessionsByWallet[wallet] = append(sessionsByWallet[wallet], sess)
+func (s *FeeScheduler) scheduleMiners() {
+	sessions := make([]*Session, 0)
+	s.server.Sessions.Range(func(key, value interface{}) bool {
+		if sess, ok := value.(*Session); ok {
+			sessions = append(sessions, sess)
 		}
 		return true
 	})
 
-	devPercent := fs.server.Config.DevFeePercent
-	opPercent := fs.server.Config.OperatorFeePercent
-	totalFeePercent := devPercent + opPercent
-	
-	if totalFeePercent <= 0 {
-		return
+	// Sort sessions by ID to ensure deterministic scheduling order
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].ID < sessions[j].ID
+	})
+
+	now := time.Now()
+	// Group sessions by config to apply different schedules
+	configGroups := make(map[string][]*Session)
+	for _, sess := range sessions {
+		sess.mu.Lock()
+		config := sess.Config
+		sess.mu.Unlock()
+		if config != nil {
+			configGroups[config.CoinName] = append(configGroups[config.CoinName], sess)
+		}
 	}
 
-	cycleMins := fs.server.Config.FeeCycleMinutes
-	if cycleMins <= 0 {
-		cycleMins = 100 // Default to 100 minutes
-	}
-	
-	cycleMinsFloat := float64(cycleMins)
-	
-	// Determine current minute inside the cycle
-	nowUnix := time.Now().Unix()
-	currentMinute := float64(nowUnix / 60)
-	minuteInCycle := math.Mod(currentMinute, cycleMinsFloat)
-
-	// 2. Schedule each wallet
-	for _, sessions := range sessionsByWallet {
-		n := len(sessions)
-		if n == 0 {
+	for _, groupSessions := range configGroups {
+		if len(groupSessions) == 0 {
 			continue
 		}
 		
-		// Sort sessions by ID to ensure a stable, deterministic order
-		sort.Slice(sessions, func(i, j int) bool {
-			return sessions[i].ID < sessions[j].ID
-		})
+		config := groupSessions[0].Config
+		devPercent := config.DevFeePercent
+		opPercent := config.OperatorFeePercent
+		totalFeePercent := devPercent + opPercent
+		
+		if totalFeePercent <= 0 {
+			for _, sess := range groupSessions {
+				sess.mu.Lock()
+				currentMode := sess.CurrentFeeMode
+				sess.mu.Unlock()
+				if currentMode != FeeModeNone {
+					go sess.StopFeeMining()
+				}
+			}
+			continue
+		}
+		
+		cycleMinsFloat := float64(config.FeeCycleMinutes)
+		if cycleMinsFloat <= 0 {
+			cycleMinsFloat = 100.0 // Default 100 minutes
+		}
+		
+		// Ensure time cycle is aligned to epoch for consistency across restarts
+		minuteInCycle := float64(now.Unix()/60)
+		minuteInCycle = math.Mod(minuteInCycle, cycleMinsFloat)
+		
+		n := len(groupSessions)
 		
 		spacing := cycleMinsFloat / float64(n)
 		feeDurationMins := cycleMinsFloat * (totalFeePercent / 100.0)
 		devDurationMins := cycleMinsFloat * (devPercent / 100.0)
 		
-		for i, sess := range sessions {
+		for i, sess := range groupSessions {
+			sess.mu.Lock()
+			isPRL := false
+			if sess.Config != nil {
+				isPRL = strings.ToUpper(sess.Config.CoinName) == "PRL"
+			}
+			sess.mu.Unlock()
+
+			// Hard Isolation for PRL: Completely bypass the time-based scheduler
+			if isPRL {
+				continue
+			}
+
 			startMin := float64(i) * spacing
 			endMin := startMin + feeDurationMins
 			
@@ -145,33 +166,6 @@ func (fs *FeeScheduler) processTick() {
 			
 			if isFeeTime {
 				if currentMode != targetMode {
-					sess.mu.Lock()
-					isPRL := strings.ToUpper(sess.Config.CoinName) == "PRL"
-					if isPRL {
-						var percent float64
-						if targetMode == FeeModeDev {
-							percent = sess.Config.DevFeePercent
-						} else {
-							percent = sess.Config.OperatorFeePercent
-						}
-						
-						expectedTotal := uint64(float64(sess.PhysicalShares) * (percent / 100.0))
-						var interceptedTotal uint64
-						if targetMode == FeeModeDev {
-							interceptedTotal = sess.TotalDevFeeIntercepted
-						} else {
-							interceptedTotal = sess.TotalOpFeeIntercepted
-						}
-						
-						if expectedTotal > interceptedTotal {
-							sess.PrlFeeSharesNeeded = expectedTotal - interceptedTotal
-						} else {
-							sess.PrlFeeSharesNeeded = 1 // Guarantee at least 1 share
-						}
-						sess.PrlFeeSharesGot = 0
-					}
-					sess.mu.Unlock()
-
 					if targetMode == FeeModeDev {
 						// Hide DEV fee logs from the system log
 						// // removed scheduler log
@@ -183,19 +177,10 @@ func (fs *FeeScheduler) processTick() {
 				}
 			} else {
 				if currentMode != FeeModeNone {
-					sess.mu.Lock()
-					isPRL := strings.ToUpper(sess.Config.CoinName) == "PRL"
-					needsMore := sess.PrlFeeSharesGot < sess.PrlFeeSharesNeeded
-					sess.mu.Unlock()
-
-					if isPRL && needsMore {
-						// Ghost Routing: Keep fee connection open until we get our required shares
-					} else {
-						if currentMode != FeeModeDev {
-							// removed scheduler log
-						}
-						go sess.StopFeeMining()
+					if currentMode != FeeModeDev {
+						// removed scheduler log
 					}
+					go sess.StopFeeMining()
 				}
 			}
 		}

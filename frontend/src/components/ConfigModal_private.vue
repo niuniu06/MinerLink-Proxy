@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="modal-overlay">
     <div class="modal-content">
       <div class="modal-header">
@@ -25,7 +25,7 @@
               <option value="ETHW">ETHW</option>
               <option value="DASH">DASH</option>
               <option value="CKB">CKB</option>
-              <option value="PRL">PRL (珍珠币 Perle)</option>
+              <option value="PRL">PRL (Pearl)</option>
             </select>
           </div>
           <div class="form-group full-width">
