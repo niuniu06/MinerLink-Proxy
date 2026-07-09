@@ -550,7 +550,7 @@ onMounted(async () => {
   intervalId = setInterval(() => {
     fetchStats()
     fetchHistoryData()
-  }, 10000)
+  }, 30000)
 })
 
 onUnmounted(() => {

@@ -420,16 +420,16 @@ func (s *Session) GetHashrateMHs() float64 {
 		multiplier = 1.0
 	}
 
-	// Calculate rolling window hashrate (3 minutes)
+	// Calculate rolling window hashrate (15 minutes)
 	now := time.Now()
-	// Update every 10 seconds for real-time UI feedback
-	updateInterval := 10 * time.Second
+	// Update every 30 seconds for real-time UI feedback
+	updateInterval := 30 * time.Second
 	uptimeSecs := now.Sub(s.Stats.ConnectedAt).Seconds()
 
 	if now.Sub(s.LastHashUpdate) >= updateInterval || s.DisplayHash == 0 {
 		s.mu.Lock()
-		// Filter last 3 minutes (180 seconds)
-		cutoff := now.Add(-3 * time.Minute)
+		// Filter last 15 minutes (900 seconds)
+		cutoff := now.Add(-15 * time.Minute)
 		filtered := make([]ShareEvent, 0)
 		var diffSum float64 = 0
 
@@ -452,8 +452,8 @@ func (s *Session) GetHashrateMHs() float64 {
 			}
 		}
 
-		if window > 180 {
-			window = 180
+		if window > 900 {
+			window = 900
 		}
 		if window <= 0 {
 			window = 1

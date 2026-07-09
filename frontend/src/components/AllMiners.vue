@@ -147,7 +147,7 @@ const showLogs = (worker) => {
 onMounted(() => {
   loading.value = true
   fetchMiners().then(() => loading.value = false)
-  intervalId = setInterval(fetchMiners, 2000)
+  intervalId = setInterval(fetchMiners, 30000)
 })
 
 onUnmounted(() => {
