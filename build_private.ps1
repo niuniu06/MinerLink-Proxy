@@ -1,5 +1,5 @@
 $ErrorActionPreference = "Stop"
-Write-Host "Building Private MinerLink-Proxy v2.2.105-beta..."
+Write-Host "Building Private MinerLink-Proxy v2.2.107-beta..."
 Copy-Item -Path frontend/src/components/ConfigModal_private.vue -Destination frontend/src/components/ConfigModal.vue -Force
 node -e "const fs=require('fs'); fs.writeFileSync('frontend/index.html', fs.readFileSync('frontend/index.html', 'utf8').replace(/<title>.*<\/title>/, '<title>MinerLink-Proxy</title>'));"
 node -e "const fs=require('fs'); let c=fs.readFileSync('frontend/src/components/ConfigModal.vue', 'utf8'); c=c.replace(/<option value=\x22DOGE\x22>.*<\/option>\r?\n?\s*/g, ''); fs.writeFileSync('frontend/src/components/ConfigModal.vue', c);"
