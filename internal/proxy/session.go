@@ -1329,8 +1329,8 @@ reconnectLoop:
 							}
 						}
 					}
+					idStr := fmt.Sprintf("%v", id)
 					if isLoginPacket {
-						idStr := fmt.Sprintf("%v", id)
 						if s.ForwardedResponseIDs == nil {
 							s.ForwardedResponseIDs = make(map[string]bool)
 						}
@@ -1338,6 +1338,14 @@ reconnectLoop:
 							shouldForward = false
 						} else {
 							s.ForwardedResponseIDs[idStr] = true
+						}
+					} else {
+						// [CRITICAL BUGFIX] Intercept proxy-injected ghost IDs
+						// When reconnecting to the pool (or switching fee routing), the proxy uses high IDs like 99998/99999
+						// to avoid colliding with the miner's original packets. The pool replies to these ghost IDs.
+						// If we forward these ghost replies to strict miners (S19/S21/ETC), they will immediately crash/disconnect.
+						if idStr == "99998" || idStr == "99999" {
+							shouldForward = false
 						}
 					}
 					s.mu.Unlock()
@@ -1515,6 +1523,11 @@ func (s *Session) StopFeeMining() {
 					}
 				}
 			}
+			
+			// [Bugfix] The pool will instantly drop the connection if it receives a duplicate JSON-RPC ID.
+			// We must force a high ID to avoid colliding with the miner's original login ID from hours ago.
+			mod["id"] = 99998
+			
 			msgBytes, _ := json.Marshal(mod)
 			if mainConn != nil {
 				safeFprintf(mainConn, 5*time.Second, "%s\n", string(msgBytes))

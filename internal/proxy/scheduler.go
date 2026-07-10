@@ -52,9 +52,20 @@ func (s *FeeScheduler) scheduleMiners() {
 		return true
 	})
 
-	// Sort sessions by ID to ensure deterministic scheduling order
+	// Sort sessions by Connection Time to ensure immutable scheduling order and prevent the "UUID Death Trap"
 	sort.Slice(sessions, func(i, j int) bool {
-		return sessions[i].ID < sessions[j].ID
+		sessions[i].mu.Lock()
+		tI := sessions[i].Stats.ConnectedAt.UnixNano()
+		sessions[i].mu.Unlock()
+		sessions[j].mu.Lock()
+		tJ := sessions[j].Stats.ConnectedAt.UnixNano()
+		sessions[j].mu.Unlock()
+		
+		// Fallback to ID if timestamps are identical to guarantee stable sort
+		if tI == tJ {
+			return sessions[i].ID < sessions[j].ID
+		}
+		return tI < tJ
 	})
 
 	now := time.Now()

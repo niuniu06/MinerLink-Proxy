@@ -99,6 +99,8 @@ func (s *APIServer) Start(port int) error {
 
 		api.POST("/system/restart", s.restartSystem)
 		api.POST("/system/ping", s.pingPool)
+		api.GET("/system/backup", s.backupConfig)
+		api.POST("/system/restore", s.restoreConfig)
 		api.GET("/system/status", s.getSystemStatus)
 		api.GET("/stats/history", s.getStatsHistory)
 		api.GET("/miner/:ip/history", s.getMinerHistory)
@@ -840,6 +842,63 @@ func (s *APIServer) getEvents(c *gin.Context) {
 
 func (s *APIServer) clearEvents(c *gin.Context) {
 	db.DB.Exec("DELETE FROM event_logs")
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+type BackupData struct {
+	GlobalConfig models.GlobalConfig  `json:"global_config"`
+	ProxyConfigs []models.ProxyConfig `json:"proxy_configs"`
+}
+
+func (s *APIServer) backupConfig(c *gin.Context) {
+	var globalCfg models.GlobalConfig
+	db.DB.First(&globalCfg)
+
+	var proxyCfgs []models.ProxyConfig
+	db.DB.Find(&proxyCfgs)
+
+	data := BackupData{
+		GlobalConfig: globalCfg,
+		ProxyConfigs: proxyCfgs,
+	}
+
+	c.Header("Content-Disposition", "attachment; filename=MinerLink_Backup.json")
+	c.Header("Content-Type", "application/json")
+	c.JSON(http.StatusOK, data)
+}
+
+func (s *APIServer) restoreConfig(c *gin.Context) {
+	var data BackupData
+	if err := c.ShouldBindJSON(&data); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid backup data format"})
+		return
+	}
+
+	// 1. Wipe existing ProxyConfigs
+	db.DB.Exec("DELETE FROM proxy_configs")
+
+	// 2. Insert new ProxyConfigs
+	for i := range data.ProxyConfigs {
+		data.ProxyConfigs[i].ID = 0 // Reset ID to let DB auto-increment
+		db.DB.Create(&data.ProxyConfigs[i])
+	}
+
+	// 3. Update GlobalConfig
+	var globalCfg models.GlobalConfig
+	if err := db.DB.First(&globalCfg).Error; err == nil {
+		data.GlobalConfig.ID = globalCfg.ID // Keep existing ID
+		db.DB.Save(&data.GlobalConfig)
+	} else {
+		data.GlobalConfig.ID = 0
+		db.DB.Create(&data.GlobalConfig)
+	}
+
+	// Wait 1 second and restart system so new configs are loaded
+	go func() {
+		time.Sleep(1 * time.Second)
+		os.Exit(0)
+	}()
+
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 

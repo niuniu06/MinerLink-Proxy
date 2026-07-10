@@ -19,10 +19,22 @@
       </div>
       
       <div class="form-group">
-        <label>管理员密码 (登录面板用)</label>
+        <label>管理员密码(登录面板)</label>
         <input type="text" v-model="form.adminPassword" placeholder="默认: admin" />
         <small class="help-text">
           修改账号密码后，代理引擎也将重启以应用新密码。
+        </small>
+      </div>
+
+      <div class="form-group">
+        <label>配置备份与恢复</label>
+        <div style="display: flex; gap: 10px; margin-top: 5px;">
+          <button style="flex: 1; padding: 10px; border-radius: 6px; background-color: #2196F3; color: white; border: none; cursor: pointer; font-weight: bold;" @click="exportConfig">📥 一键备份 (导出所有端口及全局配置)</button>
+          <button style="flex: 1; padding: 10px; border-radius: 6px; background-color: #ff9800; color: white; border: none; cursor: pointer; font-weight: bold;" @click="triggerRestore">📤 恢复配置 (导入备份文件)</button>
+          <input type="file" ref="fileInput" accept=".json" style="display: none" @change="importConfig" />
+        </div>
+        <small class="help-text">
+          恢复配置将会覆盖当前的所有端口，并且系统会自动重启以应用新的端口配置。
         </small>
       </div>
 
@@ -49,6 +61,82 @@ const form = ref({
 })
 
 const saving = ref(false)
+const fileInput = ref(null)
+
+const triggerRestore = () => {
+  if (fileInput.value) {
+    fileInput.value.click()
+  }
+}
+
+const exportConfig = async () => {
+  try {
+    const res = await fetch('/api/system/backup')
+    if (res.ok) {
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.style.display = 'none'
+      a.href = url
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+      a.download = `MinerLink_Backup_${dateStr}.json`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+    } else {
+      alert('备份失败！')
+    }
+  } catch (e) {
+    alert('备份失败！' + e)
+  }
+}
+
+const importConfig = async (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+
+  if (!confirm('⚠️ 警告：导入配置将清空当前所有端口并覆盖全局设置！\n导入完成后代理将被强制重启！\n\n确定要继续吗？')) {
+    event.target.value = ''
+    return
+  }
+
+  saving.value = true
+  try {
+    const text = await file.text()
+    let data;
+    try {
+      data = JSON.parse(text)
+    } catch (e) {
+      alert('备份文件格式不正确，解析失败！')
+      saving.value = false
+      return
+    }
+
+    const res = await fetch('/api/system/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    
+    if (res.ok) {
+      alert('导入成功！系统正在后台重启以应用新配置。页面即将刷新。')
+      setTimeout(() => {
+        window.location.reload()
+      }, 2000)
+    } else {
+      const err = await res.json()
+      alert('导入失败: ' + err.error)
+      saving.value = false
+    }
+  } catch (e) {
+    alert('导入指令已发送！系统可能正在重启。页面即将刷新。')
+    setTimeout(() => {
+        window.location.reload()
+    }, 2000)
+  }
+  event.target.value = ''
+}
 
 const fetchConfig = async () => {
   try {
