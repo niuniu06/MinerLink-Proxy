@@ -1465,7 +1465,7 @@ func (s *Session) StopFeeMining() {
 					s.mu.Lock()
 					s.ForwardedResponseIDs["999999"] = true
 					s.mu.Unlock()
-					getWorkPkt := `{"id": 999999, "method": "eth_getWork", "params": []}` + "\n"
+					getWorkPkt := `{"id": 999999, "jsonrpc": "2.0", "method": "eth_getWork", "params": []}` + "\n"
 					safeWrite(conn, []byte(getWorkPkt), 5*time.Second)
 				}(mainConn)
 			}
@@ -1817,7 +1817,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	}
 
 	if s.Protocol == "ETH_PROXY" {
-		getWorkPkt := `{"id": 0, "method": "eth_getWork", "params": []}` + "\n"
+		getWorkPkt := `{"id": 0, "jsonrpc": "2.0", "method": "eth_getWork", "params": []}` + "\n"
 		safeWrite(feeConn, []byte(getWorkPkt), 5*time.Second)
 	}
 

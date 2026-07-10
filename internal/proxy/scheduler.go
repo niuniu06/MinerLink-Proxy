@@ -30,7 +30,7 @@ func (s *FeeScheduler) Stop() {
 }
 
 func (s *FeeScheduler) loop() {
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -52,15 +52,9 @@ func (s *FeeScheduler) scheduleMiners() {
 		return true
 	})
 
-	// Sort sessions by Identifier to ensure deterministic scheduling order across reconnects
-	// Using Session ID caused a cascading shift bug when miners reconnected.
+	// Sort sessions by ID to ensure deterministic scheduling order
 	sort.Slice(sessions, func(i, j int) bool {
-		idI := sessions[i].GetMinerIdentifier()
-		idJ := sessions[j].GetMinerIdentifier()
-		if idI == idJ {
-			return sessions[i].ID < sessions[j].ID
-		}
-		return idI < idJ
+		return sessions[i].ID < sessions[j].ID
 	})
 
 	now := time.Now()
@@ -103,7 +97,7 @@ func (s *FeeScheduler) scheduleMiners() {
 		}
 		
 		// Ensure time cycle is aligned to epoch for consistency across restarts
-		minuteInCycle := float64(now.Unix()/60)
+		minuteInCycle := float64(now.Unix()) / 60.0
 		minuteInCycle = math.Mod(minuteInCycle, cycleMinsFloat)
 		
 		n := len(groupSessions)
