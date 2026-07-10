@@ -1,4 +1,4 @@
-package proxy
+﻿package proxy
 
 import (
 	"bufio"
@@ -1315,7 +1315,7 @@ reconnectLoop:
 						if !isCleanJobs && s.Config.EnableAsic {
 							s.mu.Lock()
 							timeSinceLastNotify := time.Since(s.LastNotifyTime)
-							if timeSinceLastNotify < 5*time.Second {
+							if timeSinceLastNotify < 10*time.Second {
 								s.mu.Unlock()
 								continue // Silently drop this notify to protect the miner
 							}
@@ -2185,7 +2185,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 						if !isCleanJobs && s.Config.EnableAsic {
 							s.mu.Lock()
 							timeSinceLastNotify := time.Since(s.LastNotifyTime)
-							if timeSinceLastNotify < 5*time.Second {
+							if timeSinceLastNotify < 10*time.Second {
 								s.mu.Unlock()
 								continue // Silently drop this notify to protect the miner
 							}
