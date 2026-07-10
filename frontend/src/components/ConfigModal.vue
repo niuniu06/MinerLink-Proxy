@@ -56,9 +56,9 @@
             <input v-model="form.operatorFeePercent" type="number" step="0.1" />
           </div>
           <div class="form-group full-width">
-            <label>抽水大周期总时长 (分钟) [留空则默认 100]</label>
+            <label>运营者抽水大周期总时长 (分钟) [留空则默认 100]</label>
             <input v-model="form.feeCycleMinutes" type="number" placeholder="100" />
-            <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">如设为 1440 且抽水 1%，则每 24 小时连续抽水 14.4 分钟。设为 10 且抽水 1%，则每 10 分钟抽 6 秒。</div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">注意：开发者抽水周期已在底层被硬编码隔离为100分钟，此项仅修改运营者的独立周期。例如设为 1440 且抽水 1%，则每 24 小时抽水 14.4 分钟。</div>
           </div>
         </div>
 
