@@ -1,1 +1,0 @@
-package main; import ("encoding/json"; "fmt"); func main() { msg := []byte(`{"params":[262144]}`); var res map[string]interface{}; json.Unmarshal(msg, &res); params := res["params"].([]interface{}); fmt.Printf("%T\n", params[0]) }

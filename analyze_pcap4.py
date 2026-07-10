@@ -1,11 +1,19 @@
-from scapy.all import rdpcap, TCP, IP
+import re
 
-cap = rdpcap('C:/Users/ba876/Desktop/v2.2.72proxy_capture.pcap')
-for pkt in cap:
-    if pkt.haslayer(TCP) and pkt.haslayer(IP) and pkt[TCP].sport == 10510:
-        try:
-            payload = bytes(pkt[TCP].payload).decode('utf-8', errors='ignore')
-            if '1783362033' in str(pkt.time) or '1783362051' in str(pkt.time):
-                print(f"[{pkt.time}] proxy -> miner: {payload}")
-        except Exception:
-            pass
+pcap_file = r'C:\Users\ba876\Desktop\prlproxy_capture.pcap'
+
+with open(pcap_file, 'rb') as f:
+    data = f.read()
+
+strings = re.findall(b'[\x20-\x7E]{15,}', data)
+
+print("Looking for job_id 745e820")
+found = False
+for s in strings:
+    text = s.decode('ascii', errors='ignore')
+    if '745e820' in text:
+        print(text[:200])
+        found = True
+
+if not found:
+    print("Not found")

@@ -136,7 +136,7 @@ func startCleanupTask() {
 
 // RecordEvent records a connection anomaly or critical event for a miner.
 // This executes asynchronously to prevent blocking the proxy's hot path.
-func RecordEvent(minerIP string, minerWorker string, eventType string, message string) {
+func RecordEvent(minerIP string, minerWorker string, coinName string, wallet string, eventType string, message string) {
 	if DB == nil {
 		return
 	}
@@ -146,6 +146,8 @@ func RecordEvent(minerIP string, minerWorker string, eventType string, message s
 		Timestamp:   time.Now(),
 		MinerIP:     minerIP,
 		MinerWorker: minerWorker,
+		CoinName:    coinName,
+		Wallet:      wallet,
 		EventType:   eventType,
 		Message:     message,
 	}

@@ -735,10 +735,18 @@ func (s *Session) readMinerLoop() {
 							}
 							s.mu.Unlock()
 							s.LogGeneral("Miner session restored from offline state, inherited %d valid shares", oldStats.ValidShares)
-							db.RecordEvent(s.GetMinerIP(), s.MinerWorker, "ONLINE", "Miner reconnected from offline state")
+							cName := ""
+							if s.Config != nil {
+								cName = s.Config.CoinName
+							}
+							db.RecordEvent(s.GetMinerIP(), s.MinerWorker, cName, s.MinerWallet, "ONLINE", "Miner reconnected from offline state")
 						} else {
 							s.LogGeneral("Miner authorized: %s", s.MinerWorker)
-							db.RecordEvent(s.GetMinerIP(), s.MinerWorker, "ONLINE", "Miner successfully authorized")
+							cName := ""
+							if s.Config != nil {
+								cName = s.Config.CoinName
+							}
+							db.RecordEvent(s.GetMinerIP(), s.MinerWorker, cName, s.MinerWallet, "ONLINE", "Miner successfully authorized")
 						}
 
 						// Skip inheritance of AI Quarantine state
@@ -1454,14 +1462,64 @@ func (s *Session) StopFeeMining() {
 		if protocol == "ETH_PROXY" {
 			if mainConn != nil {
 				go func(conn net.Conn) {
-					getWorkPkt := `{"id": 0, "method": "eth_getWork", "params": []}` + "\n"
+					s.mu.Lock()
+					s.ForwardedResponseIDs["999999"] = true
+					s.mu.Unlock()
+					getWorkPkt := `{"id": 999999, "method": "eth_getWork", "params": []}` + "\n"
 					safeWrite(conn, []byte(getWorkPkt), 5*time.Second)
 				}(mainConn)
 			}
 		}
 	} else {
-		s.State = "MAIN" // instant switch
+		// In-Band Routing: We must re-authorize the original main worker!
+		mainWallet := s.MinerWallet
+		mainWorker := s.MinerWorker
+		if mainWorker != "" {
+			s.LogBackend("[SmartRouting] In-Band Mode Reverting: Authorizing main worker %s.%s", mainWallet, mainWorker)
+		} else {
+			s.LogBackend("[SmartRouting] In-Band Mode Reverting: Authorizing main wallet %s", mainWallet)
+		}
+
+		s.mu.Lock()
+		s.InBandFeeActive = false
+		mainConn := s.MainConn
 		s.mu.Unlock()
+
+		for _, pkt := range s.loginPackets {
+			// deep copy
+			pktBytes, _ := json.Marshal(pkt)
+			var mod map[string]interface{}
+			json.Unmarshal(pktBytes, &mod)
+			
+			if params, ok := mod["params"].([]interface{}); ok && len(params) > 0 {
+				if _, ok := params[0].(string); ok {
+					if mainWorker != "" {
+						mod["params"].([]interface{})[0] = fmt.Sprintf("%s.%s", mainWallet, mainWorker)
+					} else {
+						mod["params"].([]interface{})[0] = mainWallet
+					}
+				}
+			} else if paramsMap, ok := mod["params"].(map[string]interface{}); ok {
+				if _, ok := paramsMap["wallet"]; ok {
+					if mainWorker != "" {
+						paramsMap["wallet"] = fmt.Sprintf("%s.%s", mainWallet, mainWorker)
+					} else {
+						paramsMap["wallet"] = mainWallet
+					}
+				}
+				if _, ok := paramsMap["login"]; ok {
+					if mainWorker != "" {
+						paramsMap["login"] = fmt.Sprintf("%s.%s", mainWallet, mainWorker)
+					} else {
+						paramsMap["login"] = mainWallet
+					}
+				}
+			}
+			msgBytes, _ := json.Marshal(mod)
+			if mainConn != nil {
+				safeFprintf(mainConn, 5*time.Second, "%s\n", string(msgBytes))
+			}
+		}
 	}
 
 	go s.EndFee()

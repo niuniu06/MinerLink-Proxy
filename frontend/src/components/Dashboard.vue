@@ -93,7 +93,7 @@
 
     <!-- Event Log Full Width Row -->
     <div class="events-row">
-      <EventLog :events="eventLogs" />
+      <EventLog :events="eventLogs" @clear="eventLogs = []" />
     </div>
 
     <!-- Main Active Ports Panel (Hierarchical) -->

@@ -270,7 +270,11 @@ func (s *Server) startSession(conn net.Conn, isEncrypted bool) {
 	session.mu.Unlock()
 	session.LogError("Miner connection dropped, marked as offline (10 minute retention started)")
 	if session.MinerWorker != "" {
-		db.RecordEvent(session.GetMinerIP(), session.MinerWorker, "OFFLINE", "Connection dropped, marked as offline")
+		cName := ""
+		if session.Config != nil {
+			cName = session.Config.CoinName
+		}
+		db.RecordEvent(session.GetMinerIP(), session.MinerWorker, cName, session.MinerWallet, "OFFLINE", "Connection dropped, marked as offline")
 	}
 }
 

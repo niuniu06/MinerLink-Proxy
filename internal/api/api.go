@@ -103,6 +103,7 @@ func (s *APIServer) Start(port int) error {
 		api.GET("/stats/history", s.getStatsHistory)
 		api.GET("/miner/:ip/history", s.getMinerHistory)
 		api.GET("/events", s.getEvents)
+		api.DELETE("/events/clear", s.clearEvents)
 		api.GET("/system/check_update", s.checkUpdate)
 		api.POST("/system/upgrade", s.doUpgrade)
 
@@ -836,3 +837,9 @@ func (s *APIServer) getEvents(c *gin.Context) {
 	db.DB.Order("timestamp desc").Limit(100).Find(&events)
 	c.JSON(http.StatusOK, events)
 }
+
+func (s *APIServer) clearEvents(c *gin.Context) {
+	db.DB.Exec("DELETE FROM event_logs")
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+

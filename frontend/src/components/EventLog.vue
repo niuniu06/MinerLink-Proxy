@@ -5,7 +5,10 @@
         <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
         关键事件日志
       </h3>
-      <div class="log-badge">{{ events.length }} 条最新</div>
+      <div class="log-actions">
+        <button class="btn-clear-log" @click="clearEvents" title="清空日志">清空</button>
+        <div class="log-badge">{{ events.length }} 条最新</div>
+      </div>
     </div>
     
     <div class="log-body" ref="logBodyRef">
@@ -18,7 +21,11 @@
         <li v-for="evt in events" :key="evt.id || evt.timestamp + evt.minerWorker" class="event-item">
           <div class="event-time">[{{ formatTime(evt.timestamp) }}]</div>
           <div class="event-content">
-            <span class="event-worker">{{ evt.minerWorker }}</span>
+            <span class="event-worker">
+              <span v-if="evt.coinName" class="evt-coin">[{{ evt.coinName }}]</span>
+              {{ evt.minerWorker }}
+              <span v-if="evt.wallet" class="evt-wallet">({{ truncateWallet(evt.wallet) }})</span>
+            </span>
             <span 
               class="event-badge" 
               :class="evt.eventType === 'ONLINE' ? 'badge-success' : 'badge-danger'"
@@ -42,7 +49,33 @@ const props = defineProps({
   }
 })
 
+const emit = defineEmits(['clear'])
+
 const logBodyRef = ref(null)
+
+const clearEvents = async () => {
+  if (confirm('确定要清空关键事件日志吗？')) {
+    try {
+      const res = await fetch('/events/clear', { method: 'DELETE' })
+      if (res.ok) {
+        emit('clear')
+      } else {
+        // Fallback for API prefix
+        const resApi = await fetch('/api/events/clear', { method: 'DELETE' })
+        if (resApi.ok) {
+          emit('clear')
+        }
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  }
+}
+
+const truncateWallet = (wallet) => {
+  if (!wallet || wallet.length < 10) return wallet
+  return wallet.substring(0, 5) + '...' + wallet.substring(wallet.length - 4)
+}
 
 // Auto-scroll to top when new events arrive
 watch(() => props.events, () => {
@@ -95,6 +128,29 @@ const formatTime = (ts) => {
   width: 18px;
   height: 18px;
   color: #fbbf24;
+}
+
+.log-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-clear-log {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-clear-log:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.5);
 }
 
 .log-badge {
@@ -187,6 +243,23 @@ const formatTime = (ts) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.evt-coin {
+  color: #60a5fa;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(96, 165, 250, 0.15);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.evt-wallet {
+  color: #94a3b8;
+  font-size: 0.75rem;
 }
 
 .event-badge {
