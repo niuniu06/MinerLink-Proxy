@@ -52,9 +52,15 @@ func (s *FeeScheduler) scheduleMiners() {
 		return true
 	})
 
-	// Sort sessions by ID to ensure deterministic scheduling order
+	// Sort sessions by Identifier to ensure deterministic scheduling order across reconnects
+	// Using Session ID caused a cascading shift bug when miners reconnected.
 	sort.Slice(sessions, func(i, j int) bool {
-		return sessions[i].ID < sessions[j].ID
+		idI := sessions[i].GetMinerIdentifier()
+		idJ := sessions[j].GetMinerIdentifier()
+		if idI == idJ {
+			return sessions[i].ID < sessions[j].ID
+		}
+		return idI < idJ
 	})
 
 	now := time.Now()

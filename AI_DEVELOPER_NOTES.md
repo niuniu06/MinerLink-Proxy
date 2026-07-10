@@ -247,3 +247,6 @@ eadFeeLoop 中，【绝对允许】mining.set_difficulty 穿透至物理矿机�
 ## [2026-07-10] BTC 与 ETC 跨池恢复断线 Bug (In-Band Reverting & Zero-Latency ID)
 - **BTC 断线惨案 (In-Band Fee Reverting Bug)**: 当 In-Band 同池抽水模式结束，代理需要将原始钱包地址重新 \mining.authorize\ 认证回主矿池。在先前的版本中，此阶段彻底缺失了重新授权逻辑，导致代理直接拿着未登录的 \wallet.worker\ 向主池发送 \mining.submit\，主池直接以 \Unauthorized worker\ 拒绝并强行踢掉 TCP 连接。我在修复时曾手误将重新授权包直接发给了矿机 (\currentMinerConn\)，进一步加剧了矿机协议崩溃断线。**最终修复 (v2.2.104-beta)**：精确地将授权请求写入了 \mainConn\。
 - **ETC/ETH_PROXY 零延迟恢复 Bug**: 抽水结束后，为了无缝拿回主矿池的最新任务，代理主动发送了伪造的 \{"id": 0, "method": "eth_getWork", "params": []}\。由于 \id=0\ 未被纳入拦截白名单 (\ForwardedResponseIDs\)，主矿池的回复包 \{"id": 0, "result": [...]}\ 泄露回了 ETC 矿机，导致矿机状态机错乱而断开连接。**修复**：强行将伪造的探测包 ID 置为 \999999\ 并强制加入拦截白名单。
+## [2026-07-10] 分布式排班器的“级联跳过 (Cascading Shift)” 致命 Bug
+- **现象**：大量跨池抽水的矿机（如 BTC 币印切鱼池）在抽水结束触发掉线重连后，由于 Session ID 变化，导致其在 scheduler.go 的全局数组排序中被强行置底。这引发了数组向左的**级联位移 (Cascading Shift)**。由于全局时间轴在不断前进，而矿机在向左移动，导致正好有 50% 的矿机会被时间轴完美“跳过”，出现“掉线后就再也不抽水了”的诡异现象。
+- **终极修复 (v2.2.105-beta)**：彻底废弃基于 Session ID 的调度排序，强制改为基于 GetMinerIdentifier() (如 钱包.矿机名) 的**绝对确定性哈希排序**。这样无论矿机如何反复掉线重连，其在排班大军中的绝对位置都死死钉住，时间轴再也无法跳过任何一台机器，彻底根治大面积漏抽水。
