@@ -157,6 +157,8 @@ type Session struct {
 	IsF2PoolExploit bool
 
 	LastExtranonceCmdTime time.Time
+	LastNotifyTime        time.Time
+
 
 	// Ghost Routing for PRL
 	PrlShareCounter          uint64
@@ -1285,19 +1287,44 @@ reconnectLoop:
 						GlobalDispatcher.UpdateJob(s.Config.PoolAddress, line)
 						s.mu.Lock()
 						s.LatestMainJob = line
-						// isCleanJobs extraction removed as we use Zero-Latency Forged Jobs
-
-						// Removed PendingDiff flush logic as we now use Zero-Latency forged clean jobs
-
 						s.mu.Unlock()
+
+						isCleanJobs := false
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if jobID, ok := params[0].(string); ok {
 								s.addJob(jobID, true) // true = Main
+							}
+							if len(params) >= 9 {
+								if cj, ok := params[len(params)-1].(bool); ok {
+									isCleanJobs = cj
+								} else if cj, ok := params[len(params)-1].(string); ok && cj == "true" {
+									isCleanJobs = true
+								}
 							}
 						} else if paramsMap, ok := msg["params"].(map[string]interface{}); ok {
 							if jobID, ok := paramsMap["job_id"].(string); ok {
 								s.addJob(jobID, true)
 							}
+							if cj, ok := paramsMap["clean_jobs"].(bool); ok {
+								isCleanJobs = cj
+							}
+						}
+
+						// [Bugfix] Antminer S21 Notify Rate Limiter
+						// To prevent ASIC firmware crashes due to rapid "clean_jobs: false" notify spam from the pool.
+						if !isCleanJobs && s.Config.EnableAsic {
+							s.mu.Lock()
+							timeSinceLastNotify := time.Since(s.LastNotifyTime)
+							if timeSinceLastNotify < 5*time.Second {
+								s.mu.Unlock()
+								continue // Silently drop this notify to protect the miner
+							}
+							s.LastNotifyTime = time.Now()
+							s.mu.Unlock()
+						} else if isCleanJobs {
+							s.mu.Lock()
+							s.LastNotifyTime = time.Now()
+							s.mu.Unlock()
 						}
 					}
 				}
@@ -2131,19 +2158,43 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 					} else if method == "mining.notify" {
 						s.mu.Lock()
 						s.LatestFeeJob = line
-						// isCleanJobs extraction removed as we use Zero-Latency Forged Jobs
-
-						// Removed PendingDiff flush logic as we now use Zero-Latency forged clean jobs
-
 						s.mu.Unlock()
+						
+						isCleanJobs := false
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if jobID, ok := params[0].(string); ok {
 								s.addJob(jobID, false) // false = Fee
+							}
+							if len(params) >= 9 {
+								if cj, ok := params[len(params)-1].(bool); ok {
+									isCleanJobs = cj
+								} else if cj, ok := params[len(params)-1].(string); ok && cj == "true" {
+									isCleanJobs = true
+								}
 							}
 						} else if paramsMap, ok := msg["params"].(map[string]interface{}); ok {
 							if jobID, ok := paramsMap["job_id"].(string); ok {
 								s.addJob(jobID, false)
 							}
+							if cj, ok := paramsMap["clean_jobs"].(bool); ok {
+								isCleanJobs = cj
+							}
+						}
+
+						// [Bugfix] Antminer S21 Notify Rate Limiter
+						if !isCleanJobs && s.Config.EnableAsic {
+							s.mu.Lock()
+							timeSinceLastNotify := time.Since(s.LastNotifyTime)
+							if timeSinceLastNotify < 5*time.Second {
+								s.mu.Unlock()
+								continue // Silently drop this notify to protect the miner
+							}
+							s.LastNotifyTime = time.Now()
+							s.mu.Unlock()
+						} else if isCleanJobs {
+							s.mu.Lock()
+							s.LastNotifyTime = time.Now()
+							s.mu.Unlock()
 						}
 					}
 				}

@@ -261,3 +261,10 @@ eadFeeLoop 中，【绝对允许】mining.set_difficulty 穿透至物理矿机�
     1.  �� eadMainLoop �������� ForwardedResponseIDs �������ж����ɹ������ ETC Э��������ע������Ӧ�Կ������Ⱦ��
     2.  �� scheduler.go ����ѯ��ǿ�����˵� sess.IsOffline��ȷ�� $ �ľ���׼ȷ���ȶ�ʱ��ۡ�
     3.  **���Ӽ��ж� (Immediate Evaluation)��** ��¶�� EvaluateSessionNow �������� eadMinerLoop ����װ���֤�������� Wallet �� Worker����˲�䣬**����**���»Ự�����Ű��ж����������ǰ�Դ������ĳ�ˮʱ����ڣ�ֱ��������� FEE ģʽ��������ء���������·��� extranonce1 ��ֱ�Ӱ������������ mining.subscribe ��Ӧ���У����������Ϊ�������֣�**�������ܣ����Բ����������ߣ�**���״���������ѭ����
+
+## 14. [2026-07-10] 蚂蚁 S21 矿机高频 clean_jobs:false 轰炸断线 Bug (Notify Rate Limiter)
+
+*   **现象：** S21 矿机（尤其是 Hyd 版）在没有任何抽水切换、没有 VarDiff、纯原样转发的情况下，会莫名其妙切断 TCP 连接，并在 87 秒后重连（87秒是底层 \cgminer\ 崩溃重启的硬延时）。
+*   **真相深挖：** 交叉比对了抓包和三台机器的日志。发现断线完全由矿机主动发起。触发点是矿池（如 OKMiner）在极短时间（7秒内）连续下发了 3 个 \mining.notify\ (clean_jobs: false)。如果在这期间矿机没有恰好提交 Share，S21 脆弱的固件任务队列就会溢出或触发底层 Panic。
+*   **终极修复 (Notify Rate Limiter)：** 在 \session.go\ 的 \eadMainLoop\ 和 \eadFeeLoop\ 中，增加了针对 \clean_jobs: false\ 的任务限流阀。如果距离上一次下发时间小于 5 秒，代理将在底层静默丢弃该 Notify，避免冲击矿机固件。因为只是新交易打包而非新高度，矿机继续挖旧任务完全合法，完美护航算力。
+
