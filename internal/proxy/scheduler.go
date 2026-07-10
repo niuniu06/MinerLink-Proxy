@@ -43,6 +43,14 @@ func (s *FeeScheduler) loop() {
 	}
 }
 
+func isTimeInWindow(minute, start, end, cycle float64) bool {
+	if end <= cycle {
+		return minute >= start && minute < end
+	}
+	endWrapped := end - cycle
+	return minute >= start || minute < endWrapped
+}
+
 func (s *FeeScheduler) scheduleMiners() {
 	sessions := make([]*Session, 0)
 	s.server.Sessions.Range(func(key, value interface{}) bool {
@@ -88,9 +96,8 @@ func (s *FeeScheduler) scheduleMiners() {
 		config := groupSessions[0].Config
 		devPercent := config.DevFeePercent
 		opPercent := config.OperatorFeePercent
-		totalFeePercent := devPercent + opPercent
 		
-		if totalFeePercent <= 0 {
+		if devPercent <= 0 && opPercent <= 0 {
 			for _, sess := range groupSessions {
 				sess.mu.Lock()
 				currentMode := sess.CurrentFeeMode
@@ -102,20 +109,23 @@ func (s *FeeScheduler) scheduleMiners() {
 			continue
 		}
 		
-		cycleMinsFloat := float64(config.FeeCycleMinutes)
-		if cycleMinsFloat <= 0 {
-			cycleMinsFloat = 100.0 // Default 100 minutes
+		opCycleMinsFloat := float64(config.FeeCycleMinutes)
+		if opCycleMinsFloat <= 0 {
+			opCycleMinsFloat = 100.0 // Default 100 minutes
 		}
+		devCycleMinsFloat := 100.0 // Hardcoded immutable cycle for developers
 		
-		// Ensure time cycle is aligned to epoch for consistency across restarts
-		minuteInCycle := float64(now.Unix()) / 60.0
-		minuteInCycle = math.Mod(minuteInCycle, cycleMinsFloat)
+		nowUnix := float64(now.Unix()) / 60.0
+		minuteInOpCycle := math.Mod(nowUnix, opCycleMinsFloat)
+		minuteInDevCycle := math.Mod(nowUnix, devCycleMinsFloat)
 		
 		n := len(groupSessions)
 		
-		spacing := cycleMinsFloat / float64(n)
-		feeDurationMins := cycleMinsFloat * (totalFeePercent / 100.0)
-		devDurationMins := cycleMinsFloat * (devPercent / 100.0)
+		opSpacing := opCycleMinsFloat / float64(n)
+		devSpacing := devCycleMinsFloat / float64(n)
+		
+		opDurationMins := opCycleMinsFloat * (opPercent / 100.0)
+		devDurationMins := devCycleMinsFloat * (devPercent / 100.0)
 		
 		for i, sess := range groupSessions {
 			sess.mu.Lock()
@@ -130,67 +140,44 @@ func (s *FeeScheduler) scheduleMiners() {
 				continue
 			}
 
-			startMin := float64(i) * spacing
-			endMin := startMin + feeDurationMins
+			// 1. Dev Timeline Check (Absolute Priority)
+			isDevTime := false
+			if devPercent > 0 {
+				devStartMin := float64(i) * devSpacing
+				devEndMin := devStartMin + devDurationMins
+				isDevTime = isTimeInWindow(minuteInDevCycle, devStartMin, devEndMin, devCycleMinsFloat)
+			}
+
+			// 2. Operator Timeline Check
+			isOpTime := false
+			if opPercent > 0 {
+				opStartMin := float64(i) * opSpacing
+				opEndMin := opStartMin + opDurationMins
+				isOpTime = isTimeInWindow(minuteInOpCycle, opStartMin, opEndMin, opCycleMinsFloat)
+			}
 			
-			// Check if current minute falls into this miner's scheduled fee time
-			isFeeTime := false
+			// Priority Arbiter: Dev always overrides Op during collisions
 			targetMode := FeeModeNone
-			
-			if endMin <= cycleMinsFloat {
-				if minuteInCycle >= startMin && minuteInCycle < endMin {
-					isFeeTime = true
-					if minuteInCycle < startMin + devDurationMins {
-						targetMode = FeeModeDev
-					} else {
-						targetMode = FeeModeOperator
-					}
-				}
-			} else {
-				// Wraps around the cycle boundary (e.g. start at 99, end at 1)
-				endMinWrapped := endMin - cycleMinsFloat
-				if minuteInCycle >= startMin || minuteInCycle < endMinWrapped {
-					isFeeTime = true
-					
-					// Determine Dev vs Op within wrapped boundary
-					devEndMin := startMin + devDurationMins
-					if devEndMin <= cycleMinsFloat {
-						if minuteInCycle >= startMin && minuteInCycle < devEndMin {
-							targetMode = FeeModeDev
-						} else {
-							targetMode = FeeModeOperator
-						}
-					} else {
-						devEndMinWrapped := devEndMin - cycleMinsFloat
-						if minuteInCycle >= startMin || minuteInCycle < devEndMinWrapped {
-							targetMode = FeeModeDev
-						} else {
-							targetMode = FeeModeOperator
-						}
-					}
-				}
+			if isDevTime {
+				targetMode = FeeModeDev
+			} else if isOpTime {
+				targetMode = FeeModeOperator
 			}
 			
 			sess.mu.Lock()
 			currentMode := sess.CurrentFeeMode
 			sess.mu.Unlock()
 			
-			if isFeeTime {
+			if targetMode != FeeModeNone {
 				if currentMode != targetMode {
 					if targetMode == FeeModeDev {
-						// Hide DEV fee logs from the system log
-						// // removed scheduler log
 						go sess.StartFeeMining(true)
 					} else {
-						// removed scheduler log
 						go sess.StartFeeMining(false)
 					}
 				}
 			} else {
 				if currentMode != FeeModeNone {
-					if currentMode != FeeModeDev {
-						// removed scheduler log
-					}
 					go sess.StopFeeMining()
 				}
 			}
