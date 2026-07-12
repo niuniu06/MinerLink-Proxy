@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -10,6 +11,7 @@ import (
 	"net"
 	"proxy-core/internal/db"
 	"proxy-core/internal/models"
+	"proxy-core/internal/tunnel"
 	"strings"
 	"sync"
 	"time"
@@ -369,6 +371,33 @@ func (s *Session) Start() {
 	s.readMinerLoop()
 }
 
+// extractTCPConn attempts to unwrap nested connection structures to find the underlying physical TCP connection.
+func extractTCPConn(conn net.Conn) *net.TCPConn {
+	for conn != nil {
+		if tcpConn, ok := conn.(*net.TCPConn); ok {
+			return tcpConn
+		}
+
+		if peekConn, ok := conn.(*tunnel.PeekConn); ok {
+			conn = peekConn.Conn
+			continue
+		}
+
+		if snappyConn, ok := conn.(*tunnel.SnappyConn); ok {
+			conn = snappyConn.Conn
+			continue
+		}
+
+		if tlsConn, ok := conn.(*tls.Conn); ok {
+			conn = tlsConn.NetConn() // Available in Go 1.15+
+			continue
+		}
+
+		break
+	}
+	return nil
+}
+
 func (s *Session) Close() {
 	s.LogGeneral("Session Close called")
 	s.mu.Lock()
@@ -382,7 +411,7 @@ func (s *Session) Close() {
 	}
 
 	if s.MinerConn != nil {
-		if tcpConn, ok := s.MinerConn.(*net.TCPConn); ok {
+		if tcpConn := extractTCPConn(s.MinerConn); tcpConn != nil {
 			// Force TCP RST instead of graceful FIN to ensure instant reconnect
 			tcpConn.SetLinger(0)
 		}
