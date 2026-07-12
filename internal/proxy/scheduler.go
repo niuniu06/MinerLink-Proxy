@@ -3,7 +3,6 @@ package proxy
 import (
 	"math"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 )
@@ -128,18 +127,6 @@ func (s *FeeScheduler) scheduleMiners() {
 		devDurationMins := devCycleMinsFloat * (devPercent / 100.0)
 		
 		for i, sess := range groupSessions {
-			sess.mu.Lock()
-			isPRL := false
-			if sess.Config != nil {
-				isPRL = strings.ToUpper(sess.Config.CoinName) == "PRL"
-			}
-			sess.mu.Unlock()
-
-			// Hard Isolation for PRL: Completely bypass the time-based scheduler
-			if isPRL {
-				continue
-			}
-
 			// 1. Dev Timeline Check (Absolute Priority)
 			isDevTime := false
 			if devPercent > 0 {

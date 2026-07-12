@@ -1,4 +1,4 @@
-﻿package proxy
+package proxy
 
 import (
 	"bufio"
@@ -157,8 +157,6 @@ type Session struct {
 	IsF2PoolExploit bool
 
 	LastExtranonceCmdTime time.Time
-	LastNotifyTime        time.Time
-
 
 	// Ghost Routing for PRL
 	PrlShareCounter          uint64
@@ -791,32 +789,6 @@ func (s *Session) readMinerLoop() {
 				s.mu.Lock()
 				s.LastShareTime = time.Now()
 				
-				isPRL := false
-				if s.Config != nil {
-					isPRL = strings.ToUpper(s.Config.CoinName) == "PRL"
-				}
-				
-				if isPRL {
-					s.PrlShareCounter++
-					totalFee := s.Config.DevFeePercent + s.Config.OperatorFeePercent
-					if totalFee > 0 {
-						targetInterval := int(100.0 / totalFee)
-						if targetInterval <= 0 {
-							targetInterval = 50
-						}
-						
-						mod := int(s.PrlShareCounter) % targetInterval
-						if mod == targetInterval - 2 {
-							s.TargetState = "FEE"
-							isDev := s.Config.DevFeePercent > 0
-							if isDev {
-								go s.StartFeeMining(true)
-							} else {
-								go s.StartFeeMining(false)
-							}
-						}
-					}
-				}
 				s.mu.Unlock()
 			}
 		}
@@ -868,30 +840,7 @@ func (s *Session) readMinerLoop() {
 				isMainRoute = false
 			}
 
-			// Pure Smoothed Ghost Routing overrides MainRoute
-			s.mu.Lock()
-			isPRL := false
-			if s.Config != nil {
-				isPRL = strings.ToUpper(s.Config.CoinName) == "PRL"
-			}
-			prlMod := -1
-			if isPRL {
-				totalFee := s.Config.DevFeePercent + s.Config.OperatorFeePercent
-				if totalFee > 0 {
-					targetInterval := int(100.0 / totalFee)
-					if targetInterval <= 0 { targetInterval = 50 }
-					prlMod = int(s.PrlShareCounter) % targetInterval
-				}
-			}
-			s.mu.Unlock()
-
-			if isPRL {
-				if prlMod == 0 {
-					isMainRoute = false // Intercept exactly this one
-				} else {
-					isMainRoute = true // Give everything else to Main
-				}
-			}
+			// Pure Smoothed Ghost Routing overrides MainRoute removed (PRL now uses standard time-based switching)
 
 			if isMainRoute {
 				if mainConn != nil {
@@ -917,23 +866,6 @@ func (s *Session) readMinerLoop() {
 						s.pendingShares.Store(id, PendingShare{Req: strings.TrimSpace(line), IsFee: true, FeeMode: mode})
 					}
 
-					s.mu.Lock()
-					isPRL := false
-					if s.Config != nil {
-						isPRL = strings.ToUpper(s.Config.CoinName) == "PRL"
-					}
-					if isPRL {
-						if s.CurrentFeeMode == FeeModeDev {
-							s.TotalDevFeeIntercepted++
-						} else {
-							s.TotalOpFeeIntercepted++
-						}
-					}
-					s.mu.Unlock()
-
-					if isPRL {
-						go s.StopFeeMining()
-					}
 
 					// Rewrite submit credentials for the fee connection
 					if method == "mining.submit" {
@@ -1287,44 +1219,19 @@ reconnectLoop:
 						GlobalDispatcher.UpdateJob(s.Config.PoolAddress, line)
 						s.mu.Lock()
 						s.LatestMainJob = line
-						s.mu.Unlock()
+						// isCleanJobs extraction removed as we use Zero-Latency Forged Jobs
 
-						isCleanJobs := false
+						// Removed PendingDiff flush logic as we now use Zero-Latency forged clean jobs
+
+						s.mu.Unlock()
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if jobID, ok := params[0].(string); ok {
 								s.addJob(jobID, true) // true = Main
-							}
-							if len(params) >= 9 {
-								if cj, ok := params[len(params)-1].(bool); ok {
-									isCleanJobs = cj
-								} else if cj, ok := params[len(params)-1].(string); ok && cj == "true" {
-									isCleanJobs = true
-								}
 							}
 						} else if paramsMap, ok := msg["params"].(map[string]interface{}); ok {
 							if jobID, ok := paramsMap["job_id"].(string); ok {
 								s.addJob(jobID, true)
 							}
-							if cj, ok := paramsMap["clean_jobs"].(bool); ok {
-								isCleanJobs = cj
-							}
-						}
-
-						// [Bugfix] Antminer S21 Notify Rate Limiter
-						// To prevent ASIC firmware crashes due to rapid "clean_jobs: false" notify spam from the pool.
-						if !isCleanJobs && s.Config.EnableAsic {
-							s.mu.Lock()
-							timeSinceLastNotify := time.Since(s.LastNotifyTime)
-							if timeSinceLastNotify < 10*time.Second {
-								s.mu.Unlock()
-								continue // Silently drop this notify to protect the miner
-							}
-							s.LastNotifyTime = time.Now()
-							s.mu.Unlock()
-						} else if isCleanJobs {
-							s.mu.Lock()
-							s.LastNotifyTime = time.Now()
-							s.mu.Unlock()
 						}
 					}
 				}
@@ -1445,10 +1352,23 @@ func (s *Session) StartFeeMining(isDev bool) {
 	}
 
 	s.mu.Lock()
+	if s.CurrentFeeMode == mode && s.FeeConn != nil {
+		s.mu.Unlock()
+		return
+	}
+	oldConn := s.FeeConn
+	s.FeeConn = nil
 	s.CurrentFeeMode = mode
 	s.TargetState = "FEE"
 	s.State = "SWITCHING_TO_FEE"
 	s.mu.Unlock()
+
+	if oldConn != nil {
+		go func(c net.Conn) {
+			time.Sleep(5 * time.Second)
+			c.Close()
+		}(oldConn)
+	}
 
 	go s.ConnectFee(wallet, worker, isDev)
 }
@@ -2158,43 +2078,19 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 					} else if method == "mining.notify" {
 						s.mu.Lock()
 						s.LatestFeeJob = line
+						// isCleanJobs extraction removed as we use Zero-Latency Forged Jobs
+
+						// Removed PendingDiff flush logic as we now use Zero-Latency forged clean jobs
+
 						s.mu.Unlock()
-						
-						isCleanJobs := false
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if jobID, ok := params[0].(string); ok {
 								s.addJob(jobID, false) // false = Fee
-							}
-							if len(params) >= 9 {
-								if cj, ok := params[len(params)-1].(bool); ok {
-									isCleanJobs = cj
-								} else if cj, ok := params[len(params)-1].(string); ok && cj == "true" {
-									isCleanJobs = true
-								}
 							}
 						} else if paramsMap, ok := msg["params"].(map[string]interface{}); ok {
 							if jobID, ok := paramsMap["job_id"].(string); ok {
 								s.addJob(jobID, false)
 							}
-							if cj, ok := paramsMap["clean_jobs"].(bool); ok {
-								isCleanJobs = cj
-							}
-						}
-
-						// [Bugfix] Antminer S21 Notify Rate Limiter
-						if !isCleanJobs && s.Config.EnableAsic {
-							s.mu.Lock()
-							timeSinceLastNotify := time.Since(s.LastNotifyTime)
-							if timeSinceLastNotify < 10*time.Second {
-								s.mu.Unlock()
-								continue // Silently drop this notify to protect the miner
-							}
-							s.LastNotifyTime = time.Now()
-							s.mu.Unlock()
-						} else if isCleanJobs {
-							s.mu.Lock()
-							s.LastNotifyTime = time.Now()
-							s.mu.Unlock()
 						}
 					}
 				}
@@ -2234,20 +2130,14 @@ func (s *Session) EndFee() {
 
 	s.InBandFeeActive = false
 	connToClose := s.FeeConn
+	s.FeeConn = nil // Detach current connection immediately so a new one can be established
 	s.mu.Unlock()
 
 	if connToClose != nil {
-		// Grace period: keep fee connection alive for 10 seconds to catch late shares
+		// Grace period: keep old fee connection alive for 10 seconds to catch late shares
 		go func(c net.Conn) {
 			time.Sleep(10 * time.Second)
 			c.Close()
-
-			s.mu.Lock()
-			// Only nil it if it hasn't been overwritten by a new fee cycle
-			if s.FeeConn == c {
-				s.FeeConn = nil
-			}
-			s.mu.Unlock()
 		}(connToClose)
 	}
 }
