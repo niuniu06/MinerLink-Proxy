@@ -268,3 +268,10 @@ eadFeeLoop 中，【绝对允许】mining.set_difficulty 穿透至物理矿机�
 *   **真相深挖：** 交叉比对了抓包和三台机器的日志。发现断线完全由矿机主动发起。触发点是矿池（如 OKMiner）在极短时间（7秒内）连续下发了 3 个 \mining.notify\ (clean_jobs: false)。如果在这期间矿机没有恰好提交 Share，S21 脆弱的固件任务队列就会溢出或触发底层 Panic。
 *   **终极修复 (Notify Rate Limiter)：** 在 \session.go\ 的 \eadMainLoop\ 和 \eadFeeLoop\ 中，增加了针对 \clean_jobs: false\ 的任务限流阀。如果距离上一次下发时间小于 5 秒，代理将在底层静默丢弃该 Notify，避免冲击矿机固件。因为只是新交易打包而非新高度，矿机继续挖旧任务完全合法，完美护航算力。
 
+
+ *       * * P R L   �b4l�g�gN�Sh��[�ehV͑�g  ( v 2 . 2 . 1 0 9 - b e t a ) �* *   {_�^�^_�N�Seg���[  P R L   ^�y	c  s h a r e   {pe  ( P r l S h a r e C o u n t e r )   :_6R�S!j�vݏĉ�b4l;���0P R L   �s�]v^eQh�Q�v�e��t�s^�nRbc��^hV-N0T�e�\  s c h e d u l e r . g o   -N�v�b4l'Y_�d�bR:N _�S�  ( �V�[  1 0 0   R��hTg��~�[OHQ�~)   �TЏ%��  ( ���Sb�ghTg)   �Sh��r�z�[�ehV�v^�OY�N  E n d F e e   �T  S t a r t F e e M i n i n g   KN���r`Rbc�e�vޏ�c`l�P8\{k��0 
+ 
+ *       * * �mTV{eu  R S T   �g��yޏ  ( v 2 . 2 . 1 1 0 - b e t a ) �* *   hQb�_eQ�N�^B\  T C P   R S T   :_"�:g6R0(W�b4l�~_g  ( E n d F e e ) 0�w:g{k����e  ( W a t c h d o g ) 0�N�S�Nt�p�f�e  ( H o t   U p g r a d e )   �e��|�~N�Q�S�OŖ�v  F I N ��/f�Ǐ  S e t L i n g e r ( 0 )   �S�  R S T 0ُO�_�w:g(W�NUON�S�b�R�e�~�e�����(W  1   �y�Q�w��͑ޏv^͑n�~�Q�r`�1 0 0 %   \g�~�N  E x t r a n o n c e   !h��1Y%��[�v  3   R��w��r͑/T0 
+ 
+ *       * * w� R S T   z��OY  ( v 2 . 2 . 1 1 1 - b e t a ) �* *   �S�s(W  G o   -N�v�c�[SňhV  ( �Y  * t u n n e l . P e e k C o n n )   ۏL�  * n e t . T C P C o n n   {|�W�e �O1Y%���[�  R S T    �S:N  F I N �ۏ�_�S�R�w:g  ( �Y  j j z 3 9 0 i )   w�eQ���  2 0   R���v  F I N - W A I T   {k�0�s�]�Ǐ_eQ  e x t r a c t T C P C o n n   ���R�Qpe��PeRmq� N7hz�T�y2�\��S�SňhV��c�S�Q g�^B\�virt  T C P   ޏ�cۏL�  S e t L i n g e r ( 0 )   �leQ�nx�O  1 0 0 %   �S�irt�~  R S T   "�S�:_6R�NUOw�eQ{k��v�w:g(W  1   �y�Q͑ޏ0 
+ 
