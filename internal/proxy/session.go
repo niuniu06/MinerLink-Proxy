@@ -382,6 +382,10 @@ func (s *Session) Close() {
 	}
 
 	if s.MinerConn != nil {
+		if tcpConn, ok := s.MinerConn.(*net.TCPConn); ok {
+			// Force TCP RST instead of graceful FIN to ensure instant reconnect
+			tcpConn.SetLinger(0)
+		}
 		s.MinerConn.Close()
 	}
 	if s.MainConn != nil {
@@ -2117,29 +2121,12 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 }
 
 func (s *Session) EndFee() {
-	s.mu.Lock()
+	s.LogGeneral("Fee mining ended. Executing TCP RST to ensure perfect state reset on Main Pool.")
 
-	if s.State == "FEE" || s.State == "SWITCHING_TO_FEE" {
-		s.State = "SWITCHING_TO_MAIN"
-		s.TargetState = "MAIN"
-
-		// To prevent ASIC chip restarts and 2-minute hashrate drops, we NEVER restore the 
-		// Main Pool's extranonce state when switching back. We rely on the physical miner 
-		// keeping its original extranonce state uninterrupted.
-	}
-
-	s.InBandFeeActive = false
-	connToClose := s.FeeConn
-	s.FeeConn = nil // Detach current connection immediately so a new one can be established
-	s.mu.Unlock()
-
-	if connToClose != nil {
-		// Grace period: keep old fee connection alive for 10 seconds to catch late shares
-		go func(c net.Conn) {
-			time.Sleep(10 * time.Second)
-			c.Close()
-		}(connToClose)
-	}
+	// Instead of risky seamless switchback, we nuke the session.
+	// s.Close() will execute TCP RST on MinerConn (thanks to SetLinger(0)),
+	// triggering an instant 1-second reconnect from the physical ASIC.
+	go s.Close()
 }
 
 type ExtranonceData struct {
