@@ -65,7 +65,7 @@ func (r *HashrateRingBuffer) GetAvgHashrate(minutes int) (float64, float64) {
 	return totalMain, totalFee
 }
 
-// FlushToDB saves the current snapshot to SQLite. 
+// FlushToDB saves the current snapshot to SQLite.
 // It calculates the average hashrate over the flush interval (e.g., last 30 minutes).
 func (r *HashrateRingBuffer) FlushToDB(port int, coinName string, intervalMinutes int, diffMultiplier float64) {
 	mainSum, feeSum := r.GetAvgHashrate(intervalMinutes)

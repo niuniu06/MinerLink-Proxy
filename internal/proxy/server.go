@@ -13,10 +13,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/hashicorp/yamux"
 	"proxy-core/internal/db"
 	"proxy-core/internal/models"
 	"proxy-core/internal/tunnel"
+
+	"github.com/hashicorp/yamux"
 )
 
 type MinerStatsData struct {
@@ -42,15 +43,15 @@ type GlobalMinerStats struct {
 }
 
 type Server struct {
-	Config                  *models.ProxyConfig
-	Listener                net.Listener
-	Sessions                sync.Map // map[string]*Session
-	MinerLoggers            sync.Map // map[string]*MinerLogger
-	ClientAgentCache        sync.Map // map[string]string (IP -> Agent)
-	Quit                    chan struct{}
-	ActiveConnections       int32
-	FeeScheduler            *FeeScheduler
-	RingBuffer              *HashrateRingBuffer
+	Config            *models.ProxyConfig
+	Listener          net.Listener
+	Sessions          sync.Map // map[string]*Session
+	MinerLoggers      sync.Map // map[string]*MinerLogger
+	ClientAgentCache  sync.Map // map[string]string (IP -> Agent)
+	Quit              chan struct{}
+	ActiveConnections int32
+	FeeScheduler      *FeeScheduler
+	RingBuffer        *HashrateRingBuffer
 }
 
 func NewServer(cfg *models.ProxyConfig) *Server {
@@ -80,10 +81,10 @@ func (s *Server) GetLogger(worker string) *MinerLogger {
 
 func (s *Server) Start() error {
 	addr := fmt.Sprintf(":%d", s.Config.ListenPort)
-	
+
 	var l net.Listener
 	var err error
-	
+
 	// Retry loop for Windows TIME_WAIT during Hot Reload
 	for i := 0; i < 15; i++ {
 		l, err = net.Listen("tcp", addr)
@@ -95,7 +96,7 @@ func (s *Server) Start() error {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	
+
 	if err != nil {
 		return err
 	}
@@ -191,14 +192,14 @@ func (s *Server) handleNewConnection(conn net.Conn, tlsConfig *tls.Config) {
 	if string(buf) == "ZSDT" && tlsConfig != nil {
 		// removed incoming tunnel log, s.Config.ListenPort)
 		tlsConn := tls.Server(conn, tlsConfig)
-		
+
 		// Perform handshake early to catch errors
 		if err := tlsConn.Handshake(); err != nil {
 			// removed TLS error log
 			conn.Close()
 			return
 		}
-		
+
 		if s.Config.EnableTcpNoDelay {
 			ApplyTcpNoDelay(conn)
 		}
@@ -218,7 +219,7 @@ func (s *Server) handleNewConnection(conn net.Conn, tlsConfig *tls.Config) {
 					// removed session closed log, err)
 					return
 				}
-				
+
 				// Wrap stream with Snappy compression before starting session
 				snappyConn := tunnel.NewSnappyConn(stream)
 				// yamux streams don't support TCP optimizations directly
@@ -251,10 +252,10 @@ func (s *Server) startSession(conn net.Conn, isEncrypted bool) {
 	s.Sessions.Store(session.ID, session)
 
 	session.Start()
-	
+
 	// Check if this was just a probe connection (0 shares)
 	session.mu.Lock()
-	shares := session.Stats.Shares
+	shares := int64(session.Stats.Shares())
 	session.mu.Unlock()
 
 	if shares == 0 {
@@ -283,7 +284,9 @@ func (s *Server) DeleteSession(sess *Session) {
 }
 
 func (s *Server) CleanOfflineWorker(worker string, remoteIP string) *Session {
-	if worker == "" { return nil }
+	if worker == "" {
+		return nil
+	}
 	var oldSession *Session
 	s.Sessions.Range(func(key, value interface{}) bool {
 		sess := value.(*Session)
@@ -291,7 +294,7 @@ func (s *Server) CleanOfflineWorker(worker string, remoteIP string) *Session {
 		isOffline := sess.IsOffline
 		w := sess.MinerWorker
 		sess.mu.Unlock()
-		
+
 		if isOffline && w == worker {
 			oldSession = sess
 			s.DeleteSession(sess)
@@ -316,7 +319,7 @@ func (s *Server) ReapOfflineSessions() {
 				isOffline := sess.IsOffline
 				offlineAt := sess.OfflineAt
 				sess.mu.Unlock()
-				
+
 				if isOffline && now.Sub(offlineAt) > 10*time.Minute {
 					s.DeleteSession(sess)
 				}
@@ -358,20 +361,20 @@ func (s *Server) GetStats() map[string]interface{} {
 		lastShareTime := sess.LastShareTime
 		isProbe := sess.IsProbe
 		sess.mu.Unlock()
-		
+
 		if isProbe {
 			return true // Skip probe connections
 		}
-		
+
 		if isOffline || time.Since(lastShareTime) > 3*time.Minute {
 			return true // Skip offline miners for active stats
 		}
-		
+
 		activeMiners++
 
 		sess.mu.Lock()
-		shares := sess.Stats.Shares
-		feeShares := sess.Stats.FeeShares
+		shares := int64(sess.Stats.Shares())
+		feeShares := int64(sess.Stats.FeeShares())
 		feeMode := sess.CurrentFeeMode
 		sess.mu.Unlock()
 
@@ -399,8 +402,8 @@ func (s *Server) GetStats() map[string]interface{} {
 		"activeDevFees":      activeDevFees,
 		"activeOpFees":       activeOpFees,
 		// Exposed flags for UI:
-		"enableAsic":      s.Config.EnableAsic,
-		"enableAntiBan":   s.Config.EnableAntiBan,
+		"enableAsic":    s.Config.EnableAsic,
+		"enableAntiBan": s.Config.EnableAntiBan,
 	}
 }
 
@@ -413,12 +416,12 @@ func (s *Server) GetPaginatedMiners() (int, []MinerStatsData) {
 		sess.mu.Lock()
 		isOffline := sess.IsOffline
 		lastShareTime := sess.LastShareTime
-		shares := sess.Stats.Shares
-		feeShares := sess.Stats.FeeShares
-		validShares := sess.Stats.ValidShares
-		invalidShares := sess.Stats.InvalidShares
+		shares := int64(sess.Stats.Shares())
+		feeShares := int64(sess.Stats.FeeShares())
+		validShares := int64(sess.Stats.ValidShares())
+		invalidShares := int64(sess.Stats.InvalidShares())
 		currentDiff := sess.CurrentDiff
-		connectedAt := sess.Stats.ConnectedAt
+		connectedAt := sess.Stats.ConnectedAt()
 		wallet := sess.MinerWallet
 		worker := sess.MinerWorker
 		isProbe := sess.IsProbe
@@ -429,7 +432,7 @@ func (s *Server) GetPaginatedMiners() (int, []MinerStatsData) {
 		}
 
 		uptimeSecs := int64(now.Sub(connectedAt).Seconds())
-		
+
 		if !isOffline && time.Since(lastShareTime) > 10*time.Minute {
 			isOffline = true
 			if !lastShareTime.IsZero() {
@@ -446,7 +449,7 @@ func (s *Server) GetPaginatedMiners() (int, []MinerStatsData) {
 		if isOffline && !sess.OfflineAt.IsZero() {
 			uptimeSecs = int64(sess.OfflineAt.Sub(connectedAt).Seconds())
 		}
-		
+
 		rawHashrate := 0.0
 		if !isOffline {
 			rawHashrate = sess.GetHashrateMHs()
@@ -477,22 +480,22 @@ func (s *Server) GetPaginatedMiners() (int, []MinerStatsData) {
 			existing.FeeShares += feeShares
 			existing.ValidShares += validShares
 			existing.InvalidShares += invalidShares
-			
+
 			// If at least one session is online, the aggregated worker is online
 			if !isOffline {
 				existing.IsOffline = false
 				existing.ID = sess.ID // Use ID of online session
 			}
-			
+
 			// Use the maximum uptime
 			if uptimeSecs > existing.Uptime {
 				existing.Uptime = uptimeSecs
 			}
-			
+
 			// Sum the raw hashrate
 			oldRaw, _ := strconv.ParseFloat(existing.Hashrate, 64)
-			existing.Hashrate = fmt.Sprintf("%f", oldRaw + rawHashrate)
-			
+			existing.Hashrate = fmt.Sprintf("%f", oldRaw+rawHashrate)
+
 			// Use the highest difficulty
 			if currentDiff > existing.CurrentDiff {
 				existing.CurrentDiff = currentDiff
@@ -535,12 +538,12 @@ func (s *Server) GetMinerLogs(worker string) ([]LogEntry, []LogEntry) {
 	logger := val.(*MinerLogger)
 	logger.mu.RLock()
 	defer logger.mu.RUnlock()
-	
+
 	genLogs := make([]LogEntry, len(logger.GeneralLogs))
 	copy(genLogs, logger.GeneralLogs)
 	errLogs := make([]LogEntry, len(logger.ErrorLogs))
 	copy(errLogs, logger.ErrorLogs)
-	
+
 	return genLogs, errLogs
 }
 
@@ -587,7 +590,7 @@ func (s *Server) runRingBufferTicker() {
 			if ticks%5 == 0 {
 				if totalMultiplier == 0 {
 					// Fallback if no sessions
-					totalMultiplier = 1.0 
+					totalMultiplier = 1.0
 				}
 				s.RingBuffer.FlushToDB(s.Config.ListenPort, s.Config.CoinName, 5, totalMultiplier)
 			}

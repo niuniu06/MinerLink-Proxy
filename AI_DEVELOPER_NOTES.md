@@ -32,3 +32,10 @@
 **【红线规则】严禁同步阻塞 I/O 及携锁进行网络通信！**
 - **Zero-Copy Defense**：单机承载上万并发矿机，`readMinerLoop` 等核心协程中，严禁在每次心跳通信时 `json.Unmarshal` 组装巨大的 Map。优先使用极简 Struct 或纯正则替换以压平 GC。
 - **Deadlock Immunity**：写入本地状态必须先 `s.mu.Lock()`，但在向网络（Miner/Main/Fee Conn）发送数据前，必须 **先释放锁 `s.mu.Unlock()`**。携锁进行网络通信极易引发数千个协程堵死。
+
+## 架构解耦与工程化重构 (v2.2.113-beta 阶段二和三)
+- **核心状态隔离**: 将 SessionStats 和 PendingTracker 等极容易引发全量锁争抢的庞大状态机彻底解耦为 StatsTracker 和 ShareTracker，保证了核心业务协程在高频次心跳下不受大锁阻塞干扰。
+- **路由拆分**: 将包含数千行代码的 session.go 根据职责拆分为 outer_miner.go、outer_main.go、outer_fee.go 和 io_utils.go，极大增强了核心类的纯净性。
+- **零延迟漏洞红线守护**: 拆分过程中，原有的 ExtranonceData 结构和 sendExtranonce 被完整转移并在 outer_fee.go 等文件中安全继承，确保不对下游逻辑（如 F2Pool）产生任何重启动或算力断崖。
+- **死锁免疫机制增强**: 经过对锁边界和通道异步操作的确认，所有原本可能导致读写协程死锁的高并发 I/O 依然受到 safeWrite / safeFprintf 的超时保护。
+- **隔离验证**: 完成了所有包间引用的修正，确认所有分离后的模块都能成功编译，且不破坏现行的闭源打包和暗抽剥离机制。

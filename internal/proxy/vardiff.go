@@ -98,7 +98,7 @@ func (s *Session) evaluateVardiff() {
 			}
 
 			// [CRITICAL FIX]: Never allow LocalDiff to drop below RemoteDiff (Pool Difficulty).
-			// Since we do not locally compute the SHA256d hash of the shares, 
+			// Since we do not locally compute the SHA256d hash of the shares,
 			// if LocalDiff < RemoteDiff, the proxy will forward low-difficulty shares to the pool,
 			// causing the pool to instantly reject them with "high-hash" errors and potentially ban the proxy IP.
 			s.mu.Lock()
@@ -115,7 +115,7 @@ func (s *Session) evaluateVardiff() {
 			s.mu.Lock()
 			s.LocalDiff = newDiff
 			s.PendingDiff = 0
-			
+
 			latestJob := ""
 			if s.State == "MAIN" || s.State == "SWITCHING_TO_MAIN" {
 				latestJob = s.LatestMainJob
@@ -124,7 +124,7 @@ func (s *Session) evaluateVardiff() {
 			}
 			minerConn := s.MinerConn
 			s.mu.Unlock()
-			
+
 			// removed vardiff log
 			if minerConn != nil {
 				setDiffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", newDiff)

@@ -8,10 +8,10 @@ import (
 // This allows zero-latency job injections when miners switch states,
 // and significantly reduces stale shares by fan-out broadcasting new difficulties and targets.
 type JobDispatcher struct {
-	mu           sync.RWMutex
-	latestJobs   map[string]string   // Key: pool address, Value: raw mining.notify JSON
-	latestDiff   map[string]float64  // Key: pool address, Value: latest difficulty
-	subscribers  map[string][]chan string
+	mu          sync.RWMutex
+	latestJobs  map[string]string  // Key: pool address, Value: raw mining.notify JSON
+	latestDiff  map[string]float64 // Key: pool address, Value: latest difficulty
+	subscribers map[string][]chan string
 }
 
 var GlobalDispatcher = &JobDispatcher{
@@ -24,7 +24,7 @@ func (d *JobDispatcher) UpdateJob(pool string, jobJSON string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.latestJobs[pool] = jobJSON
-	
+
 	// Fan-out broadcast to all subscribers of this pool
 	if subs, exists := d.subscribers[pool]; exists {
 		for _, ch := range subs {

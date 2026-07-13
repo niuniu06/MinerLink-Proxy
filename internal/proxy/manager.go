@@ -12,6 +12,7 @@ import (
 type Manager struct {
 	Servers sync.Map // map[int]*Server (key is ListenPort)
 }
+
 func NewManager() *Manager {
 	return &Manager{}
 }
@@ -99,14 +100,14 @@ func (m *Manager) GetMinerHistory(ip string) models.HistoryResponse {
 				// Found the session
 				sess.RingBuffer.mu.RLock()
 				idx := sess.RingBuffer.CurrentIndex
-				
+
 				now := time.Now()
-				
+
 				// Compute real-time summaries before we group by hour
 				m10, f10 := sess.RingBuffer.GetAvgHashrate(10)
 				m1h, f1h := sess.RingBuffer.GetAvgHashrate(60)
 				m6h, f6h := sess.RingBuffer.GetAvgHashrate(360)
-				
+
 				baseMHs := sess.getAlgoBaseMHs()
 				summary["avg10m"] = models.HashrateSummary{
 					MainHashrate: (m10 * baseMHs) / (10 * 60.0),
@@ -123,38 +124,38 @@ func (m *Manager) GetMinerHistory(ip string) models.HistoryResponse {
 
 				tHour := now.Truncate(time.Hour)
 				minutesIterated := 0
-				
+
 				for h := 0; h < 72; h++ {
 					var sumMain, sumFee float64
 					var minutesInBlock int
-					
+
 					if h == 0 {
 						minutesInBlock = now.Minute() + 1
 					} else {
 						minutesInBlock = 60
 					}
-					
+
 					for m := 0; m < minutesInBlock; m++ {
 						bucketIdx := idx - minutesIterated
 						for bucketIdx < 0 {
 							bucketIdx += 4320
 						}
-						
+
 						sumMain += sess.RingBuffer.MainHash[bucketIdx]
 						sumFee += sess.RingBuffer.FeeHash[bucketIdx]
-						
+
 						minutesIterated++
 					}
-					
+
 					mainH := (sumMain * baseMHs) / float64(minutesInBlock*60)
 					feeH := (sumFee * baseMHs) / float64(minutesInBlock*60)
-					
+
 					history = append(history, models.HashrateHistory{
 						Timestamp:    tHour,
 						MainHashrate: mainH,
 						FeeHashrate:  feeH,
 					})
-					
+
 					tHour = tHour.Add(-time.Hour)
 				}
 				sess.RingBuffer.mu.RUnlock()
@@ -167,15 +168,14 @@ func (m *Manager) GetMinerHistory(ip string) models.HistoryResponse {
 		}
 		return true
 	})
-	
+
 	// Reverse history so it is chronological
 	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
 		history[i], history[j] = history[j], history[i]
 	}
-	
+
 	return models.HistoryResponse{
 		Summary: summary,
 		History: history,
 	}
 }
-

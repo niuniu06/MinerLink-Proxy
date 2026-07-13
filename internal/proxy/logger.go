@@ -63,12 +63,12 @@ func (l *MinerLogger) AddLog(logType, message string, persistToDisk bool) {
 		go func(e LogEntry) {
 			logDir := filepath.Join(".", "data", "logs", "miners")
 			_ = os.MkdirAll(logDir, 0755)
-			
+
 			// Sanitize worker name for safe file names (replace colons and slashes)
 			safeName := strings.ReplaceAll(l.WorkerName, ":", "_")
 			safeName = strings.ReplaceAll(safeName, "/", "_")
 			safeName = strings.ReplaceAll(safeName, "\\", "_")
-			
+
 			logPath := filepath.Join(logDir, safeName+".log")
 			if stat, err := os.Stat(logPath); err == nil {
 				if stat.Size() > 1024*1024*1024 { // 1GB
@@ -87,7 +87,7 @@ func (l *MinerLogger) Prune() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
-	
+
 	// Prune general logs older than 5 minutes (max 50 items)
 	genFiltered := make([]LogEntry, 0)
 	for _, entry := range l.GeneralLogs {

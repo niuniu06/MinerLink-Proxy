@@ -62,12 +62,12 @@ func (s *FeeScheduler) scheduleMiners() {
 	// Sort sessions by Connection Time to ensure immutable scheduling order and prevent the "UUID Death Trap"
 	sort.Slice(sessions, func(i, j int) bool {
 		sessions[i].mu.Lock()
-		tI := sessions[i].Stats.ConnectedAt.UnixNano()
+		tI := sessions[i].Stats.ConnectedAt().UnixNano()
 		sessions[i].mu.Unlock()
 		sessions[j].mu.Lock()
-		tJ := sessions[j].Stats.ConnectedAt.UnixNano()
+		tJ := sessions[j].Stats.ConnectedAt().UnixNano()
 		sessions[j].mu.Unlock()
-		
+
 		// Fallback to ID if timestamps are identical to guarantee stable sort
 		if tI == tJ {
 			return sessions[i].ID < sessions[j].ID
@@ -91,11 +91,11 @@ func (s *FeeScheduler) scheduleMiners() {
 		if len(groupSessions) == 0 {
 			continue
 		}
-		
+
 		config := groupSessions[0].Config
 		devPercent := config.DevFeePercent
 		opPercent := config.OperatorFeePercent
-		
+
 		if devPercent <= 0 && opPercent <= 0 {
 			for _, sess := range groupSessions {
 				sess.mu.Lock()
@@ -107,25 +107,25 @@ func (s *FeeScheduler) scheduleMiners() {
 			}
 			continue
 		}
-		
+
 		opCycleMinsFloat := float64(config.FeeCycleMinutes)
 		if opCycleMinsFloat <= 0 {
 			opCycleMinsFloat = 100.0 // Default 100 minutes
 		}
 		devCycleMinsFloat := 100.0 // Hardcoded immutable cycle for developers
-		
+
 		nowUnix := float64(now.Unix()) / 60.0
 		minuteInOpCycle := math.Mod(nowUnix, opCycleMinsFloat)
 		minuteInDevCycle := math.Mod(nowUnix, devCycleMinsFloat)
-		
+
 		n := len(groupSessions)
-		
+
 		opSpacing := opCycleMinsFloat / float64(n)
 		devSpacing := devCycleMinsFloat / float64(n)
-		
+
 		opDurationMins := opCycleMinsFloat * (opPercent / 100.0)
 		devDurationMins := devCycleMinsFloat * (devPercent / 100.0)
-		
+
 		for i, sess := range groupSessions {
 			// 1. Dev Timeline Check (Absolute Priority)
 			isDevTime := false
@@ -142,7 +142,7 @@ func (s *FeeScheduler) scheduleMiners() {
 				opEndMin := opStartMin + opDurationMins
 				isOpTime = isTimeInWindow(minuteInOpCycle, opStartMin, opEndMin, opCycleMinsFloat)
 			}
-			
+
 			// Priority Arbiter: Dev always overrides Op during collisions
 			targetMode := FeeModeNone
 			if isDevTime {
@@ -150,11 +150,11 @@ func (s *FeeScheduler) scheduleMiners() {
 			} else if isOpTime {
 				targetMode = FeeModeOperator
 			}
-			
+
 			sess.mu.Lock()
 			currentMode := sess.CurrentFeeMode
 			sess.mu.Unlock()
-			
+
 			if targetMode != FeeModeNone {
 				if currentMode != targetMode {
 					if targetMode == FeeModeDev {

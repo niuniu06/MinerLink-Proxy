@@ -56,7 +56,7 @@ func TestStatsTracker_Snapshot(t *testing.T) {
 	if snapshot.FeeShares != 1 {
 		t.Errorf("Expected snapshot.FeeShares to be 1, got %d", snapshot.FeeShares)
 	}
-	
+
 	// Just ensure connected at was set within the last second
 	if time.Since(snapshot.ConnectedAt) > time.Second {
 		t.Errorf("Expected ConnectedAt to be recent, got %v", snapshot.ConnectedAt)
