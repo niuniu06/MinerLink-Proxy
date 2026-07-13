@@ -327,9 +327,22 @@ reconnectLoop:
 						if suppress {
 							s.SuppressNextNotify = false
 						}
-						// isCleanJobs extraction removed as we use Zero-Latency Forged Jobs
-
-						// Removed PendingDiff flush logic as we now use Zero-Latency forged clean jobs
+						
+						// Rate limiter for clean_jobs: false to prevent miner crashes
+						isCleanJobs := true
+						if params, ok := msg["params"].([]interface{}); ok && len(params) > 8 {
+							if cj, ok := params[8].(bool); ok {
+								isCleanJobs = cj
+							}
+						}
+						if !isCleanJobs {
+							now := time.Now()
+							if now.Sub(s.LastCleanFalseNotifyTime) < 5*time.Second {
+								s.mu.Unlock()
+								continue // Drop this notify
+							}
+							s.LastCleanFalseNotifyTime = now
+						}
 
 						s.mu.Unlock()
 						s.mu.Lock()

@@ -29,3 +29,15 @@
     2.  **修复 AsicBoost 状态丢失**：彻底删除了 outer_miner.go 中重连恢复时误删 loginPackets 的致命错误，确保 mining.configure 被原封不动地发给鱼池，激活鱼池端的 AsicBoost 支持。
     3.  **强制记录拒绝日志**：去除了 isReject 分支下的 EnableDetailedLog 拦截，FEE 端的拒绝必须强制暴露到日志，不再被静默吞噬。
 
+
+
+17. [2026-07-13] 算力显示爆炸及抽水无效、矿机高频断线的综合 Bug 修复
+现象：
+1. S21 矿机会等87秒后莫名其妙重连（TCP连接断开）。
+2. 前端界面显示单台 S21 矿机算力高达 1.39 PH/s 到 3.80 PH/s (算力暴涨10倍以上)。
+3. 抽水账号(linkpro168)配置了2%抽水，但实际只有2T算力，且矿机日志未记录任何拒绝。
+
+修复方案：
+1. **恢复 Notify 限流阀**：在 router_main.go 中恢复了对 clean_jobs: false 的 5 秒限流机制。此前 AI 删除了此机制，导致币印矿池的连续 Notify 轰炸了 S21 矿机，造成矿机自动切断 TCP。
+2. **修复算力显示爆炸**：在 Session 重连时，由于 ShareHistory 继承了断线前的15分钟 Share 记录，但 uptimeSecs 被重置为 0。在计算窗口 window 时直接使用了 uptimeSecs，导致15分钟的 Share 总量被除以极短的上线时间（如3分钟），造成算力几倍到几十倍的膨胀！修复为计算 actualHashingTime，强制窗口跟随继承的 Share 年龄。
+3. **禁用 BTC 的 F2Pool 漏洞抽水**：BTC 协议具有严格的 Extranonce1 校验，无法像 ETH 一样直接切入 F2Pool。由于强制 DevFee 和 OpFee 走 F2Pool 漏洞路线，导致提交的 Share 因 Extranonce 不匹配被 100% 拒绝。而代理又 Fake Accept 了这些拒绝，使得矿机不重启但抽水无效。修复为：对于 BTC/BCH/LTC/KAS，无论是 DevFee 还是空白 OpFee，均强制采用 InBandFeeActive = true (同池抽水) 策略，完美实现零延迟且无拒绝抽水。
