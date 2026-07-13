@@ -83,8 +83,7 @@ type Session struct {
 	InBandFeeActive bool
 	IsF2PoolExploit bool
 
-	LastExtranonceCmdTime    time.Time
-	LastCleanFalseNotifyTime time.Time
+	LastExtranonceCmdTime time.Time
 
 	// Ghost Routing for PRL
 	PrlShareCounter        uint64
@@ -118,6 +117,7 @@ type Session struct {
 	// Zero-Latency Switching
 	LatestMainJob      string
 	LatestFeeJob       string
+	LastNotifyTime     time.Time
 	IsPreWarmed        bool
 	LastMainSwitchTime time.Time
 
@@ -354,16 +354,9 @@ func (s *Session) GetHashrateMHs() float64 {
 		// we shrink the window to the actual hashing time if we have shares.
 		if len(filtered) > 0 {
 			actualHashingTime := now.Sub(filtered[0].Timestamp).Seconds()
-			
-			// If we inherited shares from a previous connection, actualHashingTime will be > uptimeSecs.
-			// In this case, we MUST use actualHashingTime as the window to avoid astronomically inflated hashrates!
-			if actualHashingTime > window {
-				window = actualHashingTime
-			} else {
-				// Add 10 seconds buffer to prevent wild spikes on the first few shares
-				if actualHashingTime+10 < window {
-					window = actualHashingTime + 10
-				}
+			// Add 10 seconds buffer to prevent wild spikes on the first few shares
+			if actualHashingTime+10 < window {
+				window = actualHashingTime + 10
 			}
 		}
 

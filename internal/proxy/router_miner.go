@@ -244,12 +244,16 @@ func (s *Session) readMinerLoop() {
 							oldStats := oldSession.Stats
 							oldShareHistory := oldSession.ShareHistory
 							oldLastShareTime := oldSession.LastShareTime
+							oldRingBuffer := oldSession.RingBuffer
 							oldSession.mu.Unlock()
 
 							s.mu.Lock()
 							s.Stats = oldStats
 							s.ShareHistory = oldShareHistory
 							s.LastShareTime = oldLastShareTime
+							if oldRingBuffer != nil {
+								s.RingBuffer = oldRingBuffer
+							}
 							// Only inherit ValidShares to prevent inherited massive offline time calculation
 							s.Stats.SetConnectedAt(time.Now())
 							s.ForwardedResponseIDs = make(map[string]bool)

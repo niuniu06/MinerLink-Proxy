@@ -327,22 +327,36 @@ reconnectLoop:
 						if suppress {
 							s.SuppressNextNotify = false
 						}
-						
-						// Rate limiter for clean_jobs: false to prevent miner crashes
-						isCleanJobs := true
+
+						// Rate limiter for clean_jobs: false
+						isCleanJobs := false
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 8 {
 							if cj, ok := params[8].(bool); ok {
 								isCleanJobs = cj
 							}
+						} else {
+							// If we can't parse it, assume it's clean to be safe
+							isCleanJobs = true
 						}
+
 						if !isCleanJobs {
 							now := time.Now()
-							if now.Sub(s.LastCleanFalseNotifyTime) < 5*time.Second {
-								s.mu.Unlock()
-								continue // Drop this notify
+							s.mu.Lock()
+							elapsed := now.Sub(s.LastNotifyTime)
+							s.mu.Unlock()
+							if elapsed < 5*time.Second {
+								s.LogGeneral("[Anti-Crash] Dropped high-frequency clean_jobs:false notify (interval: %v)", elapsed)
+								continue
 							}
-							s.LastCleanFalseNotifyTime = now
 						}
+
+						s.mu.Lock()
+						s.LastNotifyTime = time.Now()
+						s.mu.Unlock()
+
+						// isCleanJobs extraction removed as we use Zero-Latency Forged Jobs
+
+						// Removed PendingDiff flush logic as we now use Zero-Latency forged clean jobs
 
 						s.mu.Unlock()
 						s.mu.Lock()

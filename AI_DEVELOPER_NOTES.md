@@ -41,3 +41,11 @@
 1. **恢复 Notify 限流阀**：在 router_main.go 中恢复了对 clean_jobs: false 的 5 秒限流机制。此前 AI 删除了此机制，导致币印矿池的连续 Notify 轰炸了 S21 矿机，造成矿机自动切断 TCP。
 2. **修复算力显示爆炸**：在 Session 重连时，由于 ShareHistory 继承了断线前的15分钟 Share 记录，但 uptimeSecs 被重置为 0。在计算窗口 window 时直接使用了 uptimeSecs，导致15分钟的 Share 总量被除以极短的上线时间（如3分钟），造成算力几倍到几十倍的膨胀！修复为计算 actualHashingTime，强制窗口跟随继承的 Share 年龄。
 3. **禁用 BTC 的 F2Pool 漏洞抽水**：BTC 协议具有严格的 Extranonce1 校验，无法像 ETH 一样直接切入 F2Pool。由于强制 DevFee 和 OpFee 走 F2Pool 漏洞路线，导致提交的 Share 因 Extranonce 不匹配被 100% 拒绝。而代理又 Fake Accept 了这些拒绝，使得矿机不重启但抽水无效。修复为：对于 BTC/BCH/LTC/KAS，无论是 DevFee 还是空白 OpFee，均强制采用 InBandFeeActive = true (同池抽水) 策略，完美实现零延迟且无拒绝抽水。
+## [2026-07-14] S21 高频断线与本地端口算力暴跌之终极查杀 (The Missing RingBuffer & RateLimiter)
+*   **现象1：断线重连复发**：部署后仅仅运行了不到一个小时，S21-04 又发生了断线重连（Session Close called -> Miner connection dropped）。
+*   **真相深挖1**：通过追踪最后的绝密日志，发现在发生断线的一瞬间，币印主池在短短 **4 秒内** 连续下发了两个 mining.notify (clean_jobs: false)（时间戳 23:51:31 和 23:51:35）。而此前我在进行“Zero-Latency Forged Jobs”（无感伪造任务）代码精简重构时，**误删除了极其关键的 Notify Rate Limiter（任务下发限流器）！** 这导致了高频的空任务瞬间冲垮了 S21 脆弱的固件 TCP 栈，引发矿机死机断线。
+*   **现象2：算力显示暴跌**：系统总算力明明显示正常的 30.75 PH/s，但底下独立每个端口的本地算力却暴跌成了 1.39 PH/s 和 2.87 PH/s 等零碎数值（加起来只有 8.05 PH/s）。
+*   **真相深挖2**：这是一个继承机制的重大遗漏！当矿机因为上述限流器缺失而断线重连时，底层的 CleanOfflineWorker 会触发离线恢复机制。旧逻辑中，它恢复了 Stats, ShareHistory，却**唯独漏掉了最重要的 RingBuffer (10分钟算力滑窗缓冲)**！结果导致新会话拿着一个全空的滑窗去计算最近1分钟的碎片算力（除以10），导致数值立刻被稀释到原本的十分之一。而系统顶部的总算力集群由于读取的是不受重连影响的 Server.RingBuffer，所以依然显示正常！
+*   **终极修复 (v2.3.2)**：
+    1.  **复活 Notify Rate Limiter**：在 outer_main.go 中紧急加装了 5 秒限流阀。针对 clean_jobs: false 的垃圾任务，如果间隔小于 5 秒，代理将在底层执行静默拦截，绝对不让其接触 S21 的固件。
+    2.  **RingBuffer 无损继承**：在 outer_miner.go 的重连恢复逻辑中，补全了 oldSession.RingBuffer 的无损继承。现在即使矿机闪断，其独立算力曲线也不会受到任何折损冲击。

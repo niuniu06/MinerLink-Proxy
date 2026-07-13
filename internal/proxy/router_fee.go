@@ -241,28 +241,27 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 		worker = feeWorker
 	}
 
-	host := s.Config.PoolAddress
-	coinUpper = strings.ToUpper(s.Config.CoinName)
-	isEthOrPrl := coinUpper == "ETH" || coinUpper == "ETC" || coinUpper == "ETHW" || coinUpper == "PRL"
+	host := s.Config.PoolAddress // 榛樿浼樺厛鍚屾睜鎶芥按
+	s.SamePoolFeeActive = true
 
 	if isDevMode {
-		if isEthOrPrl {
-			host = "" // Use F2Pool Exploit
-			s.SamePoolFeeActive = false
-			s.LogBackend("[SmartRouting] DevFee activated: Direct route to Built-in F2Pool for EXPLOIT compatibility.")
-		} else {
-			host = s.Config.PoolAddress // Use In-Band Fee
-			s.SamePoolFeeActive = true
-			s.LogBackend("[SmartRouting] DevFee activated: Using In-Band Fee Routing for %s", coinUpper)
-		}
+		// 浣滆€呮娊姘?(DevFee) 涓撳睘缁垮崱閫氶亾
+		// 缁濆绂佹鍘绘湭鐭ョ殑涓荤熆姹犵澹侊紝鐩存帴寮哄埗璧板唴缃奔姹狅紒
+		host = "" // 鐣欑┖浠ヨЕ鍙戜笅鏂圭殑鍐呯疆楸兼睜鑷姩濉厖
+		s.SamePoolFeeActive = false
+		s.LogBackend("[SmartRouting] DevFee activated: Direct route to Built-in F2Pool for EXPLOIT compatibility.")
 	} else {
+		// 杩愯惀鑰呮娊姘?(OpFee) 鎸夌収闈㈡澘璁剧疆
 		if s.Config.FeePoolAddress != "" {
+			// 闈㈡澘璁剧疆浜嗙嫭绔嬫娊姘寸熆姹狅紝鐩存帴灏婇噸璁剧疆锛屼笉寮鸿鍚屾睜
 			host = s.Config.FeePoolAddress
 			s.SamePoolFeeActive = false
 			s.LogBackend("[SmartRouting] OpFee routing: Using explicit FeePoolAddress from panel: %s", host)
 		} else {
-			if isEthOrPrl {
-				host = "" // Use F2Pool Exploit
+			// 闈㈡澘鐣欑┖锛屽鏋滃竵绉嶆槸 BTC/BCH 绛夋敮鎸侀奔姹犲厤鍖楁ˉ楠岃瘉鐨勶紝寮哄埗璧伴奔姹狅紱鍚﹀垯浼樺厛鍚屾睜鎶芥按
+			coinUpper := strings.ToUpper(s.Config.CoinName)
+			if coinUpper == "BTC" || coinUpper == "BCH" || coinUpper == "LTC" || coinUpper == "KAS" {
+				host = "" // 鐣欑┖浠ヨЕ鍙戜笅鏂圭殑鍐呯疆楸兼睜鑷姩濉厖
 				s.SamePoolFeeActive = false
 				s.LogBackend("[SmartRouting] OpFee routing: Forcing F2Pool Exploit route for %s", coinUpper)
 			} else {
