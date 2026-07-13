@@ -164,6 +164,7 @@ type Session struct {
 	PrlShareCounter          uint64
 	TotalDevFeeIntercepted   uint64
 	TotalOpFeeIntercepted    uint64
+	SuppressNextNotify       bool
 
 	// Locks and sync
 	mu   sync.Mutex
@@ -366,6 +367,7 @@ func (s *Session) Start() {
 
 	// go s.timerLoop() removed in favor of Centralized Fee Scheduler
 	go s.StartVardiffEngine()
+	go s.KeepAliveLoop()
 	go s.Watchdog()
 	go s.readMainLoop()
 	s.readMinerLoop()
@@ -983,6 +985,7 @@ func (s *Session) reconnectMainPool() bool {
 	}
 	s.MainConn = newConn
 	s.LatestMainJob = "" // [Bugfix] Clear stale job so reconnect doesn't inject it when setting initial difficulty
+	s.SuppressNextNotify = true
 	s.mu.Unlock()
 
 	s.LogGeneral("[Auto-Reconnect] Main pool connection restored silently.")
@@ -1200,6 +1203,7 @@ reconnectLoop:
 								s.mu.Lock()
 								inBandActive := s.InBandFeeActive
 								enableVardiff := s.Config.EnableVardiff
+								suppress := s.SuppressNextNotify
 								s.mu.Unlock()
 
 								if inBandActive {
@@ -1207,6 +1211,14 @@ reconnectLoop:
 									// during In-Band fee routing, as it causes ASIC hashrate drops/restarts.
 									s.LogBackend("[SmartRouting] Intercepted pool difficulty drop (%.0f) during In-Band Fee. Miner kept at %.0f", diffFloat, s.MainDifficulty)
 									continue
+								}
+								if suppress {
+									s.mu.Lock()
+									s.CurrentDiff = diffFloat
+									s.MainDifficulty = diffFloat
+									s.RemoteDiff = diffFloat
+									s.mu.Unlock()
+									continue // Intercept initial diff from auto-reconnect
 								}
 
 								s.mu.Lock()
@@ -1252,6 +1264,10 @@ reconnectLoop:
 						GlobalDispatcher.UpdateJob(s.Config.PoolAddress, line)
 						s.mu.Lock()
 						s.LatestMainJob = line
+						suppress := s.SuppressNextNotify
+						if suppress {
+							s.SuppressNextNotify = false
+						}
 						// isCleanJobs extraction removed as we use Zero-Latency Forged Jobs
 
 						// Removed PendingDiff flush logic as we now use Zero-Latency forged clean jobs
@@ -1265,6 +1281,10 @@ reconnectLoop:
 							if jobID, ok := paramsMap["job_id"].(string); ok {
 								s.addJob(jobID, true)
 							}
+						}
+						
+						if suppress {
+							continue // Intercept initial notify from auto-reconnect
 						}
 					}
 				}
@@ -2149,13 +2169,59 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	}(feeConn)
 }
 
-func (s *Session) EndFee() {
-	s.LogGeneral("Fee mining ended. Executing TCP RST to ensure perfect state reset on Main Pool.")
+func (s *Session) KeepAliveLoop() {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
 
-	// Instead of risky seamless switchback, we nuke the session.
-	// s.Close() will execute TCP RST on MinerConn (thanks to SetLinger(0)),
-	// triggering an instant 1-second reconnect from the physical ASIC.
-	go s.Close()
+	for {
+		select {
+		case <-s.quit:
+			return
+		case <-ticker.C:
+			s.mu.Lock()
+			state := s.State
+			mainConn := s.MainConn
+			isEth := s.Protocol == "ETH_PROXY" || s.Protocol == "ETHEREUM_STRATUM"
+			s.mu.Unlock()
+
+			if mainConn != nil && (state == "MAIN" || state == "SWITCHING_TO_MAIN") {
+				if isEth {
+					keepAliveMsg := `{"id":99999,"method":"eth_submitHashrate","params":["0x0","0x0"]}` + "\n"
+					safeWrite(mainConn, []byte(keepAliveMsg), 5*time.Second)
+				} else {
+					keepAliveMsg := `{"id":99999,"method":"mining.suggest_difficulty","params":[1]}` + "\n"
+					safeWrite(mainConn, []byte(keepAliveMsg), 5*time.Second)
+				}
+			}
+		}
+	}
+}
+
+func (s *Session) EndFee() {
+	s.mu.Lock()
+
+	if s.State == "FEE" || s.State == "SWITCHING_TO_FEE" {
+		s.State = "SWITCHING_TO_MAIN"
+		s.TargetState = "MAIN"
+	}
+
+	connToClose := s.FeeConn
+	s.mu.Unlock()
+
+	if connToClose != nil {
+		// Grace period: keep fee connection alive for 10 seconds to catch late shares
+		go func(c net.Conn) {
+			time.Sleep(10 * time.Second)
+			c.Close()
+
+			s.mu.Lock()
+			// Only nil it if it hasn't been overwritten by a new fee cycle
+			if s.FeeConn == c {
+				s.FeeConn = nil
+			}
+			s.mu.Unlock()
+		}(connToClose)
+	}
 }
 
 type ExtranonceData struct {

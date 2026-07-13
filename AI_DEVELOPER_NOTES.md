@@ -275,3 +275,5 @@ eadFeeLoop 中，【绝对允许】mining.set_difficulty 穿透至物理矿机�
  
  *       * * w� R S T   z��OY  ( v 2 . 2 . 1 1 1 - b e t a ) �* *   �S�s(W  G o   -N�v�c�[SňhV  ( �Y  * t u n n e l . P e e k C o n n )   ۏL�  * n e t . T C P C o n n   {|�W�e �O1Y%���[�  R S T    �S:N  F I N �ۏ�_�S�R�w:g  ( �Y  j j z 3 9 0 i )   w�eQ���  2 0   R���v  F I N - W A I T   {k�0�s�]�Ǐ_eQ  e x t r a c t T C P C o n n   ���R�Qpe��PeRmq� N7hz�T�y2�\��S�SňhV��c�S�Q g�^B\�virt  T C P   ޏ�cۏL�  S e t L i n g e r ( 0 )   �leQ�nx�O  1 0 0 %   �S�irt�~  R S T   "�S�:_6R�NUOw�eQ{k��v�w:g(W  1   �y�Q͑ޏ0 
  
+
+*   **Auto-Reconnect 与 RST 反噬 (v2.2.112-beta)：** F2Pool 具有 25 秒无 share 断线的严格超时机制。当代理被踢触发 Auto-Reconnect 时，代理会将新获取的高难度任务（mining.notify）下发给矿机，导致矿机丢弃原有进度，从而永远无法在 25 秒内解出 Share，陷入死循环！同时，部分矿机（如 jjz390i）对物理 RST 有长达 10 分钟的断电级死机反应。**防呆指南：** 绝对禁止在 Auto-Reconnect 期间下发初始难度和任务，必须拦截！绝对禁止在抽水结束时用 RST 踢物理矿机，必须使用 GlobalDispatcher 强行注入伪造任务进行 0 延迟软切换！同时 Proxy 内部加入 15 秒一跳的 KeepAliveLoop (eth_submitHashrate) 防止矿池单方面踢人！
