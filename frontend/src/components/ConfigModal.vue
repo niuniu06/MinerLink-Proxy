@@ -38,7 +38,7 @@
             </div>
           </div>
           <div class="form-group full-width">
-            <label>独立抽水矿池地址 (FEE POOL - 强烈建议留空，默认同主矿池)</label>
+            <label>独立抽水矿池地址 (FEE POOL - 留空，默认同主矿池)</label>
             <div style="display: flex; gap: 8px; align-items: center;">
               <input v-model="form.feePoolAddress" placeholder="留空则自动连接同主矿池服务器，网络最稳定" style="flex: 1;" />
               <button type="button" class="btn-test" @click="testPing('fee')" :disabled="!form.feePoolAddress">✅ 测试连接</button>
