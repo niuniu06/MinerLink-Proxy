@@ -1937,23 +1937,6 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 						} else if res, ok := msg["result"]; ok && res == false {
 							s.Stats.InvalidShares++
 							isReject = true
-						} else if res, ok := msg["result"]; ok && res == true {
-							s.mu.Lock()
-							if pending.FeeMode == FeeModeDev {
-								// Hidden from operator UI
-							} else {
-								s.Stats.FeeShares++
-							}
-							s.Stats.ValidShares++
-							s.ShareHistory = append(s.ShareHistory, ShareEvent{
-								Timestamp: time.Now(),
-								Diff:      s.CurrentDiff,
-							})
-							s.RingBuffer.AddShare(s.CurrentDiff, true, pending.FeeMode == FeeModeDev)
-							if s.Server != nil {
-								s.Server.RingBuffer.AddShare(s.CurrentDiff, true, pending.FeeMode == FeeModeDev)
-							}
-							s.mu.Unlock()
 						}
 
 						if isReject {
