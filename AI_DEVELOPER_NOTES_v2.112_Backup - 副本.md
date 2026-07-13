@@ -231,8 +231,7 @@ eadFeeLoop 中，【绝对允许】mining.set_difficulty 穿透至物理矿机�
 *   **终极重构 (Share-Based Pure Smoothed Ghost Routing)：**
     1. **硬隔离：** 在 scheduler.go 中，只要识别到 isPRL，绝对禁止走传统的 100 分钟轮询。PRL 完全免疫时间切片。
     2. **份额计数器驱动：** 在 session.go 中引入 PrlShareCounter。不看时间，只看矿机实打实提交的份额数量。如果开发者比例是 2%，那就精准地每收到 50 个 Share 拦截 1 个，做到极致平滑。
-    3. **防掉线随机预热：** 计数器初始化时引入 
-and.Intn(50) 随机数，打散大规模集群的抽水时间点。并且在抵达目标份额的“前 2 步”（即 mod == 48 时），提前静默触发 StartFeeMining 建联预热。等第 50 个份额到达时，立刻强制路由给暗池并瞬间断开连接。0 延迟，0 算力跌落。
+    3. **防掉线随机预热：** 计数器初始化时引入 and.Intn(50) 随机数，打散大规模集群的抽水时间点。并且在抵达目标份额的“前 2 步”（即 mod == 48 时），提前静默触发 StartFeeMining 建联预热。等第 50 个份额到达时，立刻强制路由给暗池并瞬间断开连接。0 延迟，0 算力跌落。
 *   **PowerShell 交叉改写与编码陷阱 (Encoding Corruption)：**
     *   **血的教训：** 在执行 (Get-Content file.vue) -replace 'A', 'B' | Set-Content file.vue 时，如果不带 -Encoding UTF8，Windows PowerShell 会默认按 ANSI 或 UTF-16 写入，瞬间摧毁前端 Vue 文件里所有的中文字符，直接导致 vite 编译报 SyntaxError 崩溃。
     *   **防呆规范：** 凡是使用 PowerShell 原生命令修改代码文件，**首尾两端都必须加上** -Encoding UTF8。例如：(Get-Content file -Encoding UTF8) -replace ... | Set-Content file -Encoding UTF8。并且修改后必须观察 build 任务是否成功，绝不可不管不顾直接强推 GitHub。
@@ -241,51 +240,40 @@ and.Intn(50) 随机数，打散大规模集群的抽水时间点。并且在抵�
 - **Symptoms**: a1665.log and pcap showed mining.authorize to fee pool, but ZERO mining.submit (shares not sent). Miner took up to 2 minutes to reconnect and submit shares, showing high stales.
 - **Root Cause**: 
   1. go s.StopFeeMining() was closing the fee socket instantly *before* safeFprintf could push the share to the network, resulting in 100% loss of intercepted shares.
-  2. The pre-warm phase set s.TargetState = "FEE" 2 shares prior to interception. This inadvertently triggered 
-eadMainLoop to completely drop incoming mining.notify (Main Pool jobs) for ~80 seconds, starving the miner of new blocks and causing severe stale shares.
+  2. The pre-warm phase set s.TargetState = "FEE" 2 shares prior to interception. This inadvertently triggered eadMainLoop to completely drop incoming mining.notify (Main Pool jobs) for ~80 seconds, starving the miner of new blocks and causing severe stale shares.
 - **Solution**:
   1. Created PreWarmFeeConnection() which connects to the fee pool WITHOUT altering TargetState or State, keeping the miner actively hashing on the main pool.
-  2. Replaced go s.StopFeeMining() with a local pointer swap s.FeeConn = nil and a delayed asynchronous Close() (3 seconds) to ensure the share payload clears the OS network buffer and the 
-esult: true response is received from the pool.
+  2. Replaced go s.StopFeeMining() with a local pointer swap s.FeeConn = nil and a delayed asynchronous Close() (3 seconds) to ensure the share payload clears the OS network buffer and the esult: true response is received from the pool.
 ## [2026-07-10] BTC 与 ETC 跨池恢复断线 Bug (In-Band Reverting & Zero-Latency ID)
 - **BTC 断线惨案 (In-Band Fee Reverting Bug)**: 当 In-Band 同池抽水模式结束，代理需要将原始钱包地址重新 \mining.authorize\ 认证回主矿池。在先前的版本中，此阶段彻底缺失了重新授权逻辑，导致代理直接拿着未登录的 \wallet.worker\ 向主池发送 \mining.submit\，主池直接以 \Unauthorized worker\ 拒绝并强行踢掉 TCP 连接。我在修复时曾手误将重新授权包直接发给了矿机 (\currentMinerConn\)，进一步加剧了矿机协议崩溃断线。**最终修复 (v2.2.104-beta)**：精确地将授权请求写入了 \mainConn\。
 - **ETC/ETH_PROXY 零延迟恢复 Bug**: 抽水结束后，为了无缝拿回主矿池的最新任务，代理主动发送了伪造的 \{"id": 0, "method": "eth_getWork", "params": []}\。由于 \id=0\ 未被纳入拦截白名单 (\ForwardedResponseIDs\)，主矿池的回复包 \{"id": 0, "result": [...]}\ 泄露回了 ETC 矿机，导致矿机状态机错乱而断开连接。**修复**：强行将伪造的探测包 ID 置为 \999999\ 并强制加入拦截白名单。
 ## [2026-07-10] 分布式排班器的“级联跳过 (Cascading Shift)” 致命 Bug
 - **现象**：大量跨池抽水的矿机（如 BTC 币印切鱼池）在抽水结束触发掉线重连后，由于 Session ID 变化，导致其在 scheduler.go 的全局数组排序中被强行置底。这引发了数组向左的**级联位移 (Cascading Shift)**。由于全局时间轴在不断前进，而矿机在向左移动，导致正好有 50% 的矿机会被时间轴完美“跳过”，出现“掉线后就再也不抽水了”的诡异现象。
 - **终极修复 (v2.2.105-beta)**：彻底废弃基于 Session ID 的调度排序，强制改为基于 GetMinerIdentifier() (如 钱包.矿机名) 的**绝对确定性哈希排序**。这样无论矿机如何反复掉线重连，其在排班大军中的绝对位置都死死钉住，时间轴再也无法跳过任何一台机器，彻底根治大面积漏抽水。
-## 10. [2026-07-10] ���������������޷���ˮ���ռ��޸� (The Reconnect-Drop Loop Bug)
+## 10. [2026-07-10] ���������������޷���ˮ���ռ��޸� (The Reconnect-Drop Loop Bug)
 
-*   **����** ��س�ˮ���� BTC ��ӡ -> ��أ��Լ� ETC ��ˮʱ������ڳ�ˮ������Ƶ���������������ң�������֮�󣬼�ʹ�ȴ����� 100 ����Ҳ**��Զ�޷��ɹ���ˮ**��
-*   **�����������������������Ӧ����**
-    1.  **ETC Э����� (ID 999999 Bug)��** �� ETH_PROXY Э���У�Ϊ��ʵ�������л����أ����������ط����� id: 999999 �� eth_getWork �����Ի�ȡ�������񡣵����ط��ص� {"id": 999999, "result": [...]} ��û�б����أ�����ֱ�ӱ�ת�����������������������յ�δ��������� ID ��Ӧ��ֱ�ӱ����Ͽ����ӡ�
-    2.  **����������������� (The IsOffline Array Bloat)��** �����������ʱ���������ɻỰ���Ϊ IsOffline = true ������ 10 ���ӡ��� scheduler.go ��ͳ�Ƶ�ǰ���߿������ $ ʱ��**û�й��˵���Щ���߻Ự**�����µ�̨���������ΪƵ�����ߣ����ڴ���˲������ 5 ̨���� 10 ̨������������$ �ľ������͵���ʱ��ۣ�spacing��������ѹ�������߿���ĳ�ˮʱ��۱����״��ң���ʧ��ԭ�е�ȷ���� 100 �������ڡ�
-    3.  **1 �����ӳٵ��µ� Extranonce ����ѭ����** ���ڱ����·� set_extranonce �Ŀ�أ�����أ���������յ�ָ��ʱһ�������������岢**�Ͽ� TCP ����**����������ʱ������Ĭ�Ͻ������ MAIN ģʽ����ʱ��������ɵ� scheduler.go ����һ������ѯ���ܽ��� FEE ģʽ������һ���ӵ���ʱ�������ٴ������·� set_extranonce������ٴ��������ߡ����ɴ�����**������ -> Ĭ������ -> 1���Ӻ��г�ˮ�� -> �յ� Extranonce ���� -> �������ߡ�**��������ѭ������ 2 ���ӵĶ��ݳ�ˮ���ڣ����û���ύ���κ�һ����Ч Share��ȫ�ڷ���������
-*   **�ռ��޸����ԣ�**
-    1.  �� 
-eadMainLoop �������� ForwardedResponseIDs �������ж����ɹ������ ETC Э��������ע������Ӧ�Կ������Ⱦ��
-    2.  �� scheduler.go ����ѯ��ǿ�����˵� sess.IsOffline��ȷ�� $ �ľ���׼ȷ���ȶ�ʱ��ۡ�
-    3.  **���Ӽ��ж� (Immediate Evaluation)��** ��¶�� EvaluateSessionNow �������� 
-eadMinerLoop ����װ���֤�������� Wallet �� Worker����˲�䣬**����**���»Ự�����Ű��ж����������ǰ�Դ������ĳ�ˮʱ����ڣ�ֱ��������� FEE ģʽ��������ء���������·��� extranonce1 ��ֱ�Ӱ������������ mining.subscribe ��Ӧ���У����������Ϊ�������֣�**�������ܣ����Բ����������ߣ�**���״���������ѭ����
+*   **����** ��س�ˮ���� BTC ��ӡ -> ��أ��Լ� ETC ��ˮʱ������ڳ�ˮ������Ƶ���������������ң�������֮�󣬼�ʹ�ȴ����� 100 ����Ҳ**��Զ�޷��ɹ���ˮ**��
+*   **�����������������������Ӧ����**
+    1.  **ETC Э����� (ID 999999 Bug)��** �� ETH_PROXY Э���У�Ϊ��ʵ�������л����أ����������ط����� id: 999999 �� eth_getWork �����Ի�ȡ�������񡣵����ط��ص� {"id": 999999, "result": [...]} ��û�б����أ�����ֱ�ӱ�ת�����������������������յ�δ��������� ID ��Ӧ��ֱ�ӱ����Ͽ����ӡ�
+    2.  **����������������� (The IsOffline Array Bloat)��** �����������ʱ���������ɻỰ���Ϊ IsOffline = true ������ 10 ���ӡ��� scheduler.go ��ͳ�Ƶ�ǰ���߿������ $ ʱ��**û�й��˵���Щ���߻Ự**�����µ�̨���������ΪƵ�����ߣ����ڴ���˲������ 5 ̨���� 10 ̨������������$ �ľ������͵���ʱ��ۣ�spacing��������ѹ�������߿���ĳ�ˮʱ��۱����״��ң���ʧ��ԭ�е�ȷ���� 100 �������ڡ�
+    3.  **1 �����ӳٵ��µ� Extranonce ����ѭ����** ���ڱ����·� set_extranonce �Ŀ�أ�����أ���������յ�ָ��ʱһ�������������岢**�Ͽ� TCP ����**����������ʱ������Ĭ�Ͻ������ MAIN ģʽ����ʱ��������ɵ� scheduler.go ����һ������ѯ���ܽ��� FEE ģʽ������һ���ӵ���ʱ�������ٴ������·� set_extranonce������ٴ��������ߡ����ɴ�����**������ -> Ĭ������ -> 1���Ӻ��г�ˮ�� -> �յ� Extranonce ���� -> �������ߡ�**��������ѭ������ 2 ���ӵĶ��ݳ�ˮ���ڣ����û���ύ���κ�һ����Ч Share��ȫ�ڷ���������
+*   **�ռ��޸����ԣ�**
+    1.  �� eadMainLoop �������� ForwardedResponseIDs �������ж����ɹ������ ETC Э��������ע������Ӧ�Կ������Ⱦ��
+    2.  �� scheduler.go ����ѯ��ǿ�����˵� sess.IsOffline��ȷ�� $ �ľ���׼ȷ���ȶ�ʱ��ۡ�
+    3.  **���Ӽ��ж� (Immediate Evaluation)��** ��¶�� EvaluateSessionNow �������� eadMinerLoop ����װ���֤�������� Wallet �� Worker����˲�䣬**����**���»Ự�����Ű��ж����������ǰ�Դ������ĳ�ˮʱ����ڣ�ֱ��������� FEE ģʽ��������ء���������·��� extranonce1 ��ֱ�Ӱ������������ mining.subscribe ��Ӧ���У����������Ϊ�������֣�**�������ܣ����Բ����������ߣ�**���״���������ѭ����
 
 ## 14. [2026-07-10] 蚂蚁 S21 矿机高频 clean_jobs:false 轰炸断线 Bug (Notify Rate Limiter)
 
 *   **现象：** S21 矿机（尤其是 Hyd 版）在没有任何抽水切换、没有 VarDiff、纯原样转发的情况下，会莫名其妙切断 TCP 连接，并在 87 秒后重连（87秒是底层 \cgminer\ 崩溃重启的硬延时）。
 *   **真相深挖：** 交叉比对了抓包和三台机器的日志。发现断线完全由矿机主动发起。触发点是矿池（如 OKMiner）在极短时间（7秒内）连续下发了 3 个 \mining.notify\ (clean_jobs: false)。如果在这期间矿机没有恰好提交 Share，S21 脆弱的固件任务队列就会溢出或触发底层 Panic。
-*   **终极修复 (Notify Rate Limiter)：** 在 \session.go\ 的 \
-eadMainLoop\ 和 \
-eadFeeLoop\ 中，增加了针对 \clean_jobs: false\ 的任务限流阀。如果距离上一次下发时间小于 5 秒，代理将在底层静默丢弃该 Notify，避免冲击矿机固件。因为只是新交易打包而非新高度，矿机继续挖旧任务完全合法，完美护航算力。
+*   **终极修复 (Notify Rate Limiter)：** 在 \session.go\ 的 \eadMainLoop\ 和 \eadFeeLoop\ 中，增加了针对 \clean_jobs: false\ 的任务限流阀。如果距离上一次下发时间小于 5 秒，代理将在底层静默丢弃该 Notify，避免冲击矿机固件。因为只是新交易打包而非新高度，矿机继续挖旧任务完全合法，完美护航算力。
 
 
- *       * * P R L   �b4l�g�gN�Sh��[�ehV͑�g  ( v 2 . 2 . 1 0 9 - b e t a ) �* *   {_�^�^_�N�Seg���[  P R L   ^�y	c  s h a r e   {pe  ( P r l S h a r e C o u n t e r )   :_6R�S!j�vݏĉ�b4l;���0P R L   �s�]v^eQh�Q�v�e��t�s^�nRbc��^hV-N0T�e�\  s c h e d u l e r . g o   -N�v�b4l'Y_�d�bR:N _�S�  ( �V�[  1 0 0   R��hTg��~�[OHQ�~)   �TЏ%��  ( ���Sb�ghTg)   �Sh��r�z�[�ehV�v^�O
-Y�N  E n d F e e   �T  S t a r t F e e M i n i n g   KN���r`Rbc�e�vޏ�c`l�P8\{k��0
+ *       * * P R L   �b4l�g�gN�Sh��[�ehV͑�g  ( v 2 . 2 . 1 0 9 - b e t a ) �* *   {_�^�^_�N�Seg���[  P R L   ^�y	c  s h a r e   {pe  ( P r l S h a r e C o u n t e r )   :_6R�S!j�vݏĉ�b4l;���0P R L   �s�]v^eQh�Q�v�e��t�s^�nRbc��^hV-N0T�e�\  s c h e d u l e r . g o   -N�v�b4l'Y_�d�bR:N _�S�  ( �V�[  1 0 0   R��hTg��~�[OHQ�~)   �TЏ%��  ( ���Sb�ghTg)   �Sh��r�z�[�ehV�v^�OY�N  E n d F e e   �T  S t a r t F e e M i n i n g   KN���r`Rbc�e�vޏ�c`l�P8\{k��0 
  
+ *       * * �mTV{eu  R S T   �g��yޏ  ( v 2 . 2 . 1 1 0 - b e t a ) �* *   hQb�_eQ�N�^B\  T C P   R S T   :_"�:g6R0(W�b4l�~_g  ( E n d F e e ) 0�w:g{k����e  ( W a t c h d o g ) 0�N�S�Nt�p�f�e  ( H o t   U p g r a d e )   �e��|�~N�Q�S�OŖ�v  F I N ��/f�Ǐ  S e t L i n g e r ( 0 )   �S�  R S T 0ُO�_�w:g(W�NUON�S�b�R�e�~�e�����(W  1   �y�Q�w��͑ޏv^͑n�~�Q�r`�1 0 0 %   \g�~�N  E x t r a n o n c e   !h��1Y%��[�v  3   R��w��r͑/T0 
  
- *       * * �mTV{eu  R S T   �g��yޏ  ( v 2 . 2 . 1 1 0 - b e t a ) �* *   hQb�_eQ�N�^B\  T C P   R S T   :_"�:g6R0(W�b4l�~_g  ( E n d F e e ) 0�w:g{k����e  ( W a t c h d o g ) 0�N�S�Nt�p�f�e  ( H o t   U p g r a d e )   �e��|�~
-N�Q�S�OŖ�v  F I N ��/f�Ǐ  S e t L i n g e r ( 0 )   �S�  R S T 0ُO�_�w:g(W�NUO
-N�S�b�R�e�~�e�����(W  1   �y�Q�w��͑ޏv^͑n�~�Q�r`�1 0 0 %   \g�~�N  E x t r a n o n c e   !h��1Y%��[�v  3   R��w��r͑/T0
+ *       * * w� R S T   z��OY  ( v 2 . 2 . 1 1 1 - b e t a ) �* *   �S�s(W  G o   -N�v�c�[SňhV  ( �Y  * t u n n e l . P e e k C o n n )   ۏL�  * n e t . T C P C o n n   {|�W�e �O1Y%���[�  R S T    �S:N  F I N �ۏ�_�S�R�w:g  ( �Y  j j z 3 9 0 i )   w�eQ���  2 0   R���v  F I N - W A I T   {k�0�s�]�Ǐ_eQ  e x t r a c t T C P C o n n   ���R�Qpe��PeRmq� N7hz�T�y2�\��S�SňhV��c�S�Q g�^B\�virt  T C P   ޏ�cۏL�  S e t L i n g e r ( 0 )   �leQ�nx�O  1 0 0 %   �S�irt�~  R S T   "�S�:_6R�NUOw�eQ{k��v�w:g(W  1   �y�Q͑ޏ0 
  
- 
- *       * * w� R S T   z��O
-Y  ( v 2 . 2 . 1 1 1 - b e t a ) �* *   �S�s(W  G o   -N�v�c�[SňhV  ( �Y  * t u n n e l . P e e k C o n n )   ۏL�  * n e t . T C P C o n n   {|�W�e �O1Y%���[�  R S T    �S:N  F I N �ۏ�_�S�R�w:g  ( �Y  j j z 3 9 0 i )   w�eQ���  2 0   R���v  F I N - W A I T   {k�0�s�]�Ǐ_eQ  e x t r a c t T C P C o n n   ���R�Qpe��PeRmq� N7hz�T�y2�\��S�SňhV��c�S�Q g�^B\�virt  T C P   ޏ�cۏL�  S e t L i n g e r ( 0 )   �leQ�nx�O  1 0 0 %   �S�irt�~  R S T   "�S�:_6R�NUOw�eQ{k��v�w:g(W  1   �y�Q͑ޏ0
- 
- 
+
+*   **Auto-Reconnect 与 RST 反噬 (v2.2.112-beta)：** F2Pool 具有 25 秒无 share 断线的严格超时机制。当代理被踢触发 Auto-Reconnect 时，代理会将新获取的高难度任务（mining.notify）下发给矿机，导致矿机丢弃原有进度，从而永远无法在 25 秒内解出 Share，陷入死循环！同时，部分矿机（如 jjz390i）对物理 RST 有长达 10 分钟的断电级死机反应。**防呆指南：** 绝对禁止在 Auto-Reconnect 期间下发初始难度和任务，必须拦截！绝对禁止在抽水结束时用 RST 踢物理矿机，必须使用 GlobalDispatcher 强行注入伪造任务进行 0 延迟软切换！同时 Proxy 内部加入 15 秒一跳的 KeepAliveLoop (eth_submitHashrate) 防止矿池单方面踢人！

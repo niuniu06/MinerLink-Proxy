@@ -252,8 +252,6 @@ func (s *Session) readMinerLoop() {
 							s.LastShareTime = oldLastShareTime
 							// Only inherit ValidShares to prevent inherited massive offline time calculation
 							s.Stats.SetConnectedAt(time.Now())
-							// [Fix] Clear login states so new authorizes can receive responses
-							s.loginPackets = make([]map[string]interface{}, 0)
 							s.ForwardedResponseIDs = make(map[string]bool)
 							if s.Stats.ValidShares() > 0 {
 								// Keep the offline state logic intact
