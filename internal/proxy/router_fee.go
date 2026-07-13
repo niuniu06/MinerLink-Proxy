@@ -245,33 +245,32 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	s.SamePoolFeeActive = true
 
 	if isDevMode {
-		// 浣滆€呮娊姘?(DevFee) 涓撳睘缁垮崱閫氶亾
-		// 缁濆绂佹鍘绘湭鐭ョ殑涓荤熆姹犵澹侊紝鐩存帴寮哄埗璧板唴缃奔姹狅紒
-		host = "" // 鐣欑┖浠ヨЕ鍙戜笅鏂圭殑鍐呯疆楸兼睜鑷姩濉厖
-		s.SamePoolFeeActive = false
-		s.LogBackend("[SmartRouting] DevFee activated: Direct route to Built-in F2Pool for EXPLOIT compatibility.")
+		if coinUpper == "BTC" || coinUpper == "BCH" || coinUpper == "LTC" || coinUpper == "KAS" {
+			// [BUGFIX] BTC/BCH must use SamePoolFeeActive (In-Band Routing) because Out-of-Band F2Pool 
+			// strictly checks Extranonce1, which causes 100% rejection without restarting the ASIC.
+			host = s.Config.PoolAddress
+			s.SamePoolFeeActive = true
+			s.LogBackend("[SmartRouting] DevFee activated: Using In-Band Routing (Same Pool) for %s to prevent Extranonce1 mismatch.", coinUpper)
+		} else {
+			// For ETH/ETC, Extranonce1 mismatch is ignored by F2Pool, so we can force F2Pool Out-of-Band.
+			host = "" 
+			s.SamePoolFeeActive = false
+			s.LogBackend("[SmartRouting] DevFee activated: Direct route to Built-in F2Pool for EXPLOIT compatibility.")
+		}
 	} else {
 		// 杩愯惀鑰呮娊姘?(OpFee) 鎸夌収闈㈡澘璁剧疆
 		if s.Config.FeePoolAddress != "" {
 			// 闈㈡澘璁剧疆浜嗙嫭绔嬫娊姘寸熆姹狅紝鐩存帴灏婇噸璁剧疆锛屼笉寮鸿鍚屾睜
 			host = s.Config.FeePoolAddress
-			s.SamePoolFeeActive = false
-			s.LogBackend("[SmartRouting] OpFee routing: Using explicit FeePoolAddress from panel: %s", host)
+			s.SamePoolFeeActive = (strings.ToLower(host) == strings.ToLower(s.Config.PoolAddress))
 		} else {
-			// 闈㈡澘鐣欑┖锛屽鏋滃竵绉嶆槸 BTC/BCH 绛夋敮鎸侀奔姹犲厤鍖楁ˉ楠岃瘉鐨勶紝寮哄埗璧伴奔姹狅紱鍚﹀垯浼樺厛鍚屾睜鎶芥按
-			coinUpper := strings.ToUpper(s.Config.CoinName)
-			if coinUpper == "BTC" || coinUpper == "BCH" || coinUpper == "LTC" || coinUpper == "KAS" {
-				host = "" // 鐣欑┖浠ヨЕ鍙戜笅鏂圭殑鍐呯疆楸兼睜鑷姩濉厖
-				s.SamePoolFeeActive = false
-				s.LogBackend("[SmartRouting] OpFee routing: Forcing F2Pool Exploit route for %s", coinUpper)
-			} else {
-				host = s.Config.PoolAddress
-				s.SamePoolFeeActive = true
-			}
+			// If OpFee pool is not specified, force SamePoolFeeActive (In-Band) to prevent Extranonce/reboot issues.
+			host = s.Config.PoolAddress
+			s.SamePoolFeeActive = true
 		}
 	}
 
-	// 寮哄埗琛ュ厖榛樿鐨勫洖閫€鐭挎睜鍦板潃锛堥槻姝㈠墠绔病鏈夐厤缃鐢ㄧ熆姹犲鑷?host 涓虹┖鑰岀洿鎺ユ柇寮€锛?
+	// 寮哄埗琛ュ厖榛樿鐨勫洖閫€鐭挎睜鍦板潃锛堥槻姝㈠墠绔病鏈夐厤缃鐢ㄧ熆姹犲鑷?host 涓虹┖鑰岀洿鎺ユ柇寮€锛?
 	if host == "" {
 		if coinUpper == "ETC" {
 			if s.Protocol == "ETH_PROXY" {
@@ -393,6 +392,22 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 		_ = json.Unmarshal(pktBytes, &mod)
 
 		method, _ := mod["method"].(string)
+
+		if method == "mining.configure" {
+			s.mu.Lock()
+			mainMask := s.MainVersionMask
+			s.mu.Unlock()
+			if mainMask != "" {
+				if params, ok := mod["params"].([]interface{}); ok && len(params) > 1 {
+					if exts, ok := params[1].(map[string]interface{}); ok {
+						if _, hasVR := exts["version-rolling"]; hasVR {
+							exts["version-rolling.mask"] = mainMask
+						}
+					}
+				}
+			}
+		}
+
 		if method == "mining.authorize" || method == "eth_submitLogin" || method == "login" {
 			if params, ok := mod["params"].([]interface{}); ok && len(params) > 0 {
 				if _, ok := params[0].(string); ok {
@@ -794,10 +809,20 @@ func (s *Session) KeepAliveLoop() {
 			s.mu.Lock()
 			state := s.State
 			mainConn := s.MainConn
+			feeConn := s.FeeConn
 			isEth := s.Protocol == "ETH_PROXY" || s.Protocol == "ETHEREUM_STRATUM"
 			s.mu.Unlock()
 
-			if mainConn != nil && (state == "MAIN" || state == "SWITCHING_TO_MAIN") {
+			if feeConn != nil && (state == "MAIN" || state == "SWITCHING_TO_MAIN") {
+				if isEth {
+					keepAliveMsg := `{"id":99999,"method":"eth_submitHashrate","params":["0x0","0x0"]}` + "\n"
+					safeWrite(feeConn, []byte(keepAliveMsg), 5*time.Second)
+				} else {
+					keepAliveMsg := `{"id":99999,"method":"mining.suggest_difficulty","params":[1]}` + "\n"
+					safeWrite(feeConn, []byte(keepAliveMsg), 5*time.Second)
+				}
+			}
+			if mainConn != nil && (state == "FEE" || state == "SWITCHING_TO_FEE") {
 				if isEth {
 					keepAliveMsg := `{"id":99999,"method":"eth_submitHashrate","params":["0x0","0x0"]}` + "\n"
 					safeWrite(mainConn, []byte(keepAliveMsg), 5*time.Second)
