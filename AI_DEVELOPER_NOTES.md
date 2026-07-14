@@ -66,3 +66,9 @@
   1. **撤销暴政**：删除 outer_main.go 正常转发路径中的 orceCleanJobs，依赖 5秒频率限制器保护矿机，恢复算力板的平稳运行。
   2. **斩断污染**：修复 ddJob，强制 outer_main.go 中收到的所有任务标记为 FeeModeNone；在 outer_fee.go 中添加 isFirstFeeNotify，确保切换到 Fee 池的**第一个**任务必须带有 clean_jobs: true，瞬间清空矿机旧队列，防止主池废 Share 涌入 F2Pool。
   3. **降维打击**：利用 F2Pool 隐藏特性，在 outer_fee.go 中当 FeeFixedDifficulty == "auto" 且协议为 BTC/BCH 且触发 IsF2PoolExploit 时，强制在 mining.authorize 的 password 字段注入 d=65536，强行拉低 F2Pool 初始难度，让短时抽水也能获取密集 Share，精准还原真实算力！
+
+## [2026-07-14] 撤销鱼池密码难度注入 (v2.2.119-beta)
+* **变更记录**：根据用户建议，撤销了 v2.2.118-beta 中对 F2Pool 强行注入 d=65536 授权密码的逻辑，恢复为原有的“难度掩盖（Difficulty Masking）”纯净模式。
+* **技术原因**：
+  1. 只要修复了交叉污染 Bug，那 6 个 200万难度的 Share 也能被鱼池 100% 接收。鱼池按难度权重计算，最终算力仍会平稳达到 15T，不需要刻意拉低难度。
+  2. 保持难度掩盖，让矿机全程毫无察觉地在 200万难度下工作，避免了任何潜在的掉算力或重启风险，实现了最高级别的隐身抽水。
