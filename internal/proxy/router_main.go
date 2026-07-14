@@ -327,6 +327,7 @@ reconnectLoop:
 						if suppress {
 							s.SuppressNextNotify = false
 						}
+						s.mu.Unlock()
 
 						// Rate limiter for clean_jobs: false
 						isCleanJobs := false
@@ -357,8 +358,6 @@ reconnectLoop:
 						// isCleanJobs extraction removed as we use Zero-Latency Forged Jobs
 
 						// Removed PendingDiff flush logic as we now use Zero-Latency forged clean jobs
-
-						s.mu.Unlock()
 						s.mu.Lock()
 						cMode := s.CurrentFeeMode
 						s.mu.Unlock()
