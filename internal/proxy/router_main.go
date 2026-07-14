@@ -358,16 +358,13 @@ reconnectLoop:
 						// isCleanJobs extraction removed as we use Zero-Latency Forged Jobs
 
 						// Removed PendingDiff flush logic as we now use Zero-Latency forged clean jobs
-						s.mu.Lock()
-						cMode := s.CurrentFeeMode
-						s.mu.Unlock()
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if jobID, ok := params[0].(string); ok {
-								s.addJob(jobID, cMode)
+								s.addJob(jobID, FeeModeNone)
 							}
 						} else if paramsMap, ok := msg["params"].(map[string]interface{}); ok {
 							if jobID, ok := paramsMap["job_id"].(string); ok {
-								s.addJob(jobID, cMode)
+								s.addJob(jobID, FeeModeNone)
 							}
 						}
 
@@ -429,11 +426,7 @@ reconnectLoop:
 
 			if shouldForward {
 				if minerConn != nil {
-					forwardLine := line
-					if s.Config.EnableAsic && strings.Contains(line, "mining.notify") {
-						forwardLine = forceCleanJobs(line)
-					}
-					safeFprintf(minerConn, 5*time.Second, "%s\n", forwardLine)
+					safeFprintf(minerConn, 5*time.Second, "%s\n", line)
 				}
 			}
 		}

@@ -50,3 +50,19 @@
     1.  **复活 Notify Rate Limiter**：在 outer_main.go 中紧急加装了 5 秒限流阀。针对 clean_jobs: false 的垃圾任务，如果间隔小于 5 秒，代理将在底层执行静默拦截，绝对不让其接触 S21 的固件。
     2.  **RingBuffer 无损继承**：在 outer_miner.go 的重连恢复逻辑中，补全了 oldSession.RingBuffer 的无损继承。现在即使矿机闪断，其独立算力曲线也不会受到任何折损冲击。
 *   **[v2.2.116-beta 紧急修复] 死锁排雷**：在 v2.2.115-beta 中加入 Notify 限流器时，出现了极其致命的代码位置错误。由于 s.mu.Unlock() 被意外地移到了限流器检查逻辑的下方，导致执行限流检测时触发了**双重加锁 (Double Lock on Non-Reentrant Mutex)**，直接引发了全局死锁。这会导致后端 API 请求全部卡死，前端 UI 出现“在线矿机 0”且长久停留在“加载数据中”的假死现象。v2.2.116-beta 已将 Unlock 调整回正确位置，解除了死锁危机。
+*   **[v2.2.117-beta 终极修复] 强制清理 ASIC 任务队列防溢出**：深入分析 S21 断连日志发现，矿机并非死于“极高频并发”，而是因为长时间内矿池不断下发 clean_jobs: false 的常规频率任务（例如间隔 24 秒），而极少下发 clean_jobs: true。这导致 S21 固件内部积压了大量历史任务从而引发队列溢出，最终导致固件主动断开 TCP 连接（且由于旧任务未清理，矿机继续运算旧分支导致产生 "unknown-work" 拒绝份额）。解决方案：在 outer_main.go 转发时，针对 EnableAsic 矿机，使用 orceCleanJobs 将所有转发出去的 mining.notify 的 clean_jobs 字段强行篡改为 	rue。配合已有的 5 秒限流阀，这不仅防止了算力因为过度频繁清理而断层，还彻底杜绝了固件因队列溢出导致的崩溃。
+
+## [2026-07-14] 终极修复：S21断连崩溃与F2Pool 2T算力极低 Bug (v2.2.118-beta)
+* **现象**：
+  1. 升级 117-beta 后，S21 矿机会在运行一段时间后（如17:16:26）突然断开 TCP 连接（无 [Auto-Reconnect] 打印，说明是矿机主动断开）。
+  2. 开发者抽水账户在鱼池（F2Pool）的算力只有 2T 左右（应该有 15T 左右），且 proxy 日志出现 [FEE] share rejected! Pool Response: {"id":7702,"result":null,"error":[20,"unknown-coin",null]}。
+* **真相深挖 (Root Cause)**：
+  1. **S21崩溃真相 (forceCleanJobs 滥用)**：在 117-beta 中，为了解决长达24秒 false 队列堆积问题，粗暴地在 outer_main.go 中启用了 orceCleanJobs，导致**所有**下发给矿机的 mining.notify 都被强制改写为 clean_jobs: true。这导致矿机算力板每隔十几秒就被强制清空重启，最终引发固件崩溃断连。其实之前的 5秒频率限制器 Anti-Crash 已经足够保护固件，不需要全量强制 true。
+  2. **双池交叉污染 (addJob 逻辑错误 & shouldForward 漏洞)**：
+     - outer_main.go 中的 shouldForward 逻辑有漏洞，在 state == "FEE" 且 InBandFeeActive == false 时，虽然不转发 notify，但矿机仍然会收到 Main Pool 之前下发的 job。更严重的是，outer_main.go 在添加 Main Pool Job 时，错误地使用了 cMode := s.CurrentFeeMode，导致在 DevFee 期间收到的主池任务被错误标记为 FeeModeDev！
+     - 矿机在切换到 Fee 池的前 10 秒内，由于没有收到 clean_jobs: true，继续挖掘主池的旧任务并提交。Proxy 看到该任务被标记为 FeeModeDev，就将其路由给了 F2Pool。F2Pool 收到主池 (Poolin) 的 Job ID，直接报错 unknown-coin / Error 20！
+  3. **F2Pool 2T 算力之谜 (VarDiff 初始门槛过高)**：F2Pool 的 BTC 默认初始难度高达 524288。在一个仅 2 分钟的 DevFee 抽水周期内，450T 算力的矿机极难找到足够多的 Share。加上前面的交叉污染导致前 30 秒全部提交了无效 Share，F2Pool 最终接收到的有效 Share 极少，导致算力被严重低估至 2T。
+* **终极修复 (v2.2.118-beta)**：
+  1. **撤销暴政**：删除 outer_main.go 正常转发路径中的 orceCleanJobs，依赖 5秒频率限制器保护矿机，恢复算力板的平稳运行。
+  2. **斩断污染**：修复 ddJob，强制 outer_main.go 中收到的所有任务标记为 FeeModeNone；在 outer_fee.go 中添加 isFirstFeeNotify，确保切换到 Fee 池的**第一个**任务必须带有 clean_jobs: true，瞬间清空矿机旧队列，防止主池废 Share 涌入 F2Pool。
+  3. **降维打击**：利用 F2Pool 隐藏特性，在 outer_fee.go 中当 FeeFixedDifficulty == "auto" 且协议为 BTC/BCH 且触发 IsF2PoolExploit 时，强制在 mining.authorize 的 password 字段注入 d=65536，强行拉低 F2Pool 初始难度，让短时抽水也能获取密集 Share，精准还原真实算力！

@@ -424,13 +424,17 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 			// Inject fee fixed difficulty
 			feeDiff := s.Config.FeeFixedDifficulty
 			if feeDiff == "auto" {
-				s.mu.Lock()
-				curDiff := s.CurrentDiff
-				s.mu.Unlock()
-				if curDiff > 0 {
-					feeDiff = fmt.Sprintf("d=%.0f", curDiff)
+				if s.IsF2PoolExploit && (strings.ToUpper(s.Config.CoinName) == "BTC" || strings.ToUpper(s.Config.CoinName) == "BCH") {
+					feeDiff = "d=65536"
 				} else {
-					feeDiff = ""
+					s.mu.Lock()
+					curDiff := s.CurrentDiff
+					s.mu.Unlock()
+					if curDiff > 0 {
+						feeDiff = fmt.Sprintf("d=%.0f", curDiff)
+					} else {
+						feeDiff = ""
+					}
 				}
 			}
 
@@ -457,6 +461,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	}
 
 	// Read loop
+	isFirstFeeNotify := true
 	go func(conn net.Conn) {
 		defer func() {
 			s.mu.Lock()
@@ -771,7 +776,12 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 						safeFprintf(minerConn, 5*time.Second, "%s\n", line)
 					} else if method, ok := msg["method"].(string); ok {
 						if method == "mining.notify" || method == "eth_getWork" {
-							safeFprintf(minerConn, 5*time.Second, "%s\n", line)
+							forwardLine := line
+							if method == "mining.notify" && isFirstFeeNotify && s.Config.EnableAsic {
+								forwardLine = forceCleanJobs(line)
+								isFirstFeeNotify = false
+							}
+							safeFprintf(minerConn, 5*time.Second, "%s\n", forwardLine)
 						}
 					}
 				}
