@@ -424,17 +424,13 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 			// Inject fee fixed difficulty
 			feeDiff := s.Config.FeeFixedDifficulty
 			if feeDiff == "auto" {
-				if s.IsF2PoolExploit && (strings.ToUpper(s.Config.CoinName) == "BTC" || strings.ToUpper(s.Config.CoinName) == "BCH") {
-					feeDiff = "d=65536"
+				s.mu.Lock()
+				curDiff := s.CurrentDiff
+				s.mu.Unlock()
+				if curDiff > 0 {
+					feeDiff = fmt.Sprintf("d=%.0f", curDiff)
 				} else {
-					s.mu.Lock()
-					curDiff := s.CurrentDiff
-					s.mu.Unlock()
-					if curDiff > 0 {
-						feeDiff = fmt.Sprintf("d=%.0f", curDiff)
-					} else {
-						feeDiff = ""
-					}
+					feeDiff = ""
 				}
 			}
 
