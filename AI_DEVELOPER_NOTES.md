@@ -49,3 +49,4 @@
 *   **终极修复 (v2.3.2)**：
     1.  **复活 Notify Rate Limiter**：在 outer_main.go 中紧急加装了 5 秒限流阀。针对 clean_jobs: false 的垃圾任务，如果间隔小于 5 秒，代理将在底层执行静默拦截，绝对不让其接触 S21 的固件。
     2.  **RingBuffer 无损继承**：在 outer_miner.go 的重连恢复逻辑中，补全了 oldSession.RingBuffer 的无损继承。现在即使矿机闪断，其独立算力曲线也不会受到任何折损冲击。
+*   **[v2.2.116-beta 紧急修复] 死锁排雷**：在 v2.2.115-beta 中加入 Notify 限流器时，出现了极其致命的代码位置错误。由于 s.mu.Unlock() 被意外地移到了限流器检查逻辑的下方，导致执行限流检测时触发了**双重加锁 (Double Lock on Non-Reentrant Mutex)**，直接引发了全局死锁。这会导致后端 API 请求全部卡死，前端 UI 出现“在线矿机 0”且长久停留在“加载数据中”的假死现象。v2.2.116-beta 已将 Unlock 调整回正确位置，解除了死锁危机。

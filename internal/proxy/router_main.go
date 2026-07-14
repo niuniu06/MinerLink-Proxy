@@ -429,7 +429,11 @@ reconnectLoop:
 
 			if shouldForward {
 				if minerConn != nil {
-					safeFprintf(minerConn, 5*time.Second, "%s\n", line)
+					forwardLine := line
+					if s.Config.EnableAsic && strings.Contains(line, "mining.notify") {
+						forwardLine = forceCleanJobs(line)
+					}
+					safeFprintf(minerConn, 5*time.Second, "%s\n", forwardLine)
 				}
 			}
 		}
