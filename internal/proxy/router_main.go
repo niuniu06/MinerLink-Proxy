@@ -378,15 +378,10 @@ reconnectLoop:
 			s.mu.Lock()
 			state := s.State
 			minerConn := s.MinerConn
-			inBandFeeActive := s.InBandFeeActive
 			s.mu.Unlock()
 
 			shouldForward := (state == "MAIN" || state == "SWITCHING_TO_MAIN")
-			if state == "FEE" || state == "SWITCHING_TO_FEE" {
-				if inBandFeeActive {
-					shouldForward = true
-				}
-			}
+			
 
 			// [Bugfix] Intercept and drop duplicate login responses during auto-reconnect
 			if shouldForward && msg != nil {
@@ -471,3 +466,4 @@ reconnectLoop:
 		}
 	}
 }
+
