@@ -328,6 +328,12 @@ reconnectLoop:
 						}
 						s.mu.Unlock()
 
+						// [CRITICAL] Do NOT add any "Anti-Crash" rate limiting here!
+						// F2Pool will occasionally send two valid `mining.notify` packets within 30ms 
+						// (usually a bad packet followed by an immediate correction). 
+						// If we drop the second packet, the S21 firmware will panic and drop the connection via TCP RST.
+						// We MUST forward ALL mining.notify packets natively.
+
 						// isCleanJobs extraction removed as we use Zero-Latency Forged Jobs
 
 						// Removed PendingDiff flush logic as we now use Zero-Latency forged clean jobs
