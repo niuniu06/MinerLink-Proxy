@@ -117,7 +117,6 @@ type Session struct {
 	// Zero-Latency Switching
 	LatestMainJob      string
 	LatestFeeJob       string
-	LastNotifyTime     time.Time
 	IsPreWarmed        bool
 	LastMainSwitchTime time.Time
 
