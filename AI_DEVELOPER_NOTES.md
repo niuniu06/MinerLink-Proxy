@@ -1,96 +1,82 @@
-﻿# 鏍稿績闃插憜鎸囧崡涓庨伩鍧戣褰?(AI Developer Notes)
+# 核心防呆指南与避坑?(AI Developer Notes)
+
+> 朖档用于录在 MinerLink-Proxy 项目丸过的深坑。每次重构修复或新功能前，必须静默查阅此文档，**绝禁**俔或破坏以下确立的红线规则?
+## 1. 0延迟轈捸 RST 斺防范 (Zero-Latency Fee Switching Exploit)
+**【红线则绝对歽?TCP RST 踸线物理矿机！**
+- **历史惨痛教**：曾提使?`SetLinger(0)` 生成 RST 包强制重罟机状态，但这导致特定老矿机（?jjz390i）机长?10 分钟?- **当前标准 (v2.2.112-beta?**?  - 抽水结束 (EndFee) 时，必须使用 `GlobalDispatcher` 强向矿机注入伪造任务，进 **0 延迟无感轈?*?  - 遁矿池踢线触发 Auto-Reconnect 期间?*绝禁**立刻下发新的高难?`mining.notify` 给矿机必须进行拦戼`SuppressNextNotify=true`），否则会触发矿机进度清零，陷入无法?25s 内解?Share 的无限断线徎?  - 代理内部必须挂载?15 秒一次的 `KeepAliveLoop`，防止静默期间矿池踸线?
+## 2. 前拦截份防溢出与并发状锁?(v2.2.113-beta)
+**【红线则独立协程绝不允许回源查询全状！**
+- **双叠加与虚假份漏洞**：早期在 `readFeeLoop` 处理抽水返回时，错读取了可能已超时的全状?`pending.FeeMode` / `s.CurrentFeeMode`，将迟到的作者抽?(DevFee) 错计入运营?`FeeShares++`，甚至由于冗余代码块导致算力曲线翻?- **当前标准**?  - 狫 `FeeConn` 生命周期内，必须直接使用创建时捕获的 **`isDevMode` 静布尔?*?  -  `isDevMode` ?`true`，无论返回迟，必须在底层隐躼绝叒 `ValidShares++`?*绝不允递 `FeeShares++`**?
+## 3. 固件防御与协變?(矿机保护?
+**【红线则必须保护物理矿机脆弱的固件进程?*
+- **S21 防炸机拦战 (Notify Rate Limiter)**：部分新型矿机果在矗间内（小?5 秒）连续收到多个 `clean_jobs: false` 的知任务，固件的任务队列会溢出并直接切断 TCP 导致重启?7秒真空期）下?Notify 前必须静默丢弃过于繁的旧高度任务?- **1秒断线徎 (Extranonce 拦截)**：绝不在运且转?`mining.set_extranonce` 给矿机！旦下发，大部?ASIC 矿机会强制重吮力板，?1 分钟算力扑空。只在代理内部缓存，**绝隔**?- **ETC 协假防范 (ID 999999 Bug)**：在 ETH_PROXY 协丼为了实现无缝重定向，代理下发?`id: 999999` ?`eth_getWork` 传求当矿池返回 `{"id": 999999, "result": [...]}` 时，如果朽拦截，会原样轏给未发 ID 的物理矿机，直接导致连接崩溃。必须静默拦特定 ID?
+## 4. 排班器与调度器灾难防?(Scheduler Survival Guide)
+**【红线则任何状态列表的操作必须具绝确性！**
+- **级联跳过 Bug (Cascading Shift)**：早期由于矿机重连会导致 Session ID 变化，在 `scheduler.go` 的全数组排序强罺。这引发了数组向左的级联位移，致时间轴完美“跳过?50% 的矿机?*解决标准**：彻底废?Session ID 排序，强制改为基?`GetMinerIdentifier()` (钱包.矿机) ?*绝确性哈希排?*，彻底根治大规模漏抽水?- **幽灵僵尸会话 (IsOffline Array Bloat)**：真实断的矿机会?`IsOffline` 设为 `true` 等待 10 分钟。果在调度器遍历时不主动剔除或过滤这些会话，它仼强占排班队列的坑位，导致计算出的 spacing 袗限拉宽，真实矿机永远等不到抽水周期?*解决标准**：遍历排序时必须立刻过滤判定 `IsOffline`?
+## 5. 协并发与锁安全隔
+**【红线则严禁同步阻?I/O 及携锁进行网络信?*
+- **Zero-Copy Defense**：单机承载上万并发矿机，`readMinerLoop` 等核心协程中，严禁在每心跳通信?`json.Unmarshal` 组巨大?Map。优先使用极 Struct 或纯正则替换以压?GC?- **Deadlock Immunity**：写入本地状态必须先 `s.mu.Lock()`，但在向网络（Miner/Main/Fee Conn）发送数捉，必?**先释放锁 `s.mu.Unlock()`**。携锁进行网络信极易引发数千不程堵死?
+## 架构解与工程化重?(v2.2.113-beta 阶二和?
+- **核心状隔?*: ?SessionStats ?PendingTracker 等极容易引发全量锁争抢的庞大状机彻底解为 StatsTracker ?ShareTracker，保证了核心业务协程在高频心跳下不受大锁阻塞干扰?- **跔拆分**: 将包吕千代码?session.go 根据职责拆分?outer_miner.go?outer_main.go?outer_fee.go ?io_utils.go，极大强了核心类的纇性?- **零延迟漏洞红线守?*: 拆分过程丼原有?ExtranonceData 结构?sendExtranonce 袮整转移并?outer_fee.go 等文件中安全继承，确保不对下游辑（ F2Pool）产生任何重吊或算力断崖?- **死锁免疫机制增强**: 经过对锁边界和道异操作的确认，有原朏能致写协程锁的高并?I/O 依然受到 safeWrite / safeFprintf 的超时保护?- **隔验证**: 完成了所有包间引用的，确认所有分离后的模块都能成功编译，且不破坏现的闭源打包和暗抽剥机制?
+
+## [2026-07-13] S21سˮ2T170Чܾ֮ռ (The Missing AsicBoost Bug)
+*   ****S21 ڽ F2Pool () ˮʱUI Чܾ170˻ (linkpro168) ʵʽյֻм͵ 2TӦΪ 15T ңͬʱ proxy ûм¼ [FEE] share rejected ־⵼ 99% ĳˮݶ
+*   ****һε AsicBoost Э© outer_miner.go ̳л (CleanOfflineWorker) Уɴִ s.loginPackets = make([]map[string]interface{}, 0)ڿʱ͵ mining.configure  mining.subscribe  mining.authorize ֮ǰմ뵼± loginPackets ȫĨ
+ F2Pool ˮʱط loginPacketsʧ mining.configureؽΪ**֧ AsicBoost**ӣ mining.submit ֻ 5  S21 Я ersion_bits  6  Shareغ˵6ʹĬ Version ͷȥ֤ϣ·ǽ Version Rolling  Share ϣȫ󲢱ܾJob not found / invalid block header΢ 2T Ϊպ 1/8192 ļʣ version_bits ǡ 0ĬֵȫǺϣӶɱؽա
+⣬֮ǰ־ϵͳ s.Config.EnableDetailedLog أصľܾϢûд־޴Ų顣
+*   **ռ޸ (v2.3.1)**
+    1.  **޸ KeepAliveLoop ת Bug** outer_fee.go еתڣ״̬Ϊ MAIN ʱֻĬ eeConn棩״̬Ϊ FEE ʱֻĬȫ mainConn ׶žȫٹıӡǿƹµ 15 Զ
+    2.  **޸ AsicBoost ״̬ʧ**ɾ outer_miner.go ָʱɾ loginPackets ȷ mining.configure ԭⲻطأض˵ AsicBoost ֧֡
+    3.  **ǿƼ¼ܾ־**ȥ isReject ֧µ EnableDetailedLog أFEE ˵ľܾǿƱ¶־ٱĬɡ
+
+
+
+17. [2026-07-13] ʾըˮЧƵߵۺ Bug ޸
+
+1. S21 87ĪTCPӶϿ
+2. ǰ˽ʾ̨ S21 ߴ 1.39 PH/s  3.80 PH/s (10)
+3. ˮ˺(linkpro168)2%ˮʵֻ2Tҿ־δ¼κξܾ
+
+޸
+1. **ָ Notify ** router_main.go лָ˶ clean_jobs: false  5 ơǰ AI ɾ˴˻ƣ±ӡص Notify ը S21 ɿԶж TCP
+2. **޸ʾը** Session ʱ ShareHistory ̳˶ǰ15 Share ¼ uptimeSecs Ϊ 0ڼ㴰 window ʱֱʹ uptimeSecs15ӵ Share Լ̵ʱ䣨3ӣʮͣ޸Ϊ actualHashingTimeǿƴڸ̳е Share 䡣
+3. ** BTC  F2Pool ©ˮ**BTC Эϸ Extranonce1 У飬޷ ETH һֱ F2Poolǿ DevFee  OpFee  F2Pool ©·ߣύ Share  Extranonce ƥ䱻 100% ܾ Fake Accept ЩܾʹÿˮЧ޸Ϊ BTC/BCH/LTC/KAS DevFee ǿհ OpFeeǿƲ InBandFeeActive = true (ͬسˮ) ԣʵӳ޾ܾˮ
+## [2026-07-14] S21 Ƶ뱾ض˿֮ռɱ (The Missing RingBuffer & RateLimiter)
+*   **1**˲һСʱS21-04 ַ˶Session Close called -> Miner connection dropped
+*   **1**ͨ׷ľ־ڷߵһ˲䣬ӡڶ̶ **4 ** · mining.notify (clean_jobs: false)ʱ 23:51:31  23:51:35ǰڽСZero-Latency Forged Jobs޸α񣩴뾫عʱ**ɾ˼ؼ Notify Rate Limiter·** ⵼˸ƵĿ˲ S21 Ĺ̼ TCP ջߡ
+*   **2ʾ**ϵͳʾ 30.75 PH/s¶ÿ˿ڵıȴ 1.39 PH/s  2.87 PH/s ֵֻ 8.05 PH/s
+*   **2**һ̳лƵش©Ϊȱʧʱײ CleanOfflineWorker ᴥ߻ָơ߼Уָ Stats, ShareHistoryȴ**Ψ©Ҫ RingBuffer (10)**»ỰһȫյĻȥ1ӵƬ10ֵ̱ϡ͵ԭʮ֮һϵͳȺڶȡǲӰ Server.RingBufferȻʾ
+*   **ռ޸ (v2.3.2)**
+    1.  ** Notify Rate Limiter** outer_main.go нװ 5  clean_jobs: false С 5 룬ڵײִоĬأԲӴ S21 Ĺ̼
+    2.  **RingBuffer ̳** outer_miner.go ָ߼Уȫ oldSession.RingBuffer ̳СڼʹϣҲܵκ
+*   **[v2.2.116-beta ޸] ** v2.2.115-beta м Notify ʱ˼Ĵλô s.mu.Unlock() Ƶ߼·ִʱ**˫ؼ (Double Lock on Non-Reentrant Mutex)**ֱȫᵼº API ȫǰ UI ֡߿ 0ҳͣڡСļv2.2.116-beta ѽ Unlock ȷλãΣ
+*   **[v2.2.117-beta ռ޸] ǿ ASIC з** S21 ־֣ڡƵΪʱڿز· clean_jobs: false ĳƵ 24 룩· clean_jobs: true⵼ S21 ̼ڲѹ˴ʷӶյ¹̼Ͽ TCP ӣھδɷ֧² "unknown-work" ܾݶ outer_main.go תʱ EnableAsic ʹ orceCleanJobs תȥ mining.notify  clean_jobs ֶǿд۸Ϊ 	rueе 5 ⲻֹΪƵϲ㣬׶ž˹̼µı
+
+## [2026-07-14] ռ޸S21F2Pool 2T Bug (v2.2.118-beta)
+* ****
+  1.  117-beta S21 һʱ17:16:26ͻȻϿ TCP ӣ [Auto-Reconnect] ӡ˵ǿϿ
+  2. ߳ˮ˻أF2Poolֻ 2T ңӦ 15T ң proxy ־ [FEE] share rejected! Pool Response: {"id":7702,"result":null,"error":[20,"unknown-coin",null]}
+* ** (Root Cause)**
+  1. **S21 (forceCleanJobs )** 117-beta УΪ˽24 false жѻ⣬ֱ outer_main.go  orceCleanJobs****· mining.notify ǿƸдΪ clean_jobs: true⵼¿ÿʮͱǿ̼ʵ֮ǰ 5Ƶ Anti-Crash Ѿ㹻̼Ҫȫǿ true
+  2. **˫ؽȾ (addJob ߼ & shouldForward ©)**
+     - outer_main.go е shouldForward ߼© state == "FEE"  InBandFeeActive == false ʱȻת notifyȻյ Main Pool ֮ǰ· jobصǣouter_main.go  Main Pool Job ʱʹ cMode := s.CurrentFeeMode DevFee ڼյ񱻴Ϊ FeeModeDev
+     - л Fee صǰ 10 ڣûյ clean_jobs: trueھصľύProxy 񱻱Ϊ FeeModeDevͽ·ɸ F2PoolF2Pool յ (Poolin)  Job IDֱӱ unknown-coin / Error 20
+  3. **F2Pool 2T ֮ (VarDiff ʼż)**F2Pool  BTC ĬϳʼѶȸߴ 524288һ 2 ӵ DevFee ˮڣ450T Ŀҵ㹻 ShareǰĽȾǰ 30 ȫύЧ ShareF2Pool սյЧ Share ٣ص͹ 2T
+* **ռ޸ (v2.2.118-beta)**
+  1. ****ɾ outer_main.go ת·е orceCleanJobs 5ƵָƽС
+  2. **նȾ**޸ ddJobǿ outer_main.go յΪ FeeModeNone outer_fee.go  isFirstFeeNotifyȷл Fee ص**һ** clean_jobs: true˲տɶУֹط Share ӿ F2Pool
+  3. **ά** F2Pool ԣ outer_fee.go е FeeFixedDifficulty == "auto" ЭΪ BTC/BCH Ҵ IsF2PoolExploit ʱǿ mining.authorize  password ֶע d=65536ǿ F2Pool ʼѶȣöʱˮҲܻȡܼ Share׼ԭʵ
+
+## [2026-07-14] Ѷע (v2.2.119-beta)
+* **¼**û飬 v2.2.118-beta ж F2Pool ǿע d=65536 Ȩ߼ָΪԭеġѶڸǣDifficulty Maskingģʽ
+* **ԭ**
+  1. ֻҪ޸˽Ⱦ Bug 6  200Ѷȵ Share Ҳܱ 100% աذѶȨؼ㣬Իƽȴﵽ 15TҪѶȡ
+  2. Ѷڸǣÿȫ̺޲ 200Ѷ¹κǱڵĵգʵ߼ˮ
+
+### v2.2.120-beta (2026-07-15) - ޸ F2Pool ˮЧϷ
+1. **F2Pool ˮЧ޸**: ޸˴ڳˮģʽ (InBandFeeActive) ڽ FEE ״̬ʱ͸ (shouldForward = true)  Bug⵼¿ڳˮڼյ (Poolin) ĸƵ񲢽м㣬ȻЩ F2Pool ƥķݶύ F2PoolӶ F2Pool ʾ 2T  100% ܾƳжϺ󣬳ˮڼȷأרִ F2Pool 
+2. ****: ֤˿ʱ 3 ̨ S21 ͬһ뼯 (  1:39:16) յ mining.notify ̵ߵԭΪӪ/GFW  DPI (Ȱ)  Stratum £עα TCP RST ѽûܻײܽ⡣
 
-> 鏈枃妗ｇ敤浜庤褰曞湪 MinerLink-Proxy 椤圭洰涓俯杩囩殑娣卞潙銆傛瘡娆￠噸鏋勩€佷慨澶嶆垨鏂板鍔熻兘鍓嶏紝蹇呴』闈欓粯鏌ラ槄姝ゆ枃妗ｏ紝**缁濆绂佹**淇敼鎴栫牬鍧忎互涓嬬‘绔嬬殑绾㈢嚎瑙勫垯銆?
-## 1. 0寤惰繜杞垏鎹笌 RST 鏂嚎闃茶寖 (Zero-Latency Fee Switching Exploit)
-**銆愮孩绾胯鍒欍€戠粷瀵圭姝娇鐢?TCP RST 韪笅绾跨墿鐞嗙熆鏈猴紒**
-- **鍘嗗彶鎯ㄧ棝鏁欒**锛氭浘鎻愬€′娇鐢?`SetLinger(0)` 鐢熸垚 RST 鍖呭己鍒堕噸缃熆鏈虹姸鎬侊紝浣嗚繖瀵艰嚧鐗瑰畾鑰佺熆鏈猴紙濡?jjz390i锛夋鏈洪暱杈?10 鍒嗛挓銆?- **褰撳墠鏍囧噯 (v2.2.112-beta璧?**锛?  - 鎶芥按缁撴潫 (EndFee) 鏃讹紝蹇呴』浣跨敤 `GlobalDispatcher` 寮鸿鍚戠熆鏈烘敞鍏ヤ吉閫犱换鍔★紝杩涜 **0 寤惰繜鏃犳劅杞垏鎹?*銆?  - 閬亣鐭挎睜韪㈢嚎瑙﹀彂 Auto-Reconnect 鏈熼棿锛?*缁濆绂佹**绔嬪埢涓嬪彂鏂扮殑楂橀毦搴?`mining.notify` 缁欑熆鏈恒€傚繀椤昏繘琛屾嫤鎴紙`SuppressNextNotify=true`锛夛紝鍚﹀垯浼氳Е鍙戠熆鏈鸿繘搴︽竻闆讹紝闄峰叆鏃犳硶鍦?25s 鍐呰В鍑?Share 鐨勬棤闄愭柇绾挎寰幆锛?  - 浠ｇ悊鍐呴儴蹇呴』鎸傝浇姣?15 绉掍竴娆＄殑 `KeepAliveLoop`锛岄槻姝㈤潤榛樻湡闂磋鐭挎睜韪笅绾裤€?
-## 2. 鍓嶇鎷︽埅浠介闃叉孩鍑轰笌骞跺彂鐘舵€侀攣瀹?(v2.2.113-beta)
-**銆愮孩绾胯鍒欍€戠嫭绔嬪崗绋嬬粷涓嶅厑璁稿洖婧愭煡璇㈠叏灞€鐘舵€侊紒**
-- **鍙屽€嶅彔鍔犱笌铏氬亣浠介婕忔礊**锛氭棭鏈熷湪 `readFeeLoop` 澶勭悊鎶芥按杩斿洖鏃讹紝閿欒璇诲彇浜嗗彲鑳藉凡瓒呮椂鐨勫叏灞€鐘舵€?`pending.FeeMode` / `s.CurrentFeeMode`锛屽皢杩熷埌鐨勪綔鑰呮娊姘?(DevFee) 閿欒璁″叆杩愯惀鑰?`FeeShares++`锛岀敋鑷崇敱浜庡啑浣欎唬鐮佸潡瀵艰嚧绠楀姏鏇茬嚎缈诲€嶃€?- **褰撳墠鏍囧噯**锛?  - 鐙珛 `FeeConn` 鐢熷懡鍛ㄦ湡鍐咃紝蹇呴』鐩存帴浣跨敤鍒涘缓鏃舵崟鑾风殑 **`isDevMode` 闈欐€佸竷灏斿€?*锛?  - 鍙 `isDevMode` 涓?`true`锛屾棤璁鸿繑鍥炲杩燂紝蹇呴』鍦ㄥ簳灞傞殣韬細缁濆鍙€掑 `ValidShares++`锛?*缁濅笉鍏佽閫掑 `FeeShares++`**銆?
-## 3. 鍥轰欢闃插尽涓庡崗璁姢鑸?(鐭挎満淇濇姢鐩?
-**銆愮孩绾胯鍒欍€戝繀椤讳繚鎶ょ墿鐞嗙熆鏈鸿剢寮辩殑鍥轰欢杩涚▼锛?*
-- **S21 闃茬偢鏈烘嫤鎴榾 (Notify Rate Limiter)**锛氶儴鍒嗘柊鍨嬬熆鏈哄鏋滃湪鐭椂闂村唴锛堝皬浜?5 绉掞級杩炵画鏀跺埌澶氫釜 `clean_jobs: false` 鐨勯€氱煡浠诲姟锛屽浐浠剁殑浠诲姟闃熷垪浼氭孩鍑哄苟鐩存帴鍒囨柇 TCP 瀵艰嚧閲嶅惎锛?7绉掔湡绌烘湡锛夈€備笅鍙?Notify 鍓嶅繀椤婚潤榛樹涪寮冭繃浜庨绻佺殑鏃ч珮搴︿换鍔°€?- **1绉掓柇绾挎寰幆 (Extranonce 鎷︽埅)**锛氱粷涓嶅湪杩愯涓€旇浆鍙?`mining.set_extranonce` 缁欑熆鏈猴紒涓€鏃︿笅鍙戯紝澶ч儴鍒?ASIC 鐭挎満浼氬己鍒堕噸鍚畻鍔涙澘锛屽鑷?1 鍒嗛挓绠楀姏鎵戠┖銆傚彧鍦ㄤ唬鐞嗗唴閮ㄧ紦瀛橈紝**缁濆闅旂**銆?- **ETC 鍗忚鍋囨闃茶寖 (ID 999999 Bug)**锛氬湪 ETH_PROXY 鍗忚涓紝涓轰簡瀹炵幇鏃犵紳閲嶅畾鍚戯紝浠ｇ悊涓嬪彂浜?`id: 999999` 鐨?`eth_getWork` 浼€犺姹傘€傚綋鐭挎睜杩斿洖 `{"id": 999999, "result": [...]}` 鏃讹紝濡傛灉鏈綔鎷︽埅锛屼細鍘熸牱杞彂缁欐湭鍙戦€佽 ID 鐨勭墿鐞嗙熆鏈猴紝鐩存帴瀵艰嚧杩炴帴宕╂簝銆傚繀椤婚潤榛樻嫤鎴鐗瑰畾 ID銆?
-## 4. 鎺掔彮鍣ㄤ笌璋冨害鍣ㄧ伨闅鹃槻鑼?(Scheduler Survival Guide)
-**銆愮孩绾胯鍒欍€戜换浣曠姸鎬佸垪琛ㄧ殑鎿嶄綔蹇呴』鍏峰缁濆纭畾鎬э紒**
-- **绾ц仈璺宠繃 Bug (Cascading Shift)**锛氭棭鏈熺敱浜庣熆鏈洪噸杩炰細瀵艰嚧 Session ID 鍙樺寲锛屽湪 `scheduler.go` 鐨勫叏灞€鏁扮粍鎺掑簭涓寮鸿缃簳銆傝繖寮曞彂浜嗘暟缁勫悜宸︾殑绾ц仈浣嶇Щ锛屽鑷存椂闂磋酱瀹岀編鈥滆烦杩団€?50% 鐨勭熆鏈恒€?*瑙ｅ喅鏍囧噯**锛氬交搴曞簾寮?Session ID 鎺掑簭锛屽己鍒舵敼涓哄熀浜?`GetMinerIdentifier()` (閽卞寘.鐭挎満) 鐨?*缁濆纭畾鎬у搱甯屾帓搴?*锛屽交搴曟牴娌诲ぇ瑙勬ā婕忔娊姘淬€?- **骞界伒鍍靛案浼氳瘽 (IsOffline Array Bloat)**锛氱湡瀹炴柇寮€鐨勭熆鏈轰細灏?`IsOffline` 璁句负 `true` 绛夊緟 10 鍒嗛挓銆傚鏋滃湪璋冨害鍣ㄩ亶鍘嗘椂涓嶄富鍔ㄥ墧闄ゆ垨杩囨护杩欎簺浼氳瘽锛屽畠浠細寮哄崰鎺掔彮闃熷垪鐨勫潙浣嶏紝瀵艰嚧璁＄畻鍑虹殑 spacing 琚棤闄愭媺瀹斤紝鐪熷疄鐭挎満姘歌繙绛変笉鍒版娊姘村懆鏈熴€?*瑙ｅ喅鏍囧噯**锛氶亶鍘嗘帓搴忔椂蹇呴』绔嬪埢杩囨护鍒ゅ畾 `IsOffline`銆?
-## 5. 鍗忚骞跺彂涓庨攣瀹夊叏闅旂
-**銆愮孩绾胯鍒欍€戜弗绂佸悓姝ラ樆濉?I/O 鍙婃惡閿佽繘琛岀綉缁滈€氫俊锛?*
-- **Zero-Copy Defense**锛氬崟鏈烘壙杞戒笂涓囧苟鍙戠熆鏈猴紝`readMinerLoop` 绛夋牳蹇冨崗绋嬩腑锛屼弗绂佸湪姣忔蹇冭烦閫氫俊鏃?`json.Unmarshal` 缁勮宸ㄥぇ鐨?Map銆備紭鍏堜娇鐢ㄦ瀬绠€ Struct 鎴栫函姝ｅ垯鏇挎崲浠ュ帇骞?GC銆?- **Deadlock Immunity**锛氬啓鍏ユ湰鍦扮姸鎬佸繀椤诲厛 `s.mu.Lock()`锛屼絾鍦ㄥ悜缃戠粶锛圡iner/Main/Fee Conn锛夊彂閫佹暟鎹墠锛屽繀椤?**鍏堥噴鏀鹃攣 `s.mu.Unlock()`**銆傛惡閿佽繘琛岀綉缁滈€氫俊鏋佹槗寮曞彂鏁板崈涓崗绋嬪牭姝汇€?
-## 鏋舵瀯瑙ｈ€︿笌宸ョ▼鍖栭噸鏋?(v2.2.113-beta 闃舵浜屽拰涓?
-- **鏍稿績鐘舵€侀殧绂?*: 灏?SessionStats 鍜?PendingTracker 绛夋瀬瀹规槗寮曞彂鍏ㄩ噺閿佷簤鎶㈢殑搴炲ぇ鐘舵€佹満褰诲簳瑙ｈ€︿负 StatsTracker 鍜?ShareTracker锛屼繚璇佷簡鏍稿績涓氬姟鍗忕▼鍦ㄩ珮棰戞蹇冭烦涓嬩笉鍙楀ぇ閿侀樆濉炲共鎵般€?- **璺敱鎷嗗垎**: 灏嗗寘鍚暟鍗冭浠ｇ爜鐨?session.go 鏍规嵁鑱岃矗鎷嗗垎涓?
-outer_miner.go銆?outer_main.go銆?outer_fee.go 鍜?io_utils.go锛屾瀬澶у寮轰簡鏍稿績绫荤殑绾噣鎬с€?- **闆跺欢杩熸紡娲炵孩绾垮畧鎶?*: 鎷嗗垎杩囩▼涓紝鍘熸湁鐨?ExtranonceData 缁撴瀯鍜?sendExtranonce 琚畬鏁磋浆绉诲苟鍦?
-outer_fee.go 绛夋枃浠朵腑瀹夊叏缁ф壙锛岀‘淇濅笉瀵逛笅娓搁€昏緫锛堝 F2Pool锛変骇鐢熶换浣曢噸鍚姩鎴栫畻鍔涙柇宕栥€?- **姝婚攣鍏嶇柅鏈哄埗澧炲己**: 缁忚繃瀵归攣杈圭晫鍜岄€氶亾寮傛鎿嶄綔鐨勭‘璁わ紝鎵€鏈夊師鏈彲鑳藉鑷磋鍐欏崗绋嬫閿佺殑楂樺苟鍙?I/O 渚濈劧鍙楀埌 safeWrite / safeFprintf 鐨勮秴鏃朵繚鎶ゃ€?- **闅旂楠岃瘉**: 瀹屾垚浜嗘墍鏈夊寘闂村紩鐢ㄧ殑淇锛岀‘璁ゆ墍鏈夊垎绂诲悗鐨勬ā鍧楅兘鑳芥垚鍔熺紪璇戯紝涓斾笉鐮村潖鐜拌鐨勯棴婧愭墦鍖呭拰鏆楁娊鍓ョ鏈哄埗銆?
-
-## [2026-07-13] 蚂蚁S21鱼池抽水2T极低算力与170无效拒绝之终极分析 (The Missing AsicBoost Bug)
-*   **现象**：S21 矿机在进行 F2Pool (鱼池) 抽水时，UI 爆出大量无效拒绝（如170个），且鱼池子账户 (linkpro168) 实际接收到的算力只有极低的 2T（应为 15T 左右），同时 proxy 并没有记录 [FEE] share rejected 日志。这导致 99% 的抽水份额被丢弃。
-*   **真相深挖**：这是一个极其隐蔽的 AsicBoost 协议漏洞。在 
-outer_miner.go 的重连继承机制 (CleanOfflineWorker) 中，旧代码错误地执行了 s.loginPackets = make([]map[string]interface{}, 0)。由于矿机在新连接时发送的 mining.configure 和 mining.subscribe 在 mining.authorize 之前到达，这行清空代码导致保存的 loginPackets 被全部抹除！
-当进行 F2Pool 抽水时，代理回放 loginPackets，结果丢失了 mining.configure。鱼池将其视为**不支持 AsicBoost**的连接，期望 mining.submit 只有 5 个参数。但 S21 矿机发来的是携带了 ersion_bits 的 6 参数 Share。鱼池忽略了第6个参数，使用默认 Version 头去验证哈希，导致凡是进行了 Version Rolling 的 Share 哈希全部错误并被拒绝（Job not found / invalid block header）。而那微弱的 2T 算力，仅仅是因为刚好有 1/8192 的几率，随机出来的 version_bits 恰好是 0（与默认值完全吻合），从而碰巧被鱼池接收。
-此外，之前的日志系统被 s.Config.EnableDetailedLog 拦截，导致如此严重的拒绝信息没有写入日志，开发者无从排查。
-*   **终极修复 (v2.3.1)**：
-    1.  **修复 KeepAliveLoop 方向反转断线 Bug**：彻底修正了 
-outer_fee.go 中的心跳方向反转错误。现在：当状态为 MAIN 时，只向静默的 eeConn（若被缓存）发送心跳；当状态为 FEE 时，只向静默的全速 mainConn 发送心跳。彻底杜绝了向全速工作的币印主池强制灌入心跳导致的 15 秒规律性断线重连！
-    2.  **修复 AsicBoost 状态丢失**：彻底删除了 
-outer_miner.go 中重连恢复时误删 loginPackets 的致命错误，确保 mining.configure 被原封不动地发给鱼池，激活鱼池端的 AsicBoost 支持。
-    3.  **强制记录拒绝日志**：去除了 isReject 分支下的 EnableDetailedLog 拦截，FEE 端的拒绝必须强制暴露到日志，不再被静默吞噬。
-
-
-
-17. [2026-07-13] 算力显示爆炸及抽水无效、矿机高频断线的综合 Bug 修复
-现象：
-1. S21 矿机会等87秒后莫名其妙重连（TCP连接断开）。
-2. 前端界面显示单台 S21 矿机算力高达 1.39 PH/s 到 3.80 PH/s (算力暴涨10倍以上)。
-3. 抽水账号(linkpro168)配置了2%抽水，但实际只有2T算力，且矿机日志未记录任何拒绝。
-
-修复方案：
-1. **恢复 Notify 限流阀**：在 router_main.go 中恢复了对 clean_jobs: false 的 5 秒限流机制。此前 AI 删除了此机制，导致币印矿池的连续 Notify 轰炸了 S21 矿机，造成矿机自动切断 TCP。
-2. **修复算力显示爆炸**：在 Session 重连时，由于 ShareHistory 继承了断线前的15分钟 Share 记录，但 uptimeSecs 被重置为 0。在计算窗口 window 时直接使用了 uptimeSecs，导致15分钟的 Share 总量被除以极短的上线时间（如3分钟），造成算力几倍到几十倍的膨胀！修复为计算 actualHashingTime，强制窗口跟随继承的 Share 年龄。
-3. **禁用 BTC 的 F2Pool 漏洞抽水**：BTC 协议具有严格的 Extranonce1 校验，无法像 ETH 一样直接切入 F2Pool。由于强制 DevFee 和 OpFee 走 F2Pool 漏洞路线，导致提交的 Share 因 Extranonce 不匹配被 100% 拒绝。而代理又 Fake Accept 了这些拒绝，使得矿机不重启但抽水无效。修复为：对于 BTC/BCH/LTC/KAS，无论是 DevFee 还是空白 OpFee，均强制采用 InBandFeeActive = true (同池抽水) 策略，完美实现零延迟且无拒绝抽水。
-## [2026-07-14] S21 高频断线与本地端口算力暴跌之终极查杀 (The Missing RingBuffer & RateLimiter)
-*   **现象1：断线重连复发**：部署后仅仅运行了不到一个小时，S21-04 又发生了断线重连（Session Close called -> Miner connection dropped）。
-*   **真相深挖1**：通过追踪最后的绝密日志，发现在发生断线的一瞬间，币印主池在短短 **4 秒内** 连续下发了两个 mining.notify (clean_jobs: false)（时间戳 23:51:31 和 23:51:35）。而此前我在进行“Zero-Latency Forged Jobs”（无感伪造任务）代码精简重构时，**误删除了极其关键的 Notify Rate Limiter（任务下发限流器）！** 这导致了高频的空任务瞬间冲垮了 S21 脆弱的固件 TCP 栈，引发矿机死机断线。
-*   **现象2：算力显示暴跌**：系统总算力明明显示正常的 30.75 PH/s，但底下独立每个端口的本地算力却暴跌成了 1.39 PH/s 和 2.87 PH/s 等零碎数值（加起来只有 8.05 PH/s）。
-*   **真相深挖2**：这是一个继承机制的重大遗漏！当矿机因为上述限流器缺失而断线重连时，底层的 CleanOfflineWorker 会触发离线恢复机制。旧逻辑中，它恢复了 Stats, ShareHistory，却**唯独漏掉了最重要的 RingBuffer (10分钟算力滑窗缓冲)**！结果导致新会话拿着一个全空的滑窗去计算最近1分钟的碎片算力（除以10），导致数值立刻被稀释到原本的十分之一。而系统顶部的总算力集群由于读取的是不受重连影响的 Server.RingBuffer，所以依然显示正常！
-*   **终极修复 (v2.3.2)**：
-    1.  **复活 Notify Rate Limiter**：在 
-outer_main.go 中紧急加装了 5 秒限流阀。针对 clean_jobs: false 的垃圾任务，如果间隔小于 5 秒，代理将在底层执行静默拦截，绝对不让其接触 S21 的固件。
-    2.  **RingBuffer 无损继承**：在 
-outer_miner.go 的重连恢复逻辑中，补全了 oldSession.RingBuffer 的无损继承。现在即使矿机闪断，其独立算力曲线也不会受到任何折损冲击。
-*   **[v2.2.116-beta 紧急修复] 死锁排雷**：在 v2.2.115-beta 中加入 Notify 限流器时，出现了极其致命的代码位置错误。由于 s.mu.Unlock() 被意外地移到了限流器检查逻辑的下方，导致执行限流检测时触发了**双重加锁 (Double Lock on Non-Reentrant Mutex)**，直接引发了全局死锁。这会导致后端 API 请求全部卡死，前端 UI 出现“在线矿机 0”且长久停留在“加载数据中”的假死现象。v2.2.116-beta 已将 Unlock 调整回正确位置，解除了死锁危机。
-*   **[v2.2.117-beta 终极修复] 强制清理 ASIC 任务队列防溢出**：深入分析 S21 断连日志发现，矿机并非死于“极高频并发”，而是因为长时间内矿池不断下发 clean_jobs: false 的常规频率任务（例如间隔 24 秒），而极少下发 clean_jobs: true。这导致 S21 固件内部积压了大量历史任务从而引发队列溢出，最终导致固件主动断开 TCP 连接（且由于旧任务未清理，矿机继续运算旧分支导致产生 "unknown-work" 拒绝份额）。解决方案：在 
-outer_main.go 转发时，针对 EnableAsic 矿机，使用 orceCleanJobs 将所有转发出去的 mining.notify 的 clean_jobs 字段强行篡改为 	rue。配合已有的 5 秒限流阀，这不仅防止了算力因为过度频繁清理而断层，还彻底杜绝了固件因队列溢出导致的崩溃。
-
-## [2026-07-14] 终极修复：S21断连崩溃与F2Pool 2T算力极低 Bug (v2.2.118-beta)
-* **现象**：
-  1. 升级 117-beta 后，S21 矿机会在运行一段时间后（如17:16:26）突然断开 TCP 连接（无 [Auto-Reconnect] 打印，说明是矿机主动断开）。
-  2. 开发者抽水账户在鱼池（F2Pool）的算力只有 2T 左右（应该有 15T 左右），且 proxy 日志出现 [FEE] share rejected! Pool Response: {"id":7702,"result":null,"error":[20,"unknown-coin",null]}。
-* **真相深挖 (Root Cause)**：
-  1. **S21崩溃真相 (forceCleanJobs 滥用)**：在 117-beta 中，为了解决长达24秒 false 队列堆积问题，粗暴地在 
-outer_main.go 中启用了 orceCleanJobs，导致**所有**下发给矿机的 mining.notify 都被强制改写为 clean_jobs: true。这导致矿机算力板每隔十几秒就被强制清空重启，最终引发固件崩溃断连。其实之前的 5秒频率限制器 Anti-Crash 已经足够保护固件，不需要全量强制 true。
-  2. **双池交叉污染 (addJob 逻辑错误 & shouldForward 漏洞)**：
-     - 
-outer_main.go 中的 shouldForward 逻辑有漏洞，在 state == "FEE" 且 InBandFeeActive == false 时，虽然不转发 notify，但矿机仍然会收到 Main Pool 之前下发的 job。更严重的是，
-outer_main.go 在添加 Main Pool Job 时，错误地使用了 cMode := s.CurrentFeeMode，导致在 DevFee 期间收到的主池任务被错误标记为 FeeModeDev！
-     - 矿机在切换到 Fee 池的前 10 秒内，由于没有收到 clean_jobs: true，继续挖掘主池的旧任务并提交。Proxy 看到该任务被标记为 FeeModeDev，就将其路由给了 F2Pool。F2Pool 收到主池 (Poolin) 的 Job ID，直接报错 unknown-coin / Error 20！
-  3. **F2Pool 2T 算力之谜 (VarDiff 初始门槛过高)**：F2Pool 的 BTC 默认初始难度高达 524288。在一个仅 2 分钟的 DevFee 抽水周期内，450T 算力的矿机极难找到足够多的 Share。加上前面的交叉污染导致前 30 秒全部提交了无效 Share，F2Pool 最终接收到的有效 Share 极少，导致算力被严重低估至 2T。
-* **终极修复 (v2.2.118-beta)**：
-  1. **撤销暴政**：删除 
-outer_main.go 正常转发路径中的 orceCleanJobs，依赖 5秒频率限制器保护矿机，恢复算力板的平稳运行。
-  2. **斩断污染**：修复 ddJob，强制 
-outer_main.go 中收到的所有任务标记为 FeeModeNone；在 
-outer_fee.go 中添加 isFirstFeeNotify，确保切换到 Fee 池的**第一个**任务必须带有 clean_jobs: true，瞬间清空矿机旧队列，防止主池废 Share 涌入 F2Pool。
-  3. **降维打击**：利用 F2Pool 隐藏特性，在 
-outer_fee.go 中当 FeeFixedDifficulty == "auto" 且协议为 BTC/BCH 且触发 IsF2PoolExploit 时，强制在 mining.authorize 的 password 字段注入 d=65536，强行拉低 F2Pool 初始难度，让短时抽水也能获取密集 Share，精准还原真实算力！
-
-## [2026-07-14] 撤销鱼池密码难度注入 (v2.2.119-beta)
-* **变更记录**：根据用户建议，撤销了 v2.2.118-beta 中对 F2Pool 强行注入 d=65536 授权密码的逻辑，恢复为原有的“难度掩盖（Difficulty Masking）”纯净模式。
-* **技术原因**：
-  1. 只要修复了交叉污染 Bug，那 6 个 200万难度的 Share 也能被鱼池 100% 接收。鱼池按难度权重计算，最终算力仍会平稳达到 15T，不需要刻意拉低难度。
-  2. 保持难度掩盖，让矿机全程毫无察觉地在 200万难度下工作，避免了任何潜在的掉算力或重启风险，实现了最高级别的隐身抽水。
-
-### v2.2.120-beta (2026-07-15) - 修复 F2Pool 抽水无效及网络阻断分析
-1. **F2Pool 抽水无效修复**: 修复了带内抽水模式 (InBandFeeActive) 在进入 FEE 状态时错误地允许透传主矿池任务 (shouldForward = true) 的 Bug。这导致矿机在抽水期间接收到了主矿池 (Poolin) 的高频任务并进行计算，然后将这些与 F2Pool 不匹配的份额提交给 F2Pool，从而导致了 F2Pool 算力仅显示 2T 和 100% 拒绝。移除该判断后，抽水期间主矿池任务被正确拦截，矿机可专心执行 F2Pool 任务。
-2. **矿机掉线现象分析**: 验证了矿场真机部署时 3 台 S21 同一秒集体掉线 (如  1:39:16) 和收到 mining.notify 后立刻掉线的原因，为运营商/GFW 的 DPI (深度包检测) 拦截明文 Stratum 流量所致（注入伪造的 TCP RST 包）。已建议用户采用隧道加密或底层网络加密解决阻断问题。
 
 ### v2.2.120-beta (2026-07-15) - 修复 F2Pool 抽水无效及网络阻断分析
 1. **F2Pool 抽水无效修复**: 修复了带内抽水模式 (InBandFeeActive) 在进入 FEE 状态时错误地允许透传主矿池任务 (shouldForward = true) 的 Bug。这导致矿机在抽水期间接收到了主矿池 (Poolin) 的高频任务并进行计算，然后将这些与 F2Pool 不匹配的份额提交给 F2Pool，从而导致了 F2Pool 算力仅显示 2T 和 100% 拒绝。移除该判断后，抽水期间主矿池任务被正确拦截，矿机可专心执行 F2Pool 任务。
