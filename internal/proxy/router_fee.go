@@ -86,7 +86,7 @@ func (s *Session) StopFeeMining() {
 			cachedJob = GlobalDispatcher.GetJob(poolAddr)
 		}
 		if cachedJob != "" && currentMinerConn != nil {
-			jobToSend = forceCleanJobs(cachedJob)
+			jobToSend = cachedJob
 		}
 		// Zero-latency job recovery for ETH_PROXY when returning to Main
 		if protocol == "ETH_PROXY" {
@@ -436,7 +436,6 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 	}
 
 	// Read loop
-	isFirstFeeNotify := true
 	go func(conn net.Conn) {
 		defer func() {
 			s.mu.Lock()
@@ -492,9 +491,13 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 									en := &ExtranonceData{En1: en1, En2Size: int(en2size)}
 									s.FeeExtranonce = en
 									state := s.State
+									isExploit := s.IsF2PoolExploit
 									s.mu.Unlock()
 
-									if (state == "FEE" || state == "SWITCHING_TO_FEE") {
+									if (state == "FEE" || state == "SWITCHING_TO_FEE") && !isExploit {
+										if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
+											s.sendExtranonce(en)
+										}
 										s.mu.Lock()
 										s.LastExtranonceCmdTime = time.Now()
 										s.mu.Unlock()
@@ -764,12 +767,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 						safeFprintf(minerConn, 5*time.Second, "%s\n", forwardLine)
 					} else if method, ok := msg["method"].(string); ok {
 						if method == "mining.notify" || method == "eth_getWork" || method == "mining.set_difficulty" {
-							forwardLine := line
-							if method == "mining.notify" && isFirstFeeNotify && s.Config.EnableAsic {
-								forwardLine = forceCleanJobs(line)
-								isFirstFeeNotify = false
-							}
-							safeFprintf(minerConn, 5*time.Second, "%s\n", forwardLine)
+							safeFprintf(minerConn, 5*time.Second, "%s\n", line)
 						}
 					}
 				}
@@ -815,7 +813,30 @@ func (s *Session) EndFee() {
 	}
 
 	connToClose := s.FeeConn
+	mainDiff := s.MainDifficulty
+	mainEn := s.MainExtranonce
+	minerConn := s.MinerConn
+	enableAsic := false
+	protocol := s.Protocol
+	isExploit := s.IsF2PoolExploit
+
+	if s.Config != nil {
+		enableAsic = s.Config.EnableAsic
+	}
 	s.mu.Unlock()
+
+	// [Seamless Transition] Restore Main pool extranonce and difficulty
+	// We MUST NOT send clean_jobs=true here, otherwise the ASIC will restart.
+	// Simply sending set_extranonce and set_difficulty allows the miner to smoothly transition.
+	if minerConn != nil && enableAsic && protocol != "ETH_PROXY" && !isExploit {
+		if mainEn != nil {
+			s.sendExtranonce(mainEn)
+		}
+		if mainDiff > 0 {
+			diffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", mainDiff)
+			safeFprintf(minerConn, 5*time.Second, "%s", diffPkt)
+		}
+	}
 
 	if connToClose != nil {
 		// Grace period: keep fee connection alive for 10 seconds to catch late shares

@@ -129,9 +129,8 @@ func (s *Session) evaluateVardiff() {
 			if minerConn != nil {
 				setDiffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", newDiff)
 				if s.Config.EnableAsic && latestJob != "" {
-					cleanJobPkt := forceCleanJobs(latestJob)
 					safeFprintf(minerConn, 5*time.Second, "%s", setDiffPkt)
-					safeFprintf(minerConn, 5*time.Second, "%s\n", cleanJobPkt)
+					safeFprintf(minerConn, 5*time.Second, "%s\n", latestJob)
 				} else {
 					safeFprintf(minerConn, 5*time.Second, "%s", setDiffPkt)
 				}

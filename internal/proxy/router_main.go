@@ -306,9 +306,8 @@ reconnectLoop:
 									if s.Config.EnableAsic && latestJob != "" && minerConn != nil {
 										// Zero-Latency Forged Job Injection for ASICs
 										setDiffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", diffFloat)
-										cleanJobPkt := forceCleanJobs(latestJob)
 										safeFprintf(minerConn, 5*time.Second, "%s", setDiffPkt)
-										safeFprintf(minerConn, 5*time.Second, "%s\n", cleanJobPkt)
+										safeFprintf(minerConn, 5*time.Second, "%s\n", latestJob)
 										continue // Intercepted and injected manually, don't let it fall through
 									}
 									// For standard miners or initial difficulty (no job yet), fall through to forward normally

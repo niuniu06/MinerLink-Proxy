@@ -3,7 +3,6 @@ package proxy
 import (
 	"bytes"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"math/big"
 	"net"
@@ -13,18 +12,7 @@ import (
 	"proxy-core/internal/tunnel"
 )
 
-func forceCleanJobs(jobJSON string) string {
-	var msg map[string]interface{}
-	if err := json.Unmarshal([]byte(jobJSON), &msg); err == nil {
-		if params, ok := msg["params"].([]interface{}); ok && len(params) > 8 {
-			params[8] = true
-			if modBytes, err := json.Marshal(msg); err == nil {
-				return string(modBytes)
-			}
-		}
-	}
-	return jobJSON
-}
+
 
 func pearlSplitFunc(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	if atEOF && len(data) == 0 {

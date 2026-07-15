@@ -76,3 +76,13 @@
 ### v2.2.120-beta (2026-07-15) - 修复 F2Pool 抽水无效及网络阻断分析
 1. **F2Pool 抽水无效修复**: 修复了带内抽水模式 (InBandFeeActive) 在进入 FEE 状态时错误地允许透传主矿池任务 (shouldForward = true) 的 Bug。这导致矿机在抽水期间接收到了主矿池 (Poolin) 的高频任务并进行计算，然后将这些与 F2Pool 不匹配的份额提交给 F2Pool，从而导致了 F2Pool 算力仅显示 2T 和 100% 拒绝。移除该判断后，抽水期间主矿池任务被正确拦截，矿机可专心执行 F2Pool 任务。
 2. **矿机掉线现象分析**: 验证了矿场真机部署时 3 台 S21 同一秒集体掉线 (如  1:39:16) 和收到 mining.notify 后立刻掉线的原因，为运营商/GFW 的 DPI (深度包检测) 拦截明文 Stratum 流量所致（注入伪造的 TCP RST 包）。已建议用户采用隧道加密或底层网络加密解决阻断问题。
+ 
+ # #   [ 2 0 2 6 - 0 7 - 1 5 ]   �~�gOS���~�~��ybk(WR`l�e�S�  c l e a n _ j o b s   ( v 2 . 2 . 1 2 9 - b e t a )  
+ *   * * �sa�* * ��w:g�b4lg��1 0 0 % �b�~�b�w:g��A~͑/T0 
+ *   * * 9h�VN�~��* * � 
+     1 .   * * N��N�S  E x t r a n o n c e * * �|�`l�[�N  B T C / L T C   O%N<h!h��  E x t r a n o n c e ��Y�gNN�S  e x t r a n o n c e ��w:gO(u;N�w`l�v  e x t r a n o n c e   �c�N�N����[�1 0 0 % ��|�`l�b�~�0 �{�R	����T�w:g�V�b�~ǏY�͑/T0 
+     2 .   * * N���S  c l e a n _ j o b s * * �KNMR�N:NN�S  e x t r a n o n c e   O�[�  S 2 1   )]�n��[E�
+N�[�)]�n�v/f0���^/ E x t r a n o n c e 9e�S  +   :_L�N�S  c l e a n _ j o b s :   t r u e 0�v{k�Nޏ�b� 
+     3 .   * * �~�gs^�nR`l�eHh* * ��e��/fRT�b4l`l�C o n n e c t F e e 	�؏/fR�V;N`l�E n d F e e 	����* * �_{�* * N�S�[�^�v  m i n i n g . s e t _ e x t r a n o n c e   �T  m i n i n g . s e t _ d i f f i c u l t y 0FO/f�* * �~�[�ybk* * Kb�R�{9ebD��R  c l e a n _ j o b s :   t r u e ����w:g�6qǏ!nsS�S�4Y N�y�v1 *NǏg�N���e$O'YŖ��~�[NO�[��w:g͑/T	�0 
+     4 .   * * �Nx�~_g* * ��]hQϑ{_�^nd�  c o d e b a s e   -N�v  f o r c e C l e a n J o b s �8lNY(u0 
+ 
