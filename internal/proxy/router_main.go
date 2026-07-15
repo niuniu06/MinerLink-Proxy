@@ -328,32 +328,6 @@ reconnectLoop:
 						}
 						s.mu.Unlock()
 
-						// Rate limiter for clean_jobs: false
-						isCleanJobs := false
-						if params, ok := msg["params"].([]interface{}); ok && len(params) > 8 {
-							if cj, ok := params[8].(bool); ok {
-								isCleanJobs = cj
-							}
-						} else {
-							// If we can't parse it, assume it's clean to be safe
-							isCleanJobs = true
-						}
-
-						if !isCleanJobs {
-							now := time.Now()
-							s.mu.Lock()
-							elapsed := now.Sub(s.LastNotifyTime)
-							s.mu.Unlock()
-							if elapsed < 5*time.Second {
-								s.LogGeneral("[Anti-Crash] Dropped high-frequency clean_jobs:false notify (interval: %v)", elapsed)
-								continue
-							}
-						}
-
-						s.mu.Lock()
-						s.LastNotifyTime = time.Now()
-						s.mu.Unlock()
-
 						// isCleanJobs extraction removed as we use Zero-Latency Forged Jobs
 
 						// Removed PendingDiff flush logic as we now use Zero-Latency forged clean jobs

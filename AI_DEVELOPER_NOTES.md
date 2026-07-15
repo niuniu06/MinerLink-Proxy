@@ -86,3 +86,8 @@ N�[�)]�n�v/f0���^/ E x t r a n o n c e 9e�S  +   :_L�N�S  c l e a n _ j o b s
      3 .   * * �~�gs^�nR`l�eHh* * ��e��/fRT�b4l`l�C o n n e c t F e e 	�؏/fR�V;N`l�E n d F e e 	����* * �_{�* * N�S�[�^�v  m i n i n g . s e t _ e x t r a n o n c e   �T  m i n i n g . s e t _ d i f f i c u l t y 0FO/f�* * �~�[�ybk* * Kb�R�{9ebD��R  c l e a n _ j o b s :   t r u e ����w:g�6qǏ!nsS�S�4Y N�y�v1 *NǏg�N���e$O'YŖ��~�[NO�[��w:g͑/T	�0 
      4 .   * * �Nx�~_g* * ��]hQϑ{_�^nd�  c o d e b a s e   -N�v  f o r c e C l e a n J o b s �8lNY(u0 
  
+## [v2.2.129-beta] 修复 [Anti-Crash] 导致的 BTC (S21) 断连问题
+- **场景：** 鱼池等矿池有时会在短时间内（如29ms内）连发两条 mining.notify（第一条可能是带有新难度的坏包，第二条是修正包）。
+- **错误逻辑：** 之前在 2.2.118-beta 添加的 [Anti-Crash] 拦截逻辑，盲目丢弃了间隔小于 5 秒的第二条 clean_jobs: false 的包。这导致 S21 的 mminer 拿到第一条坏包后发生内部解析错误/死锁，且永远等不到第二条修正包，在 35ms 后内核直接下发 TCP RST 断开连接。
+- **解决方案：** 彻底移除了 outer_main.go 中的 [Anti-Crash] 时间判断逻辑。必须将矿池下发的所有包原封不动地透传给矿机，不能自作主张丢包。
+
