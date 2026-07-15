@@ -744,7 +744,24 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 			if state == "FEE" || state == "SWITCHING_TO_FEE" {
 				if minerConn != nil {
 					if isShareReply || isEthGetWorkReply {
-						safeFprintf(minerConn, 5*time.Second, "%s\n", line)
+						// Anti-Crash for ASIC: If F2Pool rejects the fee share (e.g. due to extranonce mismatch),
+						// we MUST NOT forward the reject to the miner, otherwise S21 will restart!
+						// We mask it as accepted to keep the miner hashing smoothly.
+						forwardLine := line
+						if isShareReply {
+							isReject := false
+							if errObj, ok := msg["error"]; ok && errObj != nil {
+								isReject = true
+							} else if res, ok := msg["result"]; ok && res == false {
+								isReject = true
+							}
+							if isReject {
+								if id, ok := msg["id"]; ok {
+									forwardLine = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
+								}
+							}
+						}
+						safeFprintf(minerConn, 5*time.Second, "%s", forwardLine)
 					} else if method, ok := msg["method"].(string); ok {
 						if method == "mining.notify" || method == "eth_getWork" {
 							forwardLine := line
@@ -798,7 +815,33 @@ func (s *Session) EndFee() {
 	}
 
 	connToClose := s.FeeConn
+	mainDiff := s.MainDifficulty
+	minerConn := s.MinerConn
+	latestJob := s.LatestMainJob
+	poolAddr := ""
+	enableAsic := false
+	if s.Config != nil {
+		poolAddr = s.Config.PoolAddress
+		enableAsic = s.Config.EnableAsic
+	}
 	s.mu.Unlock()
+
+	// [Difficulty Isolation] Restore main pool difficulty to miner
+	if minerConn != nil && mainDiff > 0 {
+		diffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", mainDiff)
+		safeFprintf(minerConn, 5*time.Second, "%s", diffPkt)
+
+		if enableAsic {
+			cachedJob := latestJob
+			if cachedJob == "" && poolAddr != "" {
+				cachedJob = GlobalDispatcher.GetJob(poolAddr)
+			}
+			if cachedJob != "" {
+				jobToSend := forceCleanJobs(cachedJob)
+				safeFprintf(minerConn, 5*time.Second, "%s\n", jobToSend)
+			}
+		}
+	}
 
 	if connToClose != nil {
 		// Grace period: keep fee connection alive for 10 seconds to catch late shares
