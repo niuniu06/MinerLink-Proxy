@@ -411,7 +411,7 @@ reconnectLoop:
 						// When reconnecting to the pool (or switching fee routing), the proxy uses high IDs like 99998/99999
 						// to avoid colliding with the miner's original packets. The pool replies to these ghost IDs.
 						// If we forward these ghost replies to strict miners (S19/S21/ETC), they will immediately crash/disconnect.
-						if idStr == "99998" || idStr == "99999" {
+						if idStr == "99998" || idStr == "99999" || idStr == "999999" {
 							shouldForward = false
 						}
 					}
