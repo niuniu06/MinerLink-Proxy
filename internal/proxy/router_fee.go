@@ -64,7 +64,7 @@ func (s *Session) StopFeeMining() {
 	if !s.InBandFeeActive {
 		if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
 			if !isExploit && (s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size || s.FeeExtranonce.En1 != s.MainExtranonce.En1) {
-				// extranonceToSend = s.MainExtranonce // [Extranonce Isolation] REMOVED to prevent miner restart
+				extranonceToSend = s.MainExtranonce
 				s.LastExtranonceCmdTime = time.Now()
 			}
 
@@ -498,7 +498,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 									if (state == "FEE" || state == "SWITCHING_TO_FEE") && !isExploit {
 										if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
 											if mainEn == nil || mainEn.En2Size != en.En2Size || mainEn.En1 != en.En1 {
-												// s.sendExtranonce(en) // [Extranonce Isolation] REMOVED to prevent miner restart
+												s.sendExtranonce(en)
 												s.mu.Lock()
 												s.LastExtranonceCmdTime = time.Now()
 												s.mu.Unlock()
@@ -516,14 +516,20 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 									s.mu.Lock()
 									en := &ExtranonceData{En1: en1, En2Size: int(en2size)}
 									s.FeeExtranonce = en
+									state := s.State
+									isExploit := s.IsF2PoolExploit
 									s.mu.Unlock()
-									// [Extranonce Isolation]
-									// We ONLY record FeeExtranonce internally.
-									// We NEVER send it to the physical miner to prevent chip restarts.
+
+									if (state == "FEE" || state == "SWITCHING_TO_FEE") && !isExploit {
+										s.sendExtranonce(en)
+										s.mu.Lock()
+										s.LastExtranonceCmdTime = time.Now()
+										s.mu.Unlock()
+									}
 								}
 							}
 						}
-						// 鎷︽埅鎶芥按姹犱笅鍙戠殑 extranonce锛岀粷瀵逛笉灏嗗叾杞彂缁欑熆鏈?
+						// 拦截原生的 extranonce 转发，因为上面 sendExtranonce 已经通过专属通道安全下发
 						continue
 					}
 				}
@@ -763,7 +769,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 						}
 						safeFprintf(minerConn, 5*time.Second, "%s", forwardLine)
 					} else if method, ok := msg["method"].(string); ok {
-						if method == "mining.notify" || method == "eth_getWork" {
+						if method == "mining.notify" || method == "eth_getWork" || method == "mining.set_difficulty" {
 							forwardLine := line
 							if method == "mining.notify" && isFirstFeeNotify && s.Config.EnableAsic {
 								forwardLine = forceCleanJobs(line)
