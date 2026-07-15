@@ -64,7 +64,7 @@ func (s *Session) StopFeeMining() {
 	if !s.InBandFeeActive {
 		if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
 			if !isExploit && (s.FeeExtranonce == nil || s.MainExtranonce == nil || s.FeeExtranonce.En2Size != s.MainExtranonce.En2Size || s.FeeExtranonce.En1 != s.MainExtranonce.En1) {
-				extranonceToSend = s.MainExtranonce
+				// extranonceToSend = s.MainExtranonce // [Extranonce Isolation] REMOVED to prevent miner restart
 				s.LastExtranonceCmdTime = time.Now()
 			}
 
@@ -422,30 +422,9 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 			delete(mod, "worker")
 
 			// Inject fee fixed difficulty
-			feeDiff := s.Config.FeeFixedDifficulty
-			if feeDiff == "auto" {
-				s.mu.Lock()
-				curDiff := s.CurrentDiff
-				s.mu.Unlock()
-				if curDiff > 0 {
-					feeDiff = fmt.Sprintf("d=%.0f", curDiff)
-				} else {
-					feeDiff = ""
-				}
-			}
-
-			if feeDiff != "" {
-				if params, ok := mod["params"].([]interface{}); ok && len(params) > 0 {
-					if len(params) > 1 {
-						params[1] = feeDiff
-					} else {
-						mod["params"] = append(params, feeDiff)
-					}
-				} else if paramsMap, ok := mod["params"].(map[string]interface{}); ok {
-					paramsMap["pass"] = feeDiff
-					paramsMap["password"] = feeDiff
-				}
-			}
+			// [Difficulty Isolation Revision]
+			// Fee fixed difficulty injection has been disabled per user request.
+			// F2Pool will issue its default difficulty to the miner.
 		}
 		modBytes, _ := json.Marshal(mod)
 		safeFprintf(feeConn, 5*time.Second, "%s\n", string(modBytes))
@@ -519,7 +498,7 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 									if (state == "FEE" || state == "SWITCHING_TO_FEE") && !isExploit {
 										if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
 											if mainEn == nil || mainEn.En2Size != en.En2Size || mainEn.En1 != en.En1 {
-												s.sendExtranonce(en)
+												// s.sendExtranonce(en) // [Extranonce Isolation] REMOVED to prevent miner restart
 												s.mu.Lock()
 												s.LastExtranonceCmdTime = time.Now()
 												s.mu.Unlock()
@@ -725,15 +704,11 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 						if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 							if diffFloat, ok := params[0].(float64); ok {
 								s.mu.Lock()
-								// [Difficulty Masking]
-								// We ONLY record FeeDifficulty for backend profit calculation.
-								// We NEVER update s.CurrentDiff, and we NEVER forward it to the physical miner.
-								// The physical miner will seamlessly stay on the Main Pool's high difficulty.
+								// [Difficulty Isolation Revision]
+								// We now forward the Fee Pool's difficulty directly to the miner per user request.
 								s.FeeDifficulty = diffFloat
+								s.CurrentDiff = diffFloat
 								s.mu.Unlock()
-
-								// Intercept the fee pool's difficulty and do NOT forward it
-								continue
 							}
 						}
 					} else if method == "mining.notify" {
