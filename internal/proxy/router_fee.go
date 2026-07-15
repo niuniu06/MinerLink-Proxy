@@ -492,18 +492,12 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 									en := &ExtranonceData{En1: en1, En2Size: int(en2size)}
 									s.FeeExtranonce = en
 									state := s.State
-									mainEn := s.MainExtranonce
-									isExploit := s.IsF2PoolExploit
 									s.mu.Unlock()
-									if (state == "FEE" || state == "SWITCHING_TO_FEE") && !isExploit {
-										if s.Config.EnableAsic && s.Protocol != "ETH_PROXY" {
-											if mainEn == nil || mainEn.En2Size != en.En2Size || mainEn.En1 != en.En1 {
-												s.sendExtranonce(en)
-												s.mu.Lock()
-												s.LastExtranonceCmdTime = time.Now()
-												s.mu.Unlock()
-											}
-										}
+
+									if (state == "FEE" || state == "SWITCHING_TO_FEE") {
+										s.mu.Lock()
+										s.LastExtranonceCmdTime = time.Now()
+										s.mu.Unlock()
 									}
 								}
 							}
@@ -821,41 +815,7 @@ func (s *Session) EndFee() {
 	}
 
 	connToClose := s.FeeConn
-	mainDiff := s.MainDifficulty
-	minerConn := s.MinerConn
-	latestJob := s.LatestMainJob
-	poolAddr := ""
-	enableAsic := false
-
-	// [Bugfix] Restore the internal CurrentDiff state to match the physical miner's actual diff.
-	// Otherwise, shares submitted to the main pool will be recorded in ShareHistory with the fee pool's difficulty,
-	// leading to massively inflated or deflated UI hashrate curves!
-	if mainDiff > 0 {
-		s.CurrentDiff = mainDiff
-	}
-
-	if s.Config != nil {
-		poolAddr = s.Config.PoolAddress
-		enableAsic = s.Config.EnableAsic
-	}
 	s.mu.Unlock()
-
-	// [Difficulty Isolation] Restore main pool difficulty to miner
-	if minerConn != nil && mainDiff > 0 {
-		diffPkt := fmt.Sprintf(`{"id": null, "method": "mining.set_difficulty", "params": [%.0f]}`+"\n", mainDiff)
-		safeFprintf(minerConn, 5*time.Second, "%s", diffPkt)
-
-		if enableAsic {
-			cachedJob := latestJob
-			if cachedJob == "" && poolAddr != "" {
-				cachedJob = GlobalDispatcher.GetJob(poolAddr)
-			}
-			if cachedJob != "" {
-				jobToSend := forceCleanJobs(cachedJob)
-				safeFprintf(minerConn, 5*time.Second, "%s\n", jobToSend)
-			}
-		}
-	}
 
 	if connToClose != nil {
 		// Grace period: keep fee connection alive for 10 seconds to catch late shares
