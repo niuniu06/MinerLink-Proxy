@@ -826,6 +826,14 @@ func (s *Session) EndFee() {
 	latestJob := s.LatestMainJob
 	poolAddr := ""
 	enableAsic := false
+
+	// [Bugfix] Restore the internal CurrentDiff state to match the physical miner's actual diff.
+	// Otherwise, shares submitted to the main pool will be recorded in ShareHistory with the fee pool's difficulty,
+	// leading to massively inflated or deflated UI hashrate curves!
+	if mainDiff > 0 {
+		s.CurrentDiff = mainDiff
+	}
+
 	if s.Config != nil {
 		poolAddr = s.Config.PoolAddress
 		enableAsic = s.Config.EnableAsic
