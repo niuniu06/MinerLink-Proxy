@@ -227,6 +227,13 @@ func (s *Session) readMinerLoop() {
 							}
 							if modBytes, err := json.Marshal(msg); err == nil {
 								line = string(modBytes)
+								s.mu.Lock()
+								if len(s.loginPackets) > 0 {
+									var pktCopy map[string]interface{}
+									_ = json.Unmarshal(modBytes, &pktCopy)
+									s.loginPackets[len(s.loginPackets)-1] = pktCopy
+								}
+								s.mu.Unlock()
 							}
 						}
 					}

@@ -763,11 +763,11 @@ func (s *Session) ConnectFee(wallet, worker string, isDevMode bool) {
 							}
 							if isReject {
 								if id, ok := msg["id"]; ok {
-									forwardLine = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`+"\n", id)
+									forwardLine = fmt.Sprintf(`{"id": %v, "result": true, "error": null}`, id)
 								}
 							}
 						}
-						safeFprintf(minerConn, 5*time.Second, "%s", forwardLine)
+						safeFprintf(minerConn, 5*time.Second, "%s\n", forwardLine)
 					} else if method, ok := msg["method"].(string); ok {
 						if method == "mining.notify" || method == "eth_getWork" || method == "mining.set_difficulty" {
 							forwardLine := line
